@@ -52,6 +52,7 @@ interface MenuBarProps {
   onOpenTacheometry: () => void;
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
+  onOpenAlignment: () => void;
   onOpenCogo: () => void;
 
   gridBelt: NigerianGridBelt;
@@ -87,6 +88,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenTacheometry,
   onOpenSetout,
   onOpenDatumTransform,
+  onOpenAlignment,
   onOpenCogo: _onOpenCogo,
   gridBelt,
   onSelectBelt,
@@ -329,6 +331,13 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               <div className="menu-item-left">
                 <Globe size={14} className="text-cyan" />
                 <span>Datum Transform (Minna ↔ WGS84)</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenAlignment)}>
+              <div className="menu-item-left">
+                <Compass size={14} className="text-magenta" style={{ color: '#ec4899' }} />
+                <span>Horizontal Alignment &amp; Earthworks Studio</span>
               </div>
             </div>
 

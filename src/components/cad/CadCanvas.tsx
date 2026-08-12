@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { CoordinatePoint, Parcel, CadLayers, CadTool, SetoutOverlay } from '../../engine/types';
+import { CoordinatePoint, Parcel, CadLayers, CadTool, SetoutOverlay, AlignmentOverlay } from '../../engine/types';
 import { computeParcel, computeExtents } from '../../engine/cogo';
 import { decimalToDMS } from '../../engine/formats';
 import { buildDTM, DTMPoint } from '../../engine/dtm/dtmEngine';
@@ -17,6 +17,7 @@ interface CadCanvasProps {
   onAddPointAtCoord: (easting: number, northing: number) => void;
   onCursorMove: (easting: number, northing: number) => void;
   setoutOverlay?: SetoutOverlay | null;
+  alignmentOverlay?: AlignmentOverlay | null;
 }
 
 export const CadCanvas: React.FC<CadCanvasProps> = ({
@@ -30,7 +31,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   onSelectParcel,
   onAddPointAtCoord,
   onCursorMove,
-  setoutOverlay = null
+  setoutOverlay = null,
+  alignmentOverlay = null
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -516,6 +518,57 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
+    // 5.6 Draw Horizontal Alignment Overlay (Cyan tangents + Vivid Magenta curves + Chainage ticks)
+    if (layers.alignments !== false && alignmentOverlay) {
+      // A. Tangent Segments (Cyan)
+      ctx.save();
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      for (const tan of alignmentOverlay.tangentSegments) {
+        const p1 = worldToScreen(tan.x1, tan.y1);
+        const p2 = worldToScreen(tan.x2, tan.y2);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+
+      // B. Circular Curves (Vivid Magenta)
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 3.0;
+      for (const arc of alignmentOverlay.curveArcs) {
+        const centerScr = worldToScreen(arc.centerX, arc.centerY);
+        const radiusScr = arc.radius * zoom;
+        ctx.beginPath();
+        ctx.arc(centerScr.x, centerScr.y, radiusScr, arc.startAngleRad, arc.endAngleRad, arc.counterClockwise);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // C. Chainage Ticks & Labels
+      if (layers.chainages !== false) {
+        for (const cp of alignmentOverlay.chainagePoints) {
+          const scr = worldToScreen(cp.easting, cp.northing);
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(scr.x, scr.y, cp.isTangentPoint ? 5 : 3, 0, 2 * Math.PI);
+          ctx.fillStyle = cp.isTangentPoint ? '#ec4899' : '#38bdf8';
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = cp.isTangentPoint ? '#ec4899' : '#f8fafc';
+          ctx.font = cp.isTangentPoint ? '700 10px "JetBrains Mono", monospace' : '500 8px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(cp.label || cp.chainageStr, scr.x + 7, scr.y - 3);
+          ctx.restore();
+        }
+      }
+    }
+
     // 6. North Arrow Indicator
     ctx.save();
     const naX = rect.width - 40;
@@ -579,7 +632,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     worldToScreen,
     screenToWorld,
     dtmResult,
-    setoutOverlay
+    setoutOverlay,
+    alignmentOverlay
   ]);
 
   // Mouse Interaction Handlers

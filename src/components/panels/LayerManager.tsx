@@ -21,7 +21,9 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
     { key: 'distances', label: 'Line Distances (m)', color: '#38bdf8' },
     { key: 'parcelFill', label: 'Parcel Shading', color: '#06b6d4' },
     { key: 'gridCrosses', label: 'Grid Crosses', color: '#94a3b8' },
-    { key: 'controls', label: 'Control Triangles', color: '#f59e0b' }
+    { key: 'controls', label: 'Control Triangles', color: '#f59e0b' },
+    { key: 'alignments', label: 'Road Alignments & Curves', color: '#ec4899' },
+    { key: 'chainages', label: 'Chainage Ticks & Labels', color: '#38bdf8' }
   ];
 
   const booleanLayers = layerItems as { key: keyof CadLayers; label: string; color: string }[];

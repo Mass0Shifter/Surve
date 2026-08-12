@@ -107,7 +107,7 @@ export function delaunayTriangulate(points: DTMPoint[]): DTMTriangle[] {
 
   const dx = maxX - minX;
   const dy = maxY - minY;
-  const delta = Math.max(dx, dy) * 10;
+  const delta = Math.max(100, Math.max(dx, dy) * 10);
   const midX = (minX + maxX) / 2;
   const midY = (minY + maxY) / 2;
 
@@ -189,16 +189,26 @@ export function computeContours(
   interval: number,
   majorEvery: number = 5
 ): ContourSegment[] {
-  if (triangles.length === 0 || interval <= 0) return [];
+  if (triangles.length === 0 || interval <= 0 || isNaN(interval)) return [];
 
+  const safeInterval = Math.max(0.1, interval);
   const segments: ContourSegment[] = [];
 
-  const startLevel = Math.ceil(minZ / interval) * interval;
-  const endLevel = Math.floor(maxZ / interval) * interval;
+  let startLevel = Math.ceil(minZ / safeInterval) * safeInterval;
+  let endLevel = Math.floor(maxZ / safeInterval) * safeInterval;
 
-  for (let z = startLevel; z <= endLevel; z += interval) {
+  // Cap maximum contour levels to 500 to prevent browser thread freeze
+  const totalLevels = Math.round((endLevel - startLevel) / safeInterval);
+  let effectiveInterval = safeInterval;
+  if (totalLevels > 500) {
+    effectiveInterval = (maxZ - minZ) / 500;
+    startLevel = Math.ceil(minZ / effectiveInterval) * effectiveInterval;
+    endLevel = Math.floor(maxZ / effectiveInterval) * effectiveInterval;
+  }
+
+  for (let z = startLevel; z <= endLevel + 1e-6; z += effectiveInterval) {
     const level = Math.round(z * 1000) / 1000;
-    const isMajor = Math.round(level / interval) % majorEvery === 0;
+    const isMajor = Math.round(level / effectiveInterval) % majorEvery === 0;
 
     for (const tri of triangles) {
       const { a, b, c } = tri;

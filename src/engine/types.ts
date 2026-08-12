@@ -81,6 +81,9 @@ export interface CadLayers {
   contourInterval: number;       // metres between contour lines, e.g. 2
   majorContourEvery: number;     // every N minor contours is a major, e.g. 5
   showContourLabels: boolean;
+  // Road Alignment Layer
+  alignments: boolean;
+  chainages: boolean;
 }
 
 export type CadTool = 'select' | 'pan' | 'add_beacon' | 'draw_parcel' | 'measure' | 'inverse';
@@ -98,4 +101,24 @@ export interface SetoutOverlay {
   stationEasting: number;
   stationNorthing: number;
   targets: Array<{ easting: number; northing: number; label: string }>;
+}
+
+/** Horizontal alignment overlay rendered on CAD canvas */
+export interface AlignmentOverlay {
+  tangentSegments: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  curveArcs: Array<{
+    centerX: number;
+    centerY: number;
+    radius: number;
+    startAngleRad: number;
+    endAngleRad: number;
+    counterClockwise: boolean;
+  }>;
+  chainagePoints: Array<{
+    chainageStr: string;
+    easting: number;
+    northing: number;
+    isTangentPoint?: boolean;
+    label?: string;
+  }>;
 }

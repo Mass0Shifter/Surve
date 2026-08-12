@@ -26,15 +26,19 @@ interface DatumTransformModalProps {
 function parseDDorDMS(input: string): number | null {
   const cleaned = input.trim();
   if (!cleaned) return null;
-  const dd = parseFloat(cleaned);
-  if (!isNaN(dd) && !cleaned.includes('°')) return dd;
-  // Try DMS pattern: deg° min' sec" or deg min sec
-  const m = cleaned.match(/^(-?\d+)[°\s]\s*(\d+)['\s]\s*([\d.]+)/);
-  if (m) {
-    const d = parseInt(m[1]), mn = parseInt(m[2]), s = parseFloat(m[3]);
-    return (Math.abs(d) + mn / 60 + s / 3600) * (d < 0 ? -1 : 1);
+
+  // Try DMS pattern first (e.g. 8° 57' 55.2", 8 57 55.2, 8-57-55.2)
+  const dmsMatch = cleaned.match(/^([+-]?\d+)[°\s\-]\s*(\d+)['\s\-]\s*([\d.]+)/);
+  if (dmsMatch) {
+    const d = parseInt(dmsMatch[1], 10);
+    const mn = parseInt(dmsMatch[2], 10);
+    const s = parseFloat(dmsMatch[3]);
+    const sign = dmsMatch[1].startsWith('-') ? -1 : 1;
+    return sign * (Math.abs(d) + mn / 60 + s / 3600);
   }
-  return dd;
+
+  const dd = parseFloat(cleaned);
+  return isNaN(dd) ? null : dd;
 }
 
 function exportKML(results: TransformResult[], filename: string) {

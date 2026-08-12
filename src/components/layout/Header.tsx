@@ -25,6 +25,7 @@ interface HeaderProps {
   onOpenTacheometry: () => void;
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
+  onOpenAlignment: () => void;
 
   onUndo: () => void;
   onRedo: () => void;
@@ -58,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenTacheometry,
   onOpenSetout,
   onOpenDatumTransform,
+  onOpenAlignment,
   onUndo,
   onRedo,
   canUndo,
@@ -135,6 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
           onOpenTacheometry={onOpenTacheometry}
           onOpenSetout={onOpenSetout}
           onOpenDatumTransform={onOpenDatumTransform}
+          onOpenAlignment={onOpenAlignment}
           onOpenCogo={onOpenCogo}
           gridBelt={project.gridBelt}
           onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}
