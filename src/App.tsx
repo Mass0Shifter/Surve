@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool } from './engine/types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from './engine/sampleData';
 import { Header } from './components/layout/Header';
@@ -10,11 +10,26 @@ import { ParcelInspector } from './components/panels/ParcelInspector';
 import { LayerManager } from './components/panels/LayerManager';
 import { CogoCalculator } from './components/panels/CogoCalculator';
 
+interface HistorySnapshot {
+  points: CoordinatePoint[];
+  parcels: Parcel[];
+  project: ProjectMetadata;
+  description: string;
+}
+
 export const App: React.FC = () => {
   // Master Project State
   const [project, setProject] = useState<ProjectMetadata>(SAMPLE_PROJECT_METADATA);
   const [points, setPoints] = useState<CoordinatePoint[]>(SAMPLE_COORDINATES);
   const [parcels, setParcels] = useState<Parcel[]>(SAMPLE_PARCELS);
+
+  // Undo / Redo History Stacks
+  const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
+
+  // Ref to always access current state in event listeners without re-binding
+  const stateRef = useRef({ points, parcels, project });
+  stateRef.current = { points, parcels, project };
 
   // Active Tool & Selection State
   const [activeTool, setActiveTool] = useState<CadTool>('select');
@@ -47,20 +62,109 @@ export const App: React.FC = () => {
     setLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
   };
 
-  // Coordinate Management Handlers with Strict Duplicate Prevention
+  // Push state snapshot onto undo stack before mutations
+  const recordSnapshot = useCallback((description: string) => {
+    const current = stateRef.current;
+    const snapshot: HistorySnapshot = {
+      points: JSON.parse(JSON.stringify(current.points)),
+      parcels: JSON.parse(JSON.stringify(current.parcels)),
+      project: JSON.parse(JSON.stringify(current.project)),
+      description
+    };
+    setUndoStack(prev => [...prev.slice(-49), snapshot]); // Keep up to 50 items
+    setRedoStack([]); // Clear redo stack on new action
+  }, []);
+
+  // Undo Handler
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const current = stateRef.current;
+    const previous = undoStack[undoStack.length - 1];
+
+    // Push current to redo stack
+    const redoSnapshot: HistorySnapshot = {
+      points: JSON.parse(JSON.stringify(current.points)),
+      parcels: JSON.parse(JSON.stringify(current.parcels)),
+      project: JSON.parse(JSON.stringify(current.project)),
+      description: 'Current State'
+    };
+    setRedoStack(prev => [...prev, redoSnapshot]);
+
+    // Apply previous state
+    setPoints(previous.points);
+    setParcels(previous.parcels);
+    setProject(previous.project);
+    setUndoStack(prev => prev.slice(0, -1));
+  }, [undoStack]);
+
+  // Redo Handler
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const current = stateRef.current;
+    const next = redoStack[redoStack.length - 1];
+
+    // Push current to undo stack
+    const undoSnapshot: HistorySnapshot = {
+      points: JSON.parse(JSON.stringify(current.points)),
+      parcels: JSON.parse(JSON.stringify(current.parcels)),
+      project: JSON.parse(JSON.stringify(current.project)),
+      description: 'Before Redo'
+    };
+    setUndoStack(prev => [...prev, undoSnapshot]);
+
+    // Apply next state
+    setPoints(next.points);
+    setParcels(next.parcels);
+    setProject(next.project);
+    setRedoStack(prev => prev.slice(0, -1));
+  }, [redoStack]);
+
+  // Global Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger undo/redo if user is actively typing inside an input or textarea
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          if (e.shiftKey) {
+            // Ctrl+Shift+Z = Redo
+            e.preventDefault();
+            handleRedo();
+          } else {
+            // Ctrl+Z = Undo
+            e.preventDefault();
+            handleUndo();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          // Ctrl+Y = Redo
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  // Coordinate Management Handlers with History
   const handleAddPoint = (newPt: CoordinatePoint): boolean => {
     const isDup = points.some(p => p.id.toLowerCase() === newPt.id.trim().toLowerCase());
     if (isDup) {
       alert(`Error: Beacon ID "${newPt.id}" already exists. Duplicate IDs are not allowed.`);
       return false;
     }
+    recordSnapshot(`Add Beacon ${newPt.id}`);
     setPoints(prev => [...prev, newPt]);
     setSelectedPointId(newPt.id);
     return true;
   };
 
   const handleUpdatePoint = (oldId: string, updatedPt: CoordinatePoint): boolean => {
-    // If ID was changed, verify no collision with another point
     if (oldId.toLowerCase() !== updatedPt.id.trim().toLowerCase()) {
       const isDup = points.some(
         p => p.id.toLowerCase() !== oldId.toLowerCase() && p.id.toLowerCase() === updatedPt.id.trim().toLowerCase()
@@ -71,10 +175,9 @@ export const App: React.FC = () => {
       }
     }
 
-    // 1. Update the point in coordinate state
+    recordSnapshot(`Edit Beacon ${oldId}`);
     setPoints(prev => prev.map(p => (p.id.toLowerCase() === oldId.toLowerCase() ? updatedPt : p)));
 
-    // 2. Cascading rename: If ID changed, update all parcels that reference oldId
     if (oldId !== updatedPt.id) {
       setParcels(prev =>
         prev.map(p => ({
@@ -123,6 +226,7 @@ export const App: React.FC = () => {
       }
     }
 
+    recordSnapshot(`Delete Beacon ${id}`);
     setPoints(prev => prev.filter(p => p.id !== id));
     setParcels(prev =>
       prev
@@ -136,6 +240,7 @@ export const App: React.FC = () => {
   };
 
   const handleBatchImport = (importedPoints: CoordinatePoint[]) => {
+    recordSnapshot(`Import ${importedPoints.length} Coordinates`);
     const existingMap = new Map<string, CoordinatePoint>(points.map(p => [p.id.toLowerCase(), p]));
     const newPointsList = [...points];
 
@@ -149,13 +254,14 @@ export const App: React.FC = () => {
     setPoints(newPointsList);
   };
 
-  // Parcel Management Handlers
+  // Parcel Management Handlers with History
   const handleAddParcel = (newParcel: Parcel): boolean => {
     const isDup = parcels.some(p => p.plotNumber.toLowerCase() === newParcel.plotNumber.trim().toLowerCase());
     if (isDup) {
       alert(`Error: A parcel with Plot Number "${newParcel.plotNumber}" already exists.`);
       return false;
     }
+    recordSnapshot(`Create Parcel ${newParcel.plotNumber}`);
     setParcels(prev => [...prev, newParcel]);
     setSelectedParcelId(newParcel.id);
     return true;
@@ -170,17 +276,20 @@ export const App: React.FC = () => {
       return false;
     }
 
+    recordSnapshot(`Edit Parcel ${updatedParcel.plotNumber}`);
     setParcels(prev => prev.map(p => (p.id === updatedParcel.id ? updatedParcel : p)));
     return true;
   };
 
   const handleDeleteParcel = (id: string) => {
+    recordSnapshot(`Delete Parcel`);
     setParcels(prev => prev.filter(p => p.id !== id));
     if (selectedParcelId === id) setSelectedParcelId(parcels[0]?.id || null);
   };
 
   // Reset to Sample Benchmark
   const handleLoadSample = () => {
+    recordSnapshot(`Reset to Demo Benchmark`);
     setProject(SAMPLE_PROJECT_METADATA);
     setPoints(SAMPLE_COORDINATES);
     setParcels(SAMPLE_PARCELS);
@@ -195,16 +304,23 @@ export const App: React.FC = () => {
         project={project}
         points={points}
         parcels={parcels}
-        onUpdateProject={setProject}
+        onUpdateProject={(newProj) => {
+          recordSnapshot('Update Project Metadata');
+          setProject(newProj);
+        }}
         onLoadSample={handleLoadSample}
         onOpenCogo={() => setIsCogoOpen(true)}
       />
 
-      {/* 2. CAD Tool Palette Toolbar */}
+      {/* 2. CAD Tool Palette Toolbar with Undo/Redo */}
       <Toolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}
         onOpenCogo={() => setIsCogoOpen(true)}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
 
       {/* 3. Main CAD Workstation Area */}
