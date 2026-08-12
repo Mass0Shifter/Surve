@@ -821,6 +821,19 @@ export const App: React.FC = () => {
         onClose={() => setIsSetoutOpen(false)}
         existingPoints={points}
         onOverlayChange={setSetoutOverlay}
+        onInjectSetoutPoints={(newPoints) => {
+          recordSnapshot('Inject Stakeout Peg Beacons');
+          const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const merged = [...points];
+          for (const np of newPoints) {
+            if (!existingMap.has(np.id.toLowerCase())) merged.push(np);
+            else {
+              const idx = merged.findIndex(p => p.id.toLowerCase() === np.id.toLowerCase());
+              if (idx !== -1) merged[idx] = np;
+            }
+          }
+          setPoints(merged);
+        }}
       />
 
       {/* Minna ↔ WGS84 Datum Transform Modal */}

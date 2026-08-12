@@ -7,7 +7,7 @@ import {
   SETOUT_DESIGN_POINTS_DEMO
 } from '../../engine/setout/setoutEngine';
 import { CoordinatePoint, SetoutOverlay } from '../../engine/types';
-import { Target, Table, RefreshCw, Download, Plus, Trash2 } from 'lucide-react';
+import { Target, Table, RefreshCw, Download, Plus, Trash2, Send } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
 interface SetoutStudioModalProps {
@@ -15,13 +15,15 @@ interface SetoutStudioModalProps {
   onClose: () => void;
   existingPoints: CoordinatePoint[];
   onOverlayChange: (overlay: SetoutOverlay | null) => void;
+  onInjectSetoutPoints: (points: CoordinatePoint[]) => void;
 }
 
 export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
   isOpen,
   onClose,
   existingPoints,
-  onOverlayChange
+  onOverlayChange,
+  onInjectSetoutPoints
 }) => {
   const [activeTab, setActiveTab] = useState<'design' | 'schedule'>('design');
   const [station, setStation] = useState<SetoutStation>(SETOUT_STATION_DEFAULT);
@@ -38,9 +40,9 @@ export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
     }
   }, [station, designPoints]);
 
-  // Push overlay to CAD canvas whenever schedule changes and modal is open
+  // Push overlay to CAD canvas (persists even when modal closes)
   useEffect(() => {
-    if (!isOpen || !schedule) {
+    if (!schedule) {
       onOverlayChange(null);
       return;
     }
@@ -53,12 +55,38 @@ export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
         label:    r.designPoint.pointId
       }))
     });
-  }, [isOpen, schedule, onOverlayChange]);
+  }, [schedule, onOverlayChange]);
 
-  // Clear overlay on close
   const handleClose = () => {
-    onOverlayChange(null);
     onClose();
+  };
+
+  const handleInjectToCAD = () => {
+    if (!schedule || schedule.results.length === 0) {
+      alert('No setout pegs to inject.');
+      return;
+    }
+    const cadPoints: CoordinatePoint[] = [
+      {
+        id: station.stationId,
+        easting: station.easting,
+        northing: station.northing,
+        elevation: station.elevation,
+        isControl: true,
+        code: 'STN',
+        description: 'Occupied Station'
+      },
+      ...schedule.results.map(r => ({
+        id: r.designPoint.pointId,
+        easting: r.designPoint.easting,
+        northing: r.designPoint.northing,
+        elevation: r.designPoint.elevation ?? undefined,
+        code: 'PEG',
+        description: r.notes || 'Stakeout Peg'
+      }))
+    ];
+    onInjectSetoutPoints(cadPoints);
+    alert(`Success: Injected occupied station ${station.stationId} and ${schedule.results.length} stakeout pegs into the CAD workspace!`);
   };
 
   if (!isOpen) return null;
@@ -162,6 +190,9 @@ export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
               </button>
               <button className="btn-secondary-sm" onClick={handleExportCSV} disabled={!schedule}>
                 <Download size={13} /> <span>Export CSV</span>
+              </button>
+              <button className="btn-primary-sm" onClick={handleInjectToCAD} disabled={!schedule}>
+                <Send size={13} /> <span>Inject Pegs to CAD</span>
               </button>
               <button className="icon-btn" onClick={handleClose}>✕</button>
             </div>

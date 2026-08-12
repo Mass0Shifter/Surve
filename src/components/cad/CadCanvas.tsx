@@ -58,10 +58,23 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
 
   // Coordinate Extents Calculation & Auto-Fit
   const fitExtents = useCallback(() => {
-    if (!canvasRef.current || points.length === 0) return;
+    const allPts: CoordinatePoint[] = [...points];
+    if (alignmentOverlay) {
+      for (const cp of alignmentOverlay.chainagePoints) {
+        allPts.push({ id: cp.chainageStr, easting: cp.easting, northing: cp.northing });
+      }
+    }
+    if (setoutOverlay) {
+      allPts.push({ id: 'STN', easting: setoutOverlay.stationEasting, northing: setoutOverlay.stationNorthing });
+      for (const t of setoutOverlay.targets) {
+        allPts.push({ id: t.label, easting: t.easting, northing: t.northing });
+      }
+    }
+
+    if (!canvasRef.current || allPts.length === 0) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const extents = computeExtents(points);
+    const extents = computeExtents(allPts);
 
     const margin = 60;
     const availWidth = Math.max(100, rect.width - margin * 2);
@@ -79,7 +92,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
 
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
-  }, [points]);
+  }, [points, alignmentOverlay, setoutOverlay]);
 
   useEffect(() => {
     if (points.length > 0) {
