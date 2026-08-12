@@ -18,6 +18,7 @@ import {
   Ruler,
   Settings,
   Globe,
+  Target,
   Save,
   Printer
 } from 'lucide-react';
@@ -49,6 +50,8 @@ interface MenuBarProps {
   onOpenTraverse: () => void;
   onOpenLeveling: () => void;
   onOpenTacheometry: () => void;
+  onOpenSetout: () => void;
+  onOpenDatumTransform: () => void;
   onOpenCogo: () => void;
 
   gridBelt: NigerianGridBelt;
@@ -82,7 +85,9 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenTraverse,
   onOpenLeveling,
   onOpenTacheometry,
-  onOpenCogo,
+  onOpenSetout,
+  onOpenDatumTransform,
+  onOpenCogo: _onOpenCogo,
   gridBelt,
   onSelectBelt,
   autoSaveEnabled,
@@ -313,10 +318,17 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               </div>
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCogo)}>
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenSetout)}>
               <div className="menu-item-left">
-                <Compass size={14} className="text-muted" />
-                <span>COGO &amp; Coordinate Inversing Calculator</span>
+                <Target size={14} className="text-amber" />
+                <span>Setout / Setting-Out Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenDatumTransform)}>
+              <div className="menu-item-left">
+                <Globe size={14} className="text-cyan" />
+                <span>Datum Transform (Minna ↔ WGS84)</span>
               </div>
             </div>
 

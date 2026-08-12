@@ -23,6 +23,8 @@ interface HeaderProps {
   onOpenTraverse: () => void;
   onOpenLeveling: () => void;
   onOpenTacheometry: () => void;
+  onOpenSetout: () => void;
+  onOpenDatumTransform: () => void;
 
   onUndo: () => void;
   onRedo: () => void;
@@ -54,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenTraverse,
   onOpenLeveling,
   onOpenTacheometry,
+  onOpenSetout,
+  onOpenDatumTransform,
   onUndo,
   onRedo,
   canUndo,
@@ -129,6 +133,8 @@ export const Header: React.FC<HeaderProps> = ({
           onOpenTraverse={onOpenTraverse}
           onOpenLeveling={onOpenLeveling}
           onOpenTacheometry={onOpenTacheometry}
+          onOpenSetout={onOpenSetout}
+          onOpenDatumTransform={onOpenDatumTransform}
           onOpenCogo={onOpenCogo}
           gridBelt={project.gridBelt}
           onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}

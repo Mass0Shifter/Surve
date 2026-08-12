@@ -92,3 +92,10 @@ export interface HistorySnapshot {
   description: string;
   timestamp?: number;
 }
+
+/** Live setout overlay drawn on the CAD canvas while SetoutStudio is open */
+export interface SetoutOverlay {
+  stationEasting: number;
+  stationNorthing: number;
+  targets: Array<{ easting: number; northing: number; label: string }>;
+}

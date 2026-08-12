@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { CoordinatePoint, Parcel, CadLayers, CadTool } from '../../engine/types';
+import { CoordinatePoint, Parcel, CadLayers, CadTool, SetoutOverlay } from '../../engine/types';
 import { computeParcel, computeExtents } from '../../engine/cogo';
 import { decimalToDMS } from '../../engine/formats';
 import { buildDTM, DTMPoint } from '../../engine/dtm/dtmEngine';
@@ -16,6 +16,7 @@ interface CadCanvasProps {
   onSelectParcel: (id: string | null) => void;
   onAddPointAtCoord: (easting: number, northing: number) => void;
   onCursorMove: (easting: number, northing: number) => void;
+  setoutOverlay?: SetoutOverlay | null;
 }
 
 export const CadCanvas: React.FC<CadCanvasProps> = ({
@@ -28,7 +29,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   onSelectPoint,
   onSelectParcel,
   onAddPointAtCoord,
-  onCursorMove
+  onCursorMove,
+  setoutOverlay = null
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -459,6 +461,61 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
+    // 5.5 Draw Setout Spider-Web Overlay (amber dashed rays from station to pegs)
+    if (setoutOverlay && setoutOverlay.targets.length > 0) {
+      const stnScr = worldToScreen(setoutOverlay.stationEasting, setoutOverlay.stationNorthing);
+
+      // Station marker
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(stnScr.x, stnScr.y, 10, 0, 2 * Math.PI);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(stnScr.x, stnScr.y, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill();
+      ctx.restore();
+
+      for (const tgt of setoutOverlay.targets) {
+        const tgtScr = worldToScreen(tgt.easting, tgt.northing);
+
+        // Dashed amber ray
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([6, 5]);
+        ctx.moveTo(stnScr.x, stnScr.y);
+        ctx.lineTo(tgtScr.x, tgtScr.y);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Target peg marker (diamond)
+        const d = 5;
+        ctx.beginPath();
+        ctx.moveTo(tgtScr.x, tgtScr.y - d);
+        ctx.lineTo(tgtScr.x + d, tgtScr.y);
+        ctx.lineTo(tgtScr.x, tgtScr.y + d);
+        ctx.lineTo(tgtScr.x - d, tgtScr.y);
+        ctx.closePath();
+        ctx.fillStyle = '#f59e0b';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        // Peg label
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = '700 9px "Inter", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(tgt.label, tgtScr.x + 8, tgtScr.y - 2);
+        ctx.restore();
+      }
+    }
+
     // 6. North Arrow Indicator
     ctx.save();
     const naX = rect.width - 40;
@@ -521,7 +578,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     currentMouseWorld,
     worldToScreen,
     screenToWorld,
-    dtmResult
+    dtmResult,
+    setoutOverlay
   ]);
 
   // Mouse Interaction Handlers

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot, NigerianGridBelt } from './engine/types';
+import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot, SetoutOverlay, NigerianGridBelt } from './engine/types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from './engine/sampleData';
 import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
@@ -15,6 +15,8 @@ import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
 import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
 import { LevelingStudioModal } from './components/leveling/LevelingStudioModal';
 import { TacheometryStudioModal } from './components/tacheometry/TacheometryStudioModal';
+import { SetoutStudioModal } from './components/setout/SetoutStudioModal';
+import { DatumTransformModal } from './components/transform/DatumTransformModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -111,6 +113,9 @@ export const App: React.FC = () => {
   const [isTraverseOpen, setIsTraverseOpen] = useState<boolean>(false);
   const [isLevelingOpen, setIsLevelingOpen] = useState<boolean>(false);
   const [isTachOpen, setIsTachOpen] = useState<boolean>(false);
+  const [isSetoutOpen, setIsSetoutOpen] = useState<boolean>(false);
+  const [isDatumTransformOpen, setIsDatumTransformOpen] = useState<boolean>(false);
+  const [setoutOverlay, setSetoutOverlay] = useState<SetoutOverlay | null>(null);
 
   // Active Layer Toggles (including DTM / Contour settings)
   const [layers, setLayers] = useState<CadLayers>({
@@ -594,6 +599,8 @@ export const App: React.FC = () => {
           onOpenTraverse={() => setIsTraverseOpen(true)}
           onOpenLeveling={() => setIsLevelingOpen(true)}
           onOpenTacheometry={() => setIsTachOpen(true)}
+          onOpenSetout={() => setIsSetoutOpen(true)}
+          onOpenDatumTransform={() => setIsDatumTransformOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -678,6 +685,7 @@ export const App: React.FC = () => {
             onSelectParcel={setSelectedParcelId}
             onAddPointAtCoord={handleAddPointAtCoord}
             onCursorMove={(e, n) => setCursorCoord({ easting: e, northing: n })}
+            setoutOverlay={setoutOverlay}
           />
         </section>
 
@@ -789,6 +797,34 @@ export const App: React.FC = () => {
           const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
           const merged = [...points];
           for (const np of newPoints) {
+            if (!existingMap.has(np.id.toLowerCase())) merged.push(np);
+            else {
+              const idx = merged.findIndex(p => p.id.toLowerCase() === np.id.toLowerCase());
+              if (idx !== -1) merged[idx] = np;
+            }
+          }
+          setPoints(merged);
+        }}
+      />
+
+      {/* Setout / Setting-Out Studio Modal */}
+      <SetoutStudioModal
+        isOpen={isSetoutOpen}
+        onClose={() => setIsSetoutOpen(false)}
+        existingPoints={points}
+        onOverlayChange={setSetoutOverlay}
+      />
+
+      {/* Minna ↔ WGS84 Datum Transform Modal */}
+      <DatumTransformModal
+        isOpen={isDatumTransformOpen}
+        onClose={() => setIsDatumTransformOpen(false)}
+        projectPoints={points}
+        onImportPoints={(importedPoints) => {
+          recordSnapshot('Import Datum Transformed Points');
+          const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const merged = [...points];
+          for (const np of importedPoints) {
             if (!existingMap.has(np.id.toLowerCase())) merged.push(np);
             else {
               const idx = merged.findIndex(p => p.id.toLowerCase() === np.id.toLowerCase());
