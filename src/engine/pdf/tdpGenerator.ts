@@ -7,6 +7,7 @@ import { determineCadastralSheets } from '../cadastral/sheetIndex';
 export interface TdpRenderOptions {
   pageSize: 'a4' | 'a3' | 'legal';
   orientation: 'portrait' | 'landscape';
+  planType: 'single_plot' | 'layout';
   scaleRatio?: number; // e.g. 500, 1000, 2000 (if undefined, auto-fits)
   selectedParcelId?: string;
   showCoordinateTable: boolean;
@@ -40,7 +41,22 @@ export function generateTitleDeedPlanPDF(
   const outerW = pageWidth - margin * 2;
   const outerH = pageHeight - margin * 2;
 
-  // 1. Draw Double Neatline Outer Borders
+  // 1. Determine Selected Parcel and Relevant Datasets
+  const selectedParcel = parcels.find(p => p.id === options.selectedParcelId) || parcels[0] || null;
+  const isSinglePlot = options.planType === 'single_plot' && selectedParcel !== null;
+
+  // Relevant parcels & points to render
+  const targetParcels = isSinglePlot ? [selectedParcel] : parcels;
+
+  let targetPoints: CoordinatePoint[] = [];
+  if (isSinglePlot && selectedParcel) {
+    const pointMap = new Map(points.map(p => [p.id, p]));
+    targetPoints = selectedParcel.pointIds.map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
+  } else {
+    targetPoints = points;
+  }
+
+  // 2. Draw Double Neatline Outer Borders
   doc.setLineWidth(0.8);
   doc.setDrawColor(15, 23, 42);
   doc.rect(outerX, outerY, outerW, outerH);
@@ -48,7 +64,7 @@ export function generateTitleDeedPlanPDF(
   doc.setLineWidth(0.3);
   doc.rect(outerX + 1.5, outerY + 1.5, outerW - 3, outerH - 3);
 
-  // 2. Header & Title Block (Top)
+  // 3. Header & Title Block (Top)
   const headerY = outerY + 6;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
@@ -59,8 +75,7 @@ export function generateTitleDeedPlanPDF(
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105);
 
-  const selectedParcel = parcels.find(p => p.id === options.selectedParcelId) || parcels[0] || null;
-  const planSub = selectedParcel
+  const planSub = isSinglePlot && selectedParcel
     ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
     : `SURVEY PLAN OF ${project.title.toUpperCase()}`;
 
@@ -74,8 +89,8 @@ export function generateTitleDeedPlanPDF(
   doc.setDrawColor(203, 213, 225);
   doc.line(outerX + 3, headerY + 16, outerX + outerW - 3, headerY + 16);
 
-  // 3. Cadastral Sheet Index Determination
-  const centPoint = points[0] || { easting: 294312, northing: 992100 };
+  // 4. Cadastral Sheet Index Determination
+  const centPoint = targetPoints[0] || points[0] || { easting: 294312, northing: 992100 };
   const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
   const primarySheet = sheetIndices.find(s => s.scale === (project.scale || 1000)) || sheetIndices[0];
 
@@ -88,24 +103,24 @@ export function generateTitleDeedPlanPDF(
   doc.text(`SCALE 1:${project.scale || 1000}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
   doc.text(`JOB NO: ${project.code}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
 
-  // 4. Drawing Area Dimensions & Vector Coordinate Mapping
+  // 5. Drawing Area Dimensions & Coordinate Mapping
   const bottomPanelHeight = options.showCoordinateTable || options.showSealBox ? 55 : 30;
   const drawAreaX = outerX + 6;
   const drawAreaY = headerY + 20;
   const drawAreaW = outerW - 12;
   const drawAreaH = outerH - (drawAreaY - outerY) - bottomPanelHeight;
 
-  // Extents of surveyed points
-  const extents = computeExtents(points);
-  const paddingMeters = Math.max(extents.width, extents.height) * 0.25;
+  // Extents calculated based on target points (focused purely on parcel in single plot mode)
+  const extents = computeExtents(targetPoints.length > 0 ? targetPoints : points);
+  const paddingMeters = Math.max(extents.width, extents.height) * (isSinglePlot ? 0.35 : 0.25);
 
   const minE = extents.minX - paddingMeters;
   const maxE = extents.maxX + paddingMeters;
   const minN = extents.minY - paddingMeters;
   const maxN = extents.maxY + paddingMeters;
 
-  const worldW = maxE - minE;
-  const worldH = maxN - minN;
+  const worldW = Math.max(10, maxE - minE);
+  const worldH = Math.max(10, maxN - minN);
 
   const scaleFactorX = drawAreaW / worldW;
   const scaleFactorY = drawAreaH / worldH;
@@ -117,9 +132,9 @@ export function generateTitleDeedPlanPDF(
   const toMapX = (easting: number) => mapOffsetX + (easting - minE) * mapScale;
   const toMapY = (northing: number) => mapOffsetY + (maxN - northing) * mapScale;
 
-  // 5. Draw Coordinate Grid Crosses
+  // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
-    const gridStep = project.scale && project.scale <= 1000 ? 50 : 100;
+    const gridStep = isSinglePlot ? 25 : (project.scale && project.scale <= 1000 ? 50 : 100);
     const gStartE = Math.floor(minE / gridStep) * gridStep;
     const gEndE = Math.ceil(maxE / gridStep) * gridStep;
     const gStartN = Math.floor(minN / gridStep) * gridStep;
@@ -147,16 +162,14 @@ export function generateTitleDeedPlanPDF(
     }
   }
 
-  // 6. Draw Cadastral Parcels
-  for (const parcel of parcels) {
+  // 7. Draw Parcels
+  for (const parcel of targetParcels) {
     const comp = computeParcel(parcel, points);
     if (!comp || comp.vertices.length < 3) continue;
 
-    const isHighlight = parcel.id === (options.selectedParcelId || parcels[0]?.id);
-
     // Boundary Polyline
-    doc.setDrawColor(isHighlight ? 16 : 71, isHighlight ? 185 : 85, isHighlight ? 129 : 105);
-    doc.setLineWidth(isHighlight ? 0.6 : 0.4);
+    doc.setDrawColor(16, 185, 129); // Emerald
+    doc.setLineWidth(0.6);
 
     const mapVerts = comp.vertices.map(v => ({ x: toMapX(v.easting), y: toMapY(v.northing) }));
 
@@ -171,19 +184,25 @@ export function generateTitleDeedPlanPDF(
     const centY = mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
+    doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
     doc.text(parcel.plotNumber, centX, centY - 2, { align: 'center' });
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    if (parcel.ownerName) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(parcel.ownerName, centX, centY + 2, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
     doc.setTextColor(16, 185, 129);
-    doc.text(`AREA: ${comp.areaSquareMeters.toFixed(2)} Sq.m`, centX, centY + 2, { align: 'center' });
-    doc.text(`(${comp.areaHectares.toFixed(4)} Ha)`, centX, centY + 5.5, { align: 'center' });
+    doc.text(`AREA: ${comp.areaSquareMeters.toFixed(2)} Sq.m (${comp.areaHectares.toFixed(4)} Ha)`, centX, centY + 6.5, { align: 'center' });
 
     // Leg Bearings & Distances
-    doc.setFontSize(6.5);
-    doc.setTextColor(51, 65, 85);
+    doc.setFontSize(7);
+    doc.setTextColor(30, 41, 59);
 
     for (const leg of comp.legs) {
       const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
@@ -192,43 +211,40 @@ export function generateTitleDeedPlanPDF(
       const midX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
 
-      // Small offset for text
       const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-      const offX = -Math.sin(angle) * 3;
-      const offY = Math.cos(angle) * 3;
+      const offX = -Math.sin(angle) * 3.5;
+      const offY = Math.cos(angle) * 3.5;
 
       const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
       doc.text(legText, midX + offX, midY + offY, { align: 'center' });
     }
   }
 
-  // 7. Draw Concrete Beacon Symbols
-  for (const pt of points) {
+  // 8. Draw Concrete Beacon Symbols (only relevant points)
+  for (const pt of targetPoints) {
     const sx = toMapX(pt.easting);
     const sy = toMapY(pt.northing);
 
     if (pt.isControl) {
-      // Control Triangle
       doc.setDrawColor(245, 158, 11);
       doc.setLineWidth(0.4);
-      doc.triangle(sx, sy - 2, sx + 2, sy + 1.5, sx - 2, sy + 1.5);
+      doc.triangle(sx, sy - 2.5, sx + 2.5, sy + 1.8, sx - 2.5, sy + 1.8);
     } else {
-      // Beacon Pillar Circle with Cross
       doc.setDrawColor(220, 38, 38);
       doc.setLineWidth(0.3);
-      doc.circle(sx, sy, 1.2);
-      doc.line(sx - 1.2, sy, sx + 1.2, sy);
-      doc.line(sx, sy - 1.2, sx, sy + 1.2);
+      doc.circle(sx, sy, 1.5);
+      doc.line(sx - 1.5, sy, sx + 1.5, sy);
+      doc.line(sx, sy - 1.5, sx, sy + 1.5);
     }
 
     // Beacon ID Label
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(7.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(pt.id, sx + 2.5, sy - 1.5);
+    doc.text(pt.id, sx + 3, sy - 1.5);
   }
 
-  // 8. Vector North Arrow (Top-Right inside drawing area)
+  // 9. Vector North Arrow
   const naX = drawAreaX + drawAreaW - 14;
   const naY = drawAreaY + 14;
 
@@ -246,10 +262,10 @@ export function generateTitleDeedPlanPDF(
   doc.setFont('helvetica', 'normal');
   doc.text('GRID NORTH', naX, naY + 13, { align: 'center' });
 
-  // 9. Metric Bar Scale (Bottom-Left inside drawing area)
+  // 10. Metric Bar Scale
   const sbX = drawAreaX + 6;
   const sbY = drawAreaY + drawAreaH - 8;
-  const scaleBarMeters = project.scale && project.scale <= 500 ? 20 : 50;
+  const scaleBarMeters = isSinglePlot ? 20 : (project.scale && project.scale <= 500 ? 20 : 50);
   const scaleBarMm = scaleBarMeters * mapScale;
 
   if (scaleBarMm > 15 && scaleBarMm < drawAreaW * 0.4) {
@@ -267,7 +283,7 @@ export function generateTitleDeedPlanPDF(
     doc.text(`SCALE 1:${project.scale || 1000}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
   }
 
-  // 10. Bottom Footer: Coordinate Schedule Table & Surveyor Seal Box
+  // 11. Bottom Footer: Coordinate Schedule Table & Surveyor Seal Box
   const footerY = outerY + outerH - bottomPanelHeight;
   doc.setLineWidth(0.3);
   doc.setDrawColor(203, 213, 225);
@@ -289,26 +305,24 @@ export function generateTitleDeedPlanPDF(
     doc.setFontSize(6);
     doc.setTextColor(71, 85, 105);
     doc.text('BEACON ID', tableX + 2, tableY + 6.2);
-    doc.text('EASTING (m)', tableX + 22, tableY + 6.2);
-    doc.text('NORTHING (m)', tableX + 44, tableY + 6.2);
-    doc.text('ELEV (m)', tableX + 66, tableY + 6.2);
-    doc.text('ORIGIN', tableX + 80, tableY + 6.2);
+    doc.text('EASTING (m)', tableX + 25, tableY + 6.2);
+    doc.text('NORTHING (m)', tableX + 50, tableY + 6.2);
+    doc.text('ORIGIN', tableX + 75, tableY + 6.2);
 
-    // Table Rows
-    const displayPoints = points.slice(0, 8);
+    // Table Rows (only beacons for this plot in single plot mode!)
+    const schedulePoints = isSinglePlot ? targetPoints : points.slice(0, 8);
     let rowY = tableY + 10.5;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
     doc.setTextColor(15, 23, 42);
 
-    for (const pt of displayPoints) {
+    for (const pt of schedulePoints) {
       doc.text(pt.id, tableX + 2, rowY);
-      doc.text(pt.easting.toFixed(3), tableX + 22, rowY);
-      doc.text(pt.northing.toFixed(3), tableX + 44, rowY);
-      doc.text(pt.elevation !== undefined ? pt.elevation.toFixed(2) : '-', tableX + 66, rowY);
-      doc.text(pt.isControl ? 'CONTROL' : 'CONCRETE PILLAR', tableX + 80, rowY);
-      rowY += 3.8;
+      doc.text(pt.easting.toFixed(3), tableX + 25, rowY);
+      doc.text(pt.northing.toFixed(3), tableX + 50, rowY);
+      doc.text(pt.isControl ? 'CONTROL PILLAR' : 'CONCRETE PILLAR', tableX + 75, rowY);
+      rowY += 4.0;
     }
   }
 

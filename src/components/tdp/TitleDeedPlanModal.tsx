@@ -3,6 +3,7 @@ import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
 import { generateTitleDeedPlanPDF, TdpRenderOptions } from '../../engine/pdf/tdpGenerator';
 import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
+import { computeParcel, computeExtents } from '../../engine/cogo';
 import { FileText, Download, Printer, Settings2, ShieldCheck, Grid, Layers, Compass } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
@@ -20,6 +21,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   isOpen,
   onClose
 }) => {
+  const [planType, setPlanType] = useState<'single_plot' | 'layout'>('single_plot');
   const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [selectedParcelId, setSelectedParcelId] = useState<string>(parcels[0]?.id || '');
@@ -33,9 +35,21 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   if (!isOpen) return null;
 
   const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
+  const isSinglePlot = planType === 'single_plot' && selectedParcel !== null;
+
+  // Filter relevant target points and parcels
+  const targetParcels = isSinglePlot ? [selectedParcel] : parcels;
+
+  let targetPoints: CoordinatePoint[] = [];
+  if (isSinglePlot && selectedParcel) {
+    const pointMap = new Map(points.map(p => [p.id, p]));
+    targetPoints = selectedParcel.pointIds.map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
+  } else {
+    targetPoints = points;
+  }
 
   // Cadastral Sheet Numbers for this location
-  const centPoint = points[0] || { easting: 294312, northing: 992100 };
+  const centPoint = targetPoints[0] || points[0] || { easting: 294312, northing: 992100 };
   const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
   const activeSheet = sheetIndices.find(s => s.scale === scaleRatio) || sheetIndices[0];
 
@@ -44,10 +58,36 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     ? computeParcelSetback(selectedParcel, points, setbackDist)
     : null;
 
+  // Compute SVG Vector Viewport Mapping
+  const svgWidth = 500;
+  const svgHeight = 420;
+  const svgMargin = 50;
+
+  const extents = computeExtents(targetPoints.length > 0 ? targetPoints : points);
+  const paddingM = Math.max(extents.width, extents.height) * (isSinglePlot ? 0.35 : 0.25);
+  const minE = extents.minX - paddingM;
+  const maxE = extents.maxX + paddingM;
+  const minN = extents.minY - paddingM;
+  const maxN = extents.maxY + paddingM;
+
+  const worldW = Math.max(10, maxE - minE);
+  const worldH = Math.max(10, maxN - minN);
+
+  const drawW = svgWidth - svgMargin * 2;
+  const drawH = svgHeight - svgMargin * 2;
+
+  const scaleFactor = Math.min(drawW / worldW, drawH / worldH);
+  const svgOffsetX = svgMargin + (drawW - worldW * scaleFactor) / 2;
+  const svgOffsetY = svgMargin + (drawH - worldH * scaleFactor) / 2;
+
+  const toSvgX = (easting: number) => svgOffsetX + (easting - minE) * scaleFactor;
+  const toSvgY = (northing: number) => svgOffsetY + (maxN - northing) * scaleFactor;
+
   const handleDownloadPDF = () => {
     const opts: TdpRenderOptions = {
       pageSize,
       orientation,
+      planType,
       scaleRatio,
       selectedParcelId,
       showCoordinateTable,
@@ -57,7 +97,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     };
 
     const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
-    const fileName = `${project.code || 'TDP'}_${selectedParcel?.plotNumber || 'PLAN'}.pdf`;
+    const fileName = `${project.code || 'TDP'}_${isSinglePlot ? (selectedParcel?.plotNumber || 'PLOT') : 'LAYOUT'}.pdf`;
     doc.save(fileName);
   };
 
@@ -92,20 +132,31 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
           <div className="tdp-customizer-sidebar">
             <div className="sidebar-section-title">
               <Settings2 size={14} className="text-emerald" />
-              <span>Plan Layout & Sheet Config</span>
+              <span>Plan Layout & Type</span>
+            </div>
+
+            {/* Plan Type Selector */}
+            <div className="form-group">
+              <label>Plan Deliverable Type</label>
+              <select value={planType} onChange={(e) => setPlanType(e.target.value as any)}>
+                <option value="single_plot">Single-Plot Title Deed Plan (C of O)</option>
+                <option value="layout">Estate Layout Master Plan (All Plots)</option>
+              </select>
             </div>
 
             {/* Target Parcel Selector */}
-            <div className="form-group">
-              <label>Focus Cadastral Parcel</label>
-              <select value={selectedParcelId} onChange={(e) => setSelectedParcelId(e.target.value)}>
-                {parcels.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {planType === 'single_plot' && (
+              <div className="form-group">
+                <label>Focus Cadastral Parcel</label>
+                <select value={selectedParcelId} onChange={(e) => setSelectedParcelId(e.target.value)}>
+                  {parcels.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Paper Size & Orientation */}
             <div className="form-row-2">
@@ -184,39 +235,43 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             </div>
 
             {/* Regulatory Building Setback Tool */}
-            <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-              <Compass size={14} className="text-amber" />
-              <span>Building Setback Regulation</span>
-            </div>
-
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showSetbacks}
-                onChange={(e) => setShowSetbacks(e.target.checked)}
-              />
-              <span>Calculate Building Footprint Setback</span>
-            </label>
-
-            {showSetbacks && (
-              <div className="setback-config-box">
-                <div className="form-group">
-                  <label>Setback Distance (m)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={setbackDist}
-                    onChange={(e) => setSetbackDist(parseFloat(e.target.value) || 3.0)}
-                  />
+            {isSinglePlot && (
+              <>
+                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
+                  <Compass size={14} className="text-amber" />
+                  <span>Building Setback Regulation</span>
                 </div>
-                {setbackResult && (
-                  <div className="setback-stats">
-                    <div>Gross Plot Area: <strong>{setbackResult.originalArea.toFixed(1)} m²</strong></div>
-                    <div>Usable Build Footprint: <strong className="text-emerald">{setbackResult.usableBuildingArea.toFixed(1)} m²</strong></div>
-                    <div>Coverage Ratio: <strong>{((setbackResult.usableBuildingArea / setbackResult.originalArea) * 100).toFixed(1)}%</strong></div>
+
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={showSetbacks}
+                    onChange={(e) => setShowSetbacks(e.target.checked)}
+                  />
+                  <span>Calculate Building Footprint Setback</span>
+                </label>
+
+                {showSetbacks && (
+                  <div className="setback-config-box">
+                    <div className="form-group">
+                      <label>Setback Distance (m)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={setbackDist}
+                        onChange={(e) => setSetbackDist(parseFloat(e.target.value) || 3.0)}
+                      />
+                    </div>
+                    {setbackResult && (
+                      <div className="setback-stats">
+                        <div>Gross Plot Area: <strong>{setbackResult.originalArea.toFixed(1)} m²</strong></div>
+                        <div>Usable Build Footprint: <strong className="text-emerald">{setbackResult.usableBuildingArea.toFixed(1)} m²</strong></div>
+                        <div>Coverage Ratio: <strong>{((setbackResult.usableBuildingArea / setbackResult.originalArea) * 100).toFixed(1)}%</strong></div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </div>
 
@@ -230,8 +285,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   <div className="tdp-plan-header">
                     <div className="tdp-plan-title">TITLE DEED PLAN</div>
                     <div className="tdp-plan-subtitle">
-                      PLAN SHOWING {selectedParcel?.plotNumber || project.title.toUpperCase()}
-                      {selectedParcel?.ownerName && ` (ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})`}
+                      {isSinglePlot && selectedParcel
+                        ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+                        : `SURVEY PLAN OF ${project.title.toUpperCase()}`}
                     </div>
                     <div className="tdp-plan-location">
                       SITUATED AT: {project.location.toUpperCase()} | DATUM: MINNA GRID
@@ -243,22 +299,162 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Plan Cadastral Drawing Area */}
+                  {/* Plan Cadastral Drawing Area with Dynamic SVG Vector Engine */}
                   <div className="tdp-map-frame">
-                    <div className="tdp-grid-indicator">
-                      <span>+ {centPoint.easting.toFixed(0)}E, {centPoint.northing.toFixed(0)}N</span>
-                    </div>
+                    <svg
+                      viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                      className="tdp-vector-svg"
+                    >
+                      {/* 1. Grid Crosses */}
+                      {showGridCrosses && (
+                        <g className="svg-grid-crosses" stroke="#cbd5e1" strokeWidth="0.8">
+                          {[100, 200, 300, 400].map(gx =>
+                            [80, 160, 240, 320].map(gy => (
+                              <g key={`${gx}-${gy}`}>
+                                <line x1={gx - 4} y1={gy} x2={gx + 4} y2={gy} />
+                                <line x1={gx} y1={gy - 4} x2={gx} y2={gy + 4} />
+                              </g>
+                            ))
+                          )}
+                        </g>
+                      )}
 
-                    {/* Vector Plot Display */}
-                    <div className="tdp-vector-plot-box">
-                      <div className="tdp-plot-badge-center">
-                        <div className="tdp-plot-no">{selectedParcel?.plotNumber}</div>
-                        {selectedParcel?.ownerName && <div className="tdp-owner">{selectedParcel.ownerName}</div>}
-                        <div className="tdp-area-text">
-                          Area: {selectedParcel ? '824.50 sq.m' : '-'}
-                        </div>
-                      </div>
-                    </div>
+                      {/* 2. Parcel Vector Polygons & Labels */}
+                      {targetParcels.map(parcel => {
+                        const comp = computeParcel(parcel, points);
+                        if (!comp || comp.vertices.length < 3) return null;
+
+                        const polyPoints = comp.vertices
+                          .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
+                          .join(' ');
+
+                        const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
+                        const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
+
+                        return (
+                          <g key={parcel.id} className="svg-parcel-group">
+                            {/* Shaded Polygon Fill & Stroke */}
+                            <polygon
+                              points={polyPoints}
+                              fill="rgba(16, 185, 129, 0.12)"
+                              stroke="#10b981"
+                              strokeWidth="2"
+                              strokeLinejoin="round"
+                            />
+
+                            {/* Centroid Badge */}
+                            <text
+                              x={centSvgX}
+                              y={centSvgY - 6}
+                              textAnchor="middle"
+                              fontWeight="bold"
+                              fontSize="12"
+                              fill="#0f172a"
+                            >
+                              {parcel.plotNumber}
+                            </text>
+                            {parcel.ownerName && (
+                              <text
+                                x={centSvgX}
+                                y={centSvgY + 7}
+                                textAnchor="middle"
+                                fontSize="9"
+                                fill="#475569"
+                              >
+                                {parcel.ownerName}
+                              </text>
+                            )}
+                            <text
+                              x={centSvgX}
+                              y={centSvgY + 20}
+                              textAnchor="middle"
+                              fontWeight="bold"
+                              fontSize="9"
+                              fill="#059669"
+                              fontFamily="monospace"
+                            >
+                              {comp.areaSquareMeters.toFixed(2)} Sq.m ({comp.areaHectares.toFixed(4)} Ha)
+                            </text>
+
+                            {/* Leg Bearings & Distances */}
+                            {comp.legs.map((leg, lidx) => {
+                              const x1 = toSvgX(leg.fromPoint.easting);
+                              const y1 = toSvgY(leg.fromPoint.northing);
+                              const x2 = toSvgX(leg.toPoint.easting);
+                              const y2 = toSvgY(leg.toPoint.northing);
+
+                              const midX = (x1 + x2) / 2;
+                              const midY = (y1 + y2) / 2;
+
+                              const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                              let textRot = angle;
+                              if (textRot > 90 || textRot < -90) {
+                                textRot += 180;
+                              }
+
+                              return (
+                                <g key={lidx} transform={`translate(${midX}, ${midY}) rotate(${textRot})`}>
+                                  <text
+                                    y={-5}
+                                    textAnchor="middle"
+                                    fontSize="8"
+                                    fill="#1e293b"
+                                    fontWeight="500"
+                                    fontFamily="monospace"
+                                  >
+                                    {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </g>
+                        );
+                      })}
+
+                      {/* 3. Inward Setback Line Preview */}
+                      {showSetbacks && setbackResult && (
+                        <polygon
+                          points={setbackResult.setbackVertices.map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`).join(' ')}
+                          fill="rgba(245, 158, 11, 0.08)"
+                          stroke="#f59e0b"
+                          strokeWidth="1.2"
+                          strokeDasharray="4 3"
+                        />
+                      )}
+
+                      {/* 4. Concrete Beacon Symbols */}
+                      {targetPoints.map(pt => {
+                        const bx = toSvgX(pt.easting);
+                        const by = toSvgY(pt.northing);
+                        return (
+                          <g key={pt.id} className="svg-beacon-group">
+                            {pt.isControl ? (
+                              <polygon
+                                points={`${bx},${by - 5} ${bx + 4},${by + 3} ${bx - 4},${by + 3}`}
+                                fill="#f59e0b"
+                                stroke="#ffffff"
+                                strokeWidth="1"
+                              />
+                            ) : (
+                              <>
+                                <circle cx={bx} cy={by} r="3" fill="#dc2626" stroke="#ffffff" strokeWidth="0.8" />
+                                <line x1={bx - 3} y1={by} x2={bx + 3} y2={by} stroke="#ffffff" strokeWidth="0.6" />
+                                <line x1={bx} y1={by - 3} x2={bx} y2={by + 3} stroke="#ffffff" strokeWidth="0.6" />
+                              </>
+                            )}
+                            <text
+                              x={bx + 6}
+                              y={by - 3}
+                              fontSize="9"
+                              fontWeight="bold"
+                              fill="#0f172a"
+                            >
+                              {pt.id}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
 
                     {/* North Arrow */}
                     <div className="tdp-north-arrow">
@@ -274,8 +470,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                       </div>
                       <div className="scale-bar-text">
                         <span>0</span>
-                        <span>25m</span>
-                        <span>50 METRES</span>
+                        <span>{isSinglePlot ? '10m' : '25m'}</span>
+                        <span>{isSinglePlot ? '20 METRES' : '50 METRES'}</span>
                       </div>
                       <div className="scale-ratio-text">SCALE 1:{scaleRatio}</div>
                     </div>
@@ -296,7 +492,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             </tr>
                           </thead>
                           <tbody>
-                            {points.slice(0, 6).map(pt => (
+                            {targetPoints.map(pt => (
                               <tr key={pt.id}>
                                 <td>{pt.id}</td>
                                 <td>{pt.easting.toFixed(3)}</td>
