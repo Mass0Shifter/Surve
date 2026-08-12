@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CoordinatePoint } from '../../engine/types';
-import { Plus, Trash2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle } from 'lucide-react';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 import { parseCoordinatesText } from '../../engine/importers/parser';
 
@@ -8,7 +8,8 @@ interface CoordinateTableProps {
   points: CoordinatePoint[];
   selectedPointId: string | null;
   onSelectPoint: (id: string | null) => void;
-  onAddPoint: (point: CoordinatePoint) => boolean; // returns true if added successfully
+  onAddPoint: (point: CoordinatePoint) => boolean;
+  onUpdatePoint: (oldId: string, updatedPoint: CoordinatePoint) => boolean;
   onDeletePoint: (id: string) => void;
   onBatchImport: (points: CoordinatePoint[]) => void;
 }
@@ -18,6 +19,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
   selectedPointId,
   onSelectPoint,
   onAddPoint,
+  onUpdatePoint,
   onDeletePoint,
   onBatchImport
 }) => {
@@ -32,13 +34,23 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [proximityWarning, setProximityWarning] = useState<string | null>(null);
 
+  // Edit State
+  const [editingPoint, setEditingPoint] = useState<CoordinatePoint | null>(null);
+  const [editId, setEditId] = useState('');
+  const [editEast, setEditEast] = useState('');
+  const [editNorth, setEditNorth] = useState('');
+  const [editElev, setEditElev] = useState('');
+  const [editCode, setEditCode] = useState('');
+  const [editIsControl, setEditIsControl] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   const filteredPoints = points.filter(p =>
     p.id.toLowerCase().includes(search.toLowerCase()) ||
     (p.code && p.code.toLowerCase().includes(search.toLowerCase())) ||
     (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  // Real-time validation for Duplicate ID and Proximity
+  // Real-time validation for Add Form
   const handleIdChange = (val: string) => {
     setNewId(val);
     if (!val.trim()) {
@@ -53,7 +65,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
     }
   };
 
-  const checkProximity = (eastStr: string, northStr: string) => {
+  const checkProximity = (eastStr: string, northStr: string, excludeId?: string) => {
     const east = parseFloat(eastStr);
     const north = parseFloat(northStr);
     if (isNaN(east) || isNaN(north)) {
@@ -61,8 +73,9 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
       return;
     }
 
-    // Check if within 0.005m (5mm) of existing point
-    const closePoint = points.find(p => Math.hypot(p.easting - east, p.northing - north) < 0.005);
+    const closePoint = points.find(
+      p => p.id !== excludeId && Math.hypot(p.easting - east, p.northing - north) < 0.005
+    );
     if (closePoint) {
       setProximityWarning(`Note: Coordinates are nearly identical to existing beacon "${closePoint.id}".`);
     } else {
@@ -120,6 +133,61 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
     }
   };
 
+  // Start Editing a Point
+  const handleStartEdit = (pt: CoordinatePoint) => {
+    setEditingPoint(pt);
+    setEditId(pt.id);
+    setEditEast(pt.easting.toString());
+    setEditNorth(pt.northing.toString());
+    setEditElev(pt.elevation !== undefined ? pt.elevation.toString() : '');
+    setEditCode(pt.code || '');
+    setEditIsControl(!!pt.isControl);
+    setEditError(null);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPoint) return;
+
+    const idClean = editId.trim();
+    if (!idClean) {
+      setEditError('Please enter a Beacon ID.');
+      return;
+    }
+
+    // If ID changed, verify it doesn't conflict with another point
+    if (idClean.toLowerCase() !== editingPoint.id.toLowerCase()) {
+      const isDuplicate = points.some(p => p.id.toLowerCase() === idClean.toLowerCase());
+      if (isDuplicate) {
+        setEditError(`Beacon ID "${idClean}" already exists!`);
+        return;
+      }
+    }
+
+    const east = parseFloat(editEast);
+    const north = parseFloat(editNorth);
+    if (isNaN(east) || isNaN(north)) {
+      setEditError('Please enter valid numeric Easting and Northing.');
+      return;
+    }
+
+    const elev = editElev.trim() ? parseFloat(editElev) : undefined;
+
+    const success = onUpdatePoint(editingPoint.id, {
+      id: idClean,
+      easting: east,
+      northing: north,
+      elevation: isNaN(elev as number) ? undefined : elev,
+      code: editCode.trim() || undefined,
+      isControl: editIsControl
+    });
+
+    if (success) {
+      setEditingPoint(null);
+      setEditError(null);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -145,7 +213,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   };
 
   return (
@@ -187,7 +255,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
         </div>
       </div>
 
-      {/* Search Input */}
+      {/* Search Bar */}
       <div className="search-bar">
         <Search size={14} className="search-icon" />
         <input
@@ -198,7 +266,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
         />
       </div>
 
-      {/* Add New Coordinate Form with Validation Banners */}
+      {/* Add New Coordinate Form */}
       {showAddForm && (
         <form className="add-coord-form" onSubmit={handleAddNew}>
           {formError && (
@@ -309,6 +377,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
                     key={pt.id}
                     className={`coord-row ${isSelected ? 'selected' : ''}`}
                     onClick={() => onSelectPoint(pt.id)}
+                    onDoubleClick={() => handleStartEdit(pt)}
                   >
                     <td className="point-id-cell">
                       {pt.isControl && (
@@ -322,6 +391,16 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
                     <td className="mono-cell">{pt.northing.toFixed(3)}</td>
                     <td className="mono-cell">{pt.elevation !== undefined ? pt.elevation.toFixed(2) : '-'}</td>
                     <td className="action-cell">
+                      <button
+                        className="edit-icon-btn"
+                        title={`Edit beacon ${pt.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartEdit(pt);
+                        }}
+                      >
+                        <Edit2 size={12} />
+                      </button>
                       <button
                         className="delete-icon-btn"
                         title={`Delete beacon ${pt.id}`}
@@ -340,6 +419,109 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Edit Coordinate Modal */}
+      {editingPoint && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <div className="modal-title">
+                <Edit2 size={16} className="text-emerald" />
+                <span>Edit Beacon Coordinate ({editingPoint.id})</span>
+              </div>
+              <button className="icon-btn" onClick={() => setEditingPoint(null)}>✕</button>
+            </div>
+            <form onSubmit={handleSaveEdit}>
+              <div className="modal-body">
+                {editError && (
+                  <div className="form-error-banner">
+                    <AlertCircle size={13} />
+                    <span>{editError}</span>
+                  </div>
+                )}
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Beacon ID *</label>
+                    <input
+                      type="text"
+                      value={editId}
+                      onChange={(e) => setEditId(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Code</label>
+                    <input
+                      type="text"
+                      value={editCode}
+                      onChange={(e) => setEditCode(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Easting (m) *</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={editEast}
+                      onChange={(e) => setEditEast(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Northing (m) *</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={editNorth}
+                      onChange={(e) => setEditNorth(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Elevation (m)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={editElev}
+                      onChange={(e) => setEditElev(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ justifyContent: 'center' }}>
+                    <label className="checkbox-label" style={{ marginTop: '14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={editIsControl}
+                        onChange={(e) => setEditIsControl(e.target.checked)}
+                      />
+                      <span>Control Point (CTRL)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="hint-text text-muted">
+                  Note: If you rename the Beacon ID, all parcels referencing this beacon will automatically be updated with the new ID.
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn-secondary" onClick={() => setEditingPoint(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={!editId.trim()}>
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

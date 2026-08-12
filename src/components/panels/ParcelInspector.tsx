@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CoordinatePoint, Parcel } from '../../engine/types';
 import { computeParcel } from '../../engine/cogo';
-import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, User, Hash, AlertCircle } from 'lucide-react';
+import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, Edit2, User, Hash, AlertCircle } from 'lucide-react';
 import { exportParcelScheduleToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 
 interface ParcelInspectorProps {
@@ -9,7 +9,8 @@ interface ParcelInspectorProps {
   points: CoordinatePoint[];
   selectedParcelId: string | null;
   onSelectParcel: (id: string | null) => void;
-  onAddParcel: (parcel: Parcel) => boolean; // returns true if added
+  onAddParcel: (parcel: Parcel) => boolean;
+  onUpdateParcel: (updatedParcel: Parcel) => boolean;
   onDeleteParcel: (id: string) => void;
 }
 
@@ -19,6 +20,7 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   selectedParcelId,
   onSelectParcel,
   onAddParcel,
+  onUpdateParcel,
   onDeleteParcel
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -27,6 +29,14 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   const [newBlock, setNewBlock] = useState('');
   const [selectedBeaconIds, setSelectedBeaconIds] = useState<string[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // Edit Parcel State
+  const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
+  const [editPlotNo, setEditPlotNo] = useState('');
+  const [editOwner, setEditOwner] = useState('');
+  const [editBlock, setEditBlock] = useState('');
+  const [editBeaconIds, setEditBeaconIds] = useState<string[]>([]);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
   const computation = selectedParcel ? computeParcel(selectedParcel, points) : null;
@@ -59,14 +69,12 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
       return;
     }
 
-    // Ensure at least 3 unique beacons
     const uniqueBeacons = Array.from(new Set(selectedBeaconIds));
     if (uniqueBeacons.length < 3) {
       setModalError('A parcel must have at least 3 distinct corner beacons.');
       return;
     }
 
-    // Test area computation before creating
     const tempParcel: Parcel = {
       id: 'temp',
       plotNumber: plotClean,
@@ -102,6 +110,69 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
     }
   };
 
+  // Start Editing Active Parcel
+  const handleStartEdit = (parcel: Parcel) => {
+    setEditingParcel(parcel);
+    setEditPlotNo(parcel.plotNumber);
+    setEditOwner(parcel.ownerName || '');
+    setEditBlock(parcel.blockNumber || '');
+    setEditBeaconIds([...parcel.pointIds]);
+    setEditError(null);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingParcel) return;
+
+    const plotClean = editPlotNo.trim();
+    if (!plotClean) {
+      setEditError('Please enter a Plot Number.');
+      return;
+    }
+
+    // If plot number changed, ensure no collision with another parcel
+    if (plotClean.toLowerCase() !== editingParcel.plotNumber.toLowerCase()) {
+      const isDup = parcels.some(
+        p => p.id !== editingParcel.id && p.plotNumber.toLowerCase() === plotClean.toLowerCase()
+      );
+      if (isDup) {
+        setEditError(`A parcel with Plot Number "${plotClean}" already exists!`);
+        return;
+      }
+    }
+
+    const uniqueBeacons = Array.from(new Set(editBeaconIds));
+    if (uniqueBeacons.length < 3) {
+      setEditError('A parcel must have at least 3 distinct corner beacons.');
+      return;
+    }
+
+    const tempParcel: Parcel = {
+      ...editingParcel,
+      plotNumber: plotClean,
+      pointIds: [...editBeaconIds]
+    };
+    const testComp = computeParcel(tempParcel, points);
+    if (!testComp || testComp.areaSquareMeters <= 0.01) {
+      setEditError('Selected vertices produce an invalid or zero area. Check beacon sequence.');
+      return;
+    }
+
+    const updated: Parcel = {
+      ...editingParcel,
+      plotNumber: plotClean,
+      ownerName: editOwner.trim() || undefined,
+      blockNumber: editBlock.trim() || undefined,
+      pointIds: [...editBeaconIds]
+    };
+
+    const success = onUpdateParcel(updated);
+    if (success) {
+      setEditingParcel(null);
+      setEditError(null);
+    }
+  };
+
   const toggleBeaconSelection = (pid: string) => {
     if (selectedBeaconIds.includes(pid)) {
       setSelectedBeaconIds(selectedBeaconIds.filter(id => id !== pid));
@@ -109,6 +180,15 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
       setSelectedBeaconIds([...selectedBeaconIds, pid]);
     }
     setModalError(null);
+  };
+
+  const toggleEditBeaconSelection = (pid: string) => {
+    if (editBeaconIds.includes(pid)) {
+      setEditBeaconIds(editBeaconIds.filter(id => id !== pid));
+    } else {
+      setEditBeaconIds([...editBeaconIds, pid]);
+    }
+    setEditError(null);
   };
 
   return (
@@ -182,17 +262,26 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </div>
               )}
             </div>
-            <button
-              className="delete-icon-btn"
-              title={`Delete ${selectedParcel.plotNumber}`}
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete parcel "${selectedParcel.plotNumber}"?`)) {
-                  onDeleteParcel(selectedParcel.id);
-                }
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
+            <div className="card-header-actions">
+              <button
+                className="edit-icon-btn"
+                title={`Edit ${selectedParcel.plotNumber}`}
+                onClick={() => handleStartEdit(selectedParcel)}
+              >
+                <Edit2 size={13} />
+              </button>
+              <button
+                className="delete-icon-btn"
+                title={`Delete ${selectedParcel.plotNumber}`}
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete parcel "${selectedParcel.plotNumber}"?`)) {
+                    onDeleteParcel(selectedParcel.id);
+                  }
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </div>
 
           {/* Area & Metric Stat Cards */}
@@ -333,6 +422,93 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                   disabled={!!modalError || !newPlotNo.trim() || selectedBeaconIds.length < 3}
                 >
                   Create Parcel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Parcel Modal */}
+      {editingParcel && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <div className="modal-title">
+                <Edit2 size={16} className="text-cyan" />
+                <span>Edit Cadastral Parcel ({editingParcel.plotNumber})</span>
+              </div>
+              <button className="icon-btn" onClick={() => setEditingParcel(null)}>✕</button>
+            </div>
+            <form onSubmit={handleSaveEdit}>
+              <div className="modal-body">
+                {editError && (
+                  <div className="form-error-banner">
+                    <AlertCircle size={13} />
+                    <span>{editError}</span>
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label>Plot Number *</label>
+                  <input
+                    type="text"
+                    value={editPlotNo}
+                    onChange={(e) => setEditPlotNo(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Owner / Allottee Name</label>
+                  <input
+                    type="text"
+                    value={editOwner}
+                    onChange={(e) => setEditOwner(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Block Number</label>
+                  <input
+                    type="text"
+                    value={editBlock}
+                    onChange={(e) => setEditBlock(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Corner Beacons Selection & Sequence (min 3) *</label>
+                  <div className="beacon-pick-list">
+                    {points.map(pt => {
+                      const isPicked = editBeaconIds.includes(pt.id);
+                      const orderIdx = editBeaconIds.indexOf(pt.id);
+                      return (
+                        <div
+                          key={pt.id}
+                          className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
+                          onClick={() => toggleEditBeaconSelection(pt.id)}
+                        >
+                          {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
+                          <span>{pt.id}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="hint-text">
+                    Current Sequence: {editBeaconIds.length > 0 ? editBeaconIds.join(' → ') : 'None'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn-secondary" onClick={() => setEditingParcel(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={!editPlotNo.trim() || editBeaconIds.length < 3}
+                >
+                  Save Parcel Changes
                 </button>
               </div>
             </form>

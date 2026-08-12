@@ -649,6 +649,25 @@ body {
 
 .action-cell {
   text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.edit-icon-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.edit-icon-btn:hover {
+  color: var(--emerald);
+  background: rgba(16, 185, 129, 0.15);
 }
 
 .delete-icon-btn {
@@ -664,6 +683,12 @@ body {
 .delete-icon-btn:hover {
   color: var(--rose);
   background: rgba(239, 68, 68, 0.15);
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .empty-cell {
