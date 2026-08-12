@@ -82,6 +82,21 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     }
   }, [fitExtents]);
 
+  // Dynamic ResizeObserver to auto-fit / re-center canvas when container size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      if (points.length > 0) {
+        fitExtents();
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [fitExtents, points.length]);
+
   const worldToScreen = useCallback((easting: number, northing: number) => {
     return {
       x: pan.x + easting * zoom,

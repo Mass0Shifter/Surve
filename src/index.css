@@ -296,29 +296,40 @@ body {
   background-color: var(--border-subtle);
 }
 
-/* 3. Master Workspace Layout */
+/* 3. Master Workspace Layout - Fluid Flexbox Architecture */
 .app-workspace {
   flex: 1;
-  display: grid;
-  grid-template-columns: var(--sidebar-left-width) 1fr var(--sidebar-right-width);
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   position: relative;
 }
 
 .workspace-sidebar {
   background-color: var(--bg-surface);
-  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.workspace-sidebar.left-sidebar {
+  border-right: 1px solid var(--border-subtle);
 }
 
 .workspace-sidebar.right-sidebar {
-  border-right: none;
   border-left: 1px solid var(--border-subtle);
+  border-right: none;
 }
 
 .workspace-center {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   background-color: #0f172a;
   position: relative;
   overflow: hidden;
