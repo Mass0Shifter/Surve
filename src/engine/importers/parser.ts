@@ -2,12 +2,14 @@ import { CoordinatePoint } from '../types';
 
 /**
  * Parses raw text content (CSV, TSV, space-delimited, SurvPack coordinate format)
- * into structured CoordinatePoint objects.
+ * into structured CoordinatePoint objects with automatic duplicate ID resolution.
  */
-export function parseCoordinatesText(text: string): { points: CoordinatePoint[]; errors: string[] } {
+export function parseCoordinatesText(text: string): { points: CoordinatePoint[]; errors: string[]; duplicateCount: number } {
   const lines = text.split(/\r?\n/);
   const points: CoordinatePoint[] = [];
   const errors: string[] = [];
+  const existingIds = new Set<string>();
+  let duplicateCount = 0;
 
   let lineNum = 0;
   for (const rawLine of lines) {
@@ -38,9 +40,6 @@ export function parseCoordinatesText(text: string): { points: CoordinatePoint[];
       continue;
     }
 
-    // Detect column arrangements:
-    // Case 1: ID, Easting, Northing, [Elevation], [Code]
-    // Case 2: Easting, Northing, [Elevation] (auto-generate ID)
     let id = '';
     let easting = 0;
     let northing = 0;
@@ -76,6 +75,20 @@ export function parseCoordinatesText(text: string): { points: CoordinatePoint[];
       continue;
     }
 
+    // Duplicate ID resolution: auto-suffix if ID already seen
+    const lowerId = id.toLowerCase();
+    if (existingIds.has(lowerId)) {
+      duplicateCount++;
+      let counter = 1;
+      let newId = `${id}_${counter}`;
+      while (existingIds.has(newId.toLowerCase())) {
+        counter++;
+        newId = `${id}_${counter}`;
+      }
+      id = newId;
+    }
+    existingIds.add(id.toLowerCase());
+
     const isControl = id.toUpperCase().startsWith('CTRL') || id.toUpperCase().startsWith('SC') || id.toUpperCase().startsWith('BM');
 
     points.push({
@@ -88,5 +101,5 @@ export function parseCoordinatesText(text: string): { points: CoordinatePoint[];
     });
   }
 
-  return { points, errors };
+  return { points, errors, duplicateCount };
 }

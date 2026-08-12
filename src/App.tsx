@@ -47,16 +47,30 @@ export const App: React.FC = () => {
     setLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
   };
 
-  // Coordinate Management Handlers
-  const handleAddPoint = (newPt: CoordinatePoint) => {
+  // Coordinate Management Handlers with Strict Duplicate Prevention
+  const handleAddPoint = (newPt: CoordinatePoint): boolean => {
+    const isDup = points.some(p => p.id.toLowerCase() === newPt.id.trim().toLowerCase());
+    if (isDup) {
+      alert(`Error: Beacon ID "${newPt.id}" already exists. Duplicate IDs are not allowed.`);
+      return false;
+    }
     setPoints(prev => [...prev, newPt]);
     setSelectedPointId(newPt.id);
+    return true;
   };
 
   const handleAddPointAtCoord = (easting: number, northing: number) => {
-    const newId = `PB_${points.length + 101}`;
+    // Generate a collision-free ID
+    const existingIds = new Set(points.map(p => p.id.toLowerCase()));
+    let counter = points.length + 101;
+    let autoId = `PB_${counter}`;
+    while (existingIds.has(autoId.toLowerCase())) {
+      counter++;
+      autoId = `PB_${counter}`;
+    }
+
     const newPt: CoordinatePoint = {
-      id: newId,
+      id: autoId,
       easting: Math.round(easting * 1000) / 1000,
       northing: Math.round(northing * 1000) / 1000,
       code: 'PB'
@@ -64,35 +78,58 @@ export const App: React.FC = () => {
     handleAddPoint(newPt);
   };
 
-  const handleUpdatePoint = (updatedPt: CoordinatePoint) => {
-    setPoints(prev => prev.map(p => (p.id === updatedPt.id ? updatedPt : p)));
-  };
-
   const handleDeletePoint = (id: string) => {
+    // Dependency check: Check if beacon is actively used in any parcel
+    const affectedParcels = parcels.filter(p => p.pointIds.includes(id));
+    if (affectedParcels.length > 0) {
+      const parcelNames = affectedParcels.map(p => `"${p.plotNumber}"`).join(', ');
+      const confirmMsg = `Warning: Beacon "${id}" is used in ${affectedParcels.length} parcel(s): ${parcelNames}.\n\nDeleting this beacon will alter or invalidate these parcels. Are you sure you want to proceed?`;
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+    } else {
+      if (!confirm(`Are you sure you want to delete beacon "${id}"?`)) {
+        return;
+      }
+    }
+
     setPoints(prev => prev.filter(p => p.id !== id));
-    // Also remove point from parcels
+    // Remove point from affected parcels
     setParcels(prev =>
-      prev.map(p => ({
-        ...p,
-        pointIds: p.pointIds.filter(pid => pid !== id)
-      })).filter(p => p.pointIds.length >= 3)
+      prev
+        .map(p => ({
+          ...p,
+          pointIds: p.pointIds.filter(pid => pid !== id)
+        }))
+        .filter(p => p.pointIds.length >= 3)
     );
     if (selectedPointId === id) setSelectedPointId(null);
   };
 
   const handleBatchImport = (importedPoints: CoordinatePoint[]) => {
-    // Merge or replace points by ID
-    const existingMap = new Map<string, CoordinatePoint>(points.map(p => [p.id, p]));
+    const existingMap = new Map<string, CoordinatePoint>(points.map(p => [p.id.toLowerCase(), p]));
+    const newPointsList = [...points];
+
     for (const ip of importedPoints) {
-      existingMap.set(ip.id, ip);
+      const lower = ip.id.toLowerCase();
+      if (!existingMap.has(lower)) {
+        existingMap.set(lower, ip);
+        newPointsList.push(ip);
+      }
     }
-    setPoints(Array.from(existingMap.values()));
+    setPoints(newPointsList);
   };
 
-  // Parcel Management Handlers
-  const handleAddParcel = (newParcel: Parcel) => {
+  // Parcel Management Handlers with Duplicate Prevention
+  const handleAddParcel = (newParcel: Parcel): boolean => {
+    const isDup = parcels.some(p => p.plotNumber.toLowerCase() === newParcel.plotNumber.trim().toLowerCase());
+    if (isDup) {
+      alert(`Error: A parcel with Plot Number "${newParcel.plotNumber}" already exists.`);
+      return false;
+    }
     setParcels(prev => [...prev, newParcel]);
     setSelectedParcelId(newParcel.id);
+    return true;
   };
 
   const handleDeleteParcel = (id: string) => {
@@ -136,7 +173,6 @@ export const App: React.FC = () => {
             points={points}
             selectedPointId={selectedPointId}
             onSelectPoint={setSelectedPointId}
-            onUpdatePoint={handleUpdatePoint}
             onAddPoint={handleAddPoint}
             onDeletePoint={handleDeletePoint}
             onBatchImport={handleBatchImport}

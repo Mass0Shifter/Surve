@@ -25,11 +25,19 @@ export const Header: React.FC<HeaderProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const handleExportSCR = () => {
+    if (points.length === 0) {
+      alert('Cannot export AutoCAD Script: No survey coordinates exist.');
+      return;
+    }
     const scr = generateAutoCADScript(project, points, parcels);
     downloadFile(scr, `${project.code || 'SURVPACK'}_LAYOUT.SCR`, 'text/plain');
   };
 
   const handleExportDXF = () => {
+    if (points.length === 0) {
+      alert('Cannot export DXF Drawing: No survey coordinates exist.');
+      return;
+    }
     const dxf = generateDXF(project, points, parcels);
     downloadFile(dxf, `${project.code || 'SURVPACK'}_PLAN.DXF`, 'application/dxf');
   };

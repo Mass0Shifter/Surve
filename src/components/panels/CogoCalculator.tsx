@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CoordinatePoint } from '../../engine/types';
 import { inversePoints, forwardPoint } from '../../engine/cogo';
 import { parseDMSToDecimal } from '../../engine/formats';
-import { Calculator, ArrowRight, Compass } from 'lucide-react';
+import { Calculator, ArrowRight, Compass, AlertTriangle } from 'lucide-react';
 
 interface CogoCalculatorProps {
   points: CoordinatePoint[];
@@ -26,11 +26,16 @@ export const CogoCalculator: React.FC<CogoCalculatorProps> = ({ points, isOpen, 
 
   // Calculate Inversing
   let invResult = null;
+  let isCoincident = false;
   const p1 = points.find(p => p.id === pt1Id) || null;
   const p2 = points.find(p => p.id === pt2Id) || null;
 
-  if (p1 && p2 && !isNaN(p1.easting) && !isNaN(p2.easting)) {
-    invResult = inversePoints(p1, p2);
+  if (p1 && p2) {
+    if (p1.id === p2.id || (Math.abs(p1.easting - p2.easting) < 0.0001 && Math.abs(p1.northing - p2.northing) < 0.0001)) {
+      isCoincident = true;
+    } else {
+      invResult = inversePoints(p1, p2);
+    }
   }
 
   // Calculate Forward
@@ -79,19 +84,32 @@ export const CogoCalculator: React.FC<CogoCalculatorProps> = ({ points, isOpen, 
                   <label>Station 1 (From)</label>
                   <select value={pt1Id} onChange={(e) => setPt1Id(e.target.value)}>
                     <option value="">-- Select Beacon --</option>
-                    {points.map(p => <option key={p.id} value={p.id}>{p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})</option>)}
+                    {points.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Station 2 (To)</label>
                   <select value={pt2Id} onChange={(e) => setPt2Id(e.target.value)}>
                     <option value="">-- Select Beacon --</option>
-                    {points.map(p => <option key={p.id} value={p.id}>{p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})</option>)}
+                    {points.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
 
-              {invResult ? (
+              {isCoincident ? (
+                <div className="form-warning-banner" style={{ margin: '8px 0' }}>
+                  <AlertTriangle size={14} />
+                  <span>Coincident Points Selected: Distance is 0.000 m (Bearing is undefined for identical stations).</span>
+                </div>
+              ) : invResult ? (
                 <div className="cogo-result-card">
                   <div className="result-main-grid">
                     <div>
@@ -107,7 +125,7 @@ export const CogoCalculator: React.FC<CogoCalculatorProps> = ({ points, isOpen, 
                   </div>
                 </div>
               ) : (
-                <div className="hint-text">Select two points to inverse bearing and distance.</div>
+                <div className="hint-text">Select two distinct points to inverse bearing and distance.</div>
               )}
             </div>
           ) : (
@@ -115,7 +133,11 @@ export const CogoCalculator: React.FC<CogoCalculatorProps> = ({ points, isOpen, 
               <div className="form-group">
                 <label>Origin Station</label>
                 <select value={originPtId} onChange={(e) => setOriginPtId(e.target.value)}>
-                  {points.map(p => <option key={p.id} value={p.id}>{p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})</option>)}
+                  {points.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.id} ({p.easting.toFixed(1)}, {p.northing.toFixed(1)})
+                    </option>
+                  ))}
                 </select>
               </div>
 

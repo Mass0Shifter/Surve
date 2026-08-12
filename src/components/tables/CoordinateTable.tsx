@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CoordinatePoint } from '../../engine/types';
-import { Plus, Trash2, Search, Upload, Download, ShieldCheck, MapPin } from 'lucide-react';
+import { Plus, Trash2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle } from 'lucide-react';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 import { parseCoordinatesText } from '../../engine/importers/parser';
 
@@ -8,8 +8,7 @@ interface CoordinateTableProps {
   points: CoordinatePoint[];
   selectedPointId: string | null;
   onSelectPoint: (id: string | null) => void;
-  onUpdatePoint: (point: CoordinatePoint) => void;
-  onAddPoint: (point: CoordinatePoint) => void;
+  onAddPoint: (point: CoordinatePoint) => boolean; // returns true if added successfully
   onDeletePoint: (id: string) => void;
   onBatchImport: (points: CoordinatePoint[]) => void;
 }
@@ -30,6 +29,8 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
   const [newCode, setNewCode] = useState('');
   const [newIsControl, setNewIsControl] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [proximityWarning, setProximityWarning] = useState<string | null>(null);
 
   const filteredPoints = points.filter(p =>
     p.id.toLowerCase().includes(search.toLowerCase()) ||
@@ -37,19 +38,68 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
     (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
   );
 
+  // Real-time validation for Duplicate ID and Proximity
+  const handleIdChange = (val: string) => {
+    setNewId(val);
+    if (!val.trim()) {
+      setFormError(null);
+      return;
+    }
+    const isDuplicate = points.some(p => p.id.toLowerCase() === val.trim().toLowerCase());
+    if (isDuplicate) {
+      setFormError(`Beacon ID "${val.trim()}" already exists! Duplicate IDs are not allowed.`);
+    } else {
+      setFormError(null);
+    }
+  };
+
+  const checkProximity = (eastStr: string, northStr: string) => {
+    const east = parseFloat(eastStr);
+    const north = parseFloat(northStr);
+    if (isNaN(east) || isNaN(north)) {
+      setProximityWarning(null);
+      return;
+    }
+
+    // Check if within 0.005m (5mm) of existing point
+    const closePoint = points.find(p => Math.hypot(p.easting - east, p.northing - north) < 0.005);
+    if (closePoint) {
+      setProximityWarning(`Note: Coordinates are nearly identical to existing beacon "${closePoint.id}".`);
+    } else {
+      setProximityWarning(null);
+    }
+  };
+
   const handleAddNew = (e: React.FormEvent) => {
     e.preventDefault();
+    const idClean = newId.trim();
+    if (!idClean) {
+      setFormError('Please enter a Beacon ID.');
+      return;
+    }
+
+    const isDuplicate = points.some(p => p.id.toLowerCase() === idClean.toLowerCase());
+    if (isDuplicate) {
+      setFormError(`Beacon ID "${idClean}" already exists!`);
+      return;
+    }
+
     const east = parseFloat(newEast);
     const north = parseFloat(newNorth);
-    if (!newId.trim() || isNaN(east) || isNaN(north)) {
-      alert('Please enter a valid Point ID, Easting, and Northing.');
+    if (isNaN(east) || isNaN(north)) {
+      setFormError('Please enter valid numeric Easting and Northing.');
+      return;
+    }
+
+    if (east <= 0 || north <= 0) {
+      setFormError('Easting and Northing must be positive coordinates.');
       return;
     }
 
     const elev = newElev.trim() ? parseFloat(newElev) : undefined;
 
-    onAddPoint({
-      id: newId.trim(),
+    const success = onAddPoint({
+      id: idClean,
       easting: east,
       northing: north,
       elevation: isNaN(elev as number) ? undefined : elev,
@@ -57,13 +107,17 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
       isControl: newIsControl
     });
 
-    setNewId('');
-    setNewEast('');
-    setNewNorth('');
-    setNewElev('');
-    setNewCode('');
-    setNewIsControl(false);
-    setShowAddForm(false);
+    if (success) {
+      setNewId('');
+      setNewEast('');
+      setNewNorth('');
+      setNewElev('');
+      setNewCode('');
+      setNewIsControl(false);
+      setShowAddForm(false);
+      setFormError(null);
+      setProximityWarning(null);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,10 +128,17 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
     reader.onload = (evt) => {
       const content = evt.target?.result as string;
       if (content) {
-        const { points: parsed, errors } = parseCoordinatesText(content);
+        const { points: parsed, errors, duplicateCount } = parseCoordinatesText(content);
         if (parsed.length > 0) {
           onBatchImport(parsed);
-          alert(`Successfully imported ${parsed.length} survey coordinates!`);
+          let msg = `Successfully imported ${parsed.length} survey coordinates!`;
+          if (duplicateCount > 0) {
+            msg += `\n(${duplicateCount} duplicate IDs were automatically renamed with unique suffixes).`;
+          }
+          if (errors.length > 0) {
+            msg += `\n\nWarnings:\n${errors.slice(0, 5).join('\n')}`;
+          }
+          alert(msg);
         } else {
           alert('Could not parse coordinates from file.\n' + errors.join('\n'));
         }
@@ -102,13 +163,23 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
           <button
             className="icon-btn"
             title="Export CSV"
-            onClick={() => downloadFile(exportCoordinatesToCSV(points), 'coordinates.csv', 'text/csv')}
+            onClick={() => {
+              if (points.length === 0) {
+                alert('No coordinates available to export.');
+                return;
+              }
+              downloadFile(exportCoordinatesToCSV(points), 'coordinates.csv', 'text/csv');
+            }}
           >
             <Download size={14} />
           </button>
           <button
             className={`btn-primary-sm ${showAddForm ? 'active' : ''}`}
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => {
+              setShowAddForm(!showAddForm);
+              setFormError(null);
+              setProximityWarning(null);
+            }}
           >
             <Plus size={14} />
             <span>Add</span>
@@ -127,15 +198,29 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
         />
       </div>
 
-      {/* Add New Coordinate Form */}
+      {/* Add New Coordinate Form with Validation Banners */}
       {showAddForm && (
         <form className="add-coord-form" onSubmit={handleAddNew}>
+          {formError && (
+            <div className="form-error-banner">
+              <AlertCircle size={13} />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {proximityWarning && (
+            <div className="form-warning-banner">
+              <AlertTriangle size={13} />
+              <span>{proximityWarning}</span>
+            </div>
+          )}
+
           <div className="form-row-2">
             <input
               type="text"
-              placeholder="Beacon ID (e.g. PB101)"
+              placeholder="Beacon ID (e.g. PB101) *"
               value={newId}
-              onChange={(e) => setNewId(e.target.value)}
+              onChange={(e) => handleIdChange(e.target.value)}
               required
             />
             <input
@@ -149,17 +234,23 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
             <input
               type="number"
               step="0.001"
-              placeholder="Easting (m)"
+              placeholder="Easting (m) *"
               value={newEast}
-              onChange={(e) => setNewEast(e.target.value)}
+              onChange={(e) => {
+                setNewEast(e.target.value);
+                checkProximity(e.target.value, newNorth);
+              }}
               required
             />
             <input
               type="number"
               step="0.001"
-              placeholder="Northing (m)"
+              placeholder="Northing (m) *"
               value={newNorth}
-              onChange={(e) => setNewNorth(e.target.value)}
+              onChange={(e) => {
+                setNewNorth(e.target.value);
+                checkProximity(newEast, e.target.value);
+              }}
               required
             />
           </div>
@@ -184,7 +275,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
             <button type="button" className="btn-secondary-sm" onClick={() => setShowAddForm(false)}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary-sm">
+            <button type="submit" className="btn-primary-sm" disabled={!!formError || !newId.trim()}>
               Save Coordinate
             </button>
           </div>
@@ -229,16 +320,14 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
                     </td>
                     <td className="mono-cell">{pt.easting.toFixed(3)}</td>
                     <td className="mono-cell">{pt.northing.toFixed(3)}</td>
-                    <td className="mono-cell">{pt.elevation ? pt.elevation.toFixed(2) : '-'}</td>
+                    <td className="mono-cell">{pt.elevation !== undefined ? pt.elevation.toFixed(2) : '-'}</td>
                     <td className="action-cell">
                       <button
                         className="delete-icon-btn"
-                        title="Delete point"
+                        title={`Delete beacon ${pt.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Delete beacon point ${pt.id}?`)) {
-                            onDeletePoint(pt.id);
-                          }
+                          onDeletePoint(pt.id);
                         }}
                       >
                         <Trash2 size={12} />

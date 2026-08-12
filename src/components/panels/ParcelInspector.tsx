@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CoordinatePoint, Parcel } from '../../engine/types';
 import { computeParcel } from '../../engine/cogo';
-import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, User, Hash } from 'lucide-react';
+import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, User, Hash, AlertCircle } from 'lucide-react';
 import { exportParcelScheduleToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 
 interface ParcelInspectorProps {
@@ -9,7 +9,7 @@ interface ParcelInspectorProps {
   points: CoordinatePoint[];
   selectedParcelId: string | null;
   onSelectParcel: (id: string | null) => void;
-  onAddParcel: (parcel: Parcel) => void;
+  onAddParcel: (parcel: Parcel) => boolean; // returns true if added
   onDeleteParcel: (id: string) => void;
 }
 
@@ -26,14 +26,55 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   const [newOwner, setNewOwner] = useState('');
   const [newBlock, setNewBlock] = useState('');
   const [selectedBeaconIds, setSelectedBeaconIds] = useState<string[]>([]);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
   const computation = selectedParcel ? computeParcel(selectedParcel, points) : null;
 
+  const handlePlotNoChange = (val: string) => {
+    setNewPlotNo(val);
+    if (!val.trim()) {
+      setModalError(null);
+      return;
+    }
+    const isDup = parcels.some(p => p.plotNumber.toLowerCase() === val.trim().toLowerCase());
+    if (isDup) {
+      setModalError(`A parcel with Plot Number "${val.trim()}" already exists!`);
+    } else {
+      setModalError(null);
+    }
+  };
+
   const handleCreateParcel = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPlotNo.trim() || selectedBeaconIds.length < 3) {
-      alert('A parcel must have a Plot Number and at least 3 corner beacons.');
+    const plotClean = newPlotNo.trim();
+    if (!plotClean) {
+      setModalError('Please enter a Plot Number.');
+      return;
+    }
+
+    const isDup = parcels.some(p => p.plotNumber.toLowerCase() === plotClean.toLowerCase());
+    if (isDup) {
+      setModalError(`A parcel with Plot Number "${plotClean}" already exists!`);
+      return;
+    }
+
+    // Ensure at least 3 unique beacons
+    const uniqueBeacons = Array.from(new Set(selectedBeaconIds));
+    if (uniqueBeacons.length < 3) {
+      setModalError('A parcel must have at least 3 distinct corner beacons.');
+      return;
+    }
+
+    // Test area computation before creating
+    const tempParcel: Parcel = {
+      id: 'temp',
+      plotNumber: plotClean,
+      pointIds: [...selectedBeaconIds]
+    };
+    const testComp = computeParcel(tempParcel, points);
+    if (!testComp || testComp.areaSquareMeters <= 0.01) {
+      setModalError('Selected vertices produce an invalid or zero area. Please check clockwise beacon sequence.');
       return;
     }
 
@@ -42,20 +83,23 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
 
     const parcel: Parcel = {
       id: `parcel-${Date.now()}`,
-      plotNumber: newPlotNo.trim(),
+      plotNumber: plotClean,
       ownerName: newOwner.trim() || undefined,
       blockNumber: newBlock.trim() || undefined,
       pointIds: [...selectedBeaconIds],
       color: newColor
     };
 
-    onAddParcel(parcel);
-    onSelectParcel(parcel.id);
-    setNewPlotNo('');
-    setNewOwner('');
-    setNewBlock('');
-    setSelectedBeaconIds([]);
-    setShowAddModal(false);
+    const success = onAddParcel(parcel);
+    if (success) {
+      onSelectParcel(parcel.id);
+      setNewPlotNo('');
+      setNewOwner('');
+      setNewBlock('');
+      setSelectedBeaconIds([]);
+      setModalError(null);
+      setShowAddModal(false);
+    }
   };
 
   const toggleBeaconSelection = (pid: string) => {
@@ -64,6 +108,7 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
     } else {
       setSelectedBeaconIds([...selectedBeaconIds, pid]);
     }
+    setModalError(null);
   };
 
   return (
@@ -77,13 +122,22 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
           <button
             className="icon-btn"
             title="Export Parcel Schedule (.CSV)"
-            onClick={() => downloadFile(exportParcelScheduleToCSV(parcels, points), 'parcel_schedule.csv', 'text/csv')}
+            onClick={() => {
+              if (parcels.length === 0) {
+                alert('No parcels defined to export.');
+                return;
+              }
+              downloadFile(exportParcelScheduleToCSV(parcels, points), 'parcel_schedule.csv', 'text/csv');
+            }}
           >
             <Download size={14} />
           </button>
           <button
             className="btn-primary-sm"
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setShowAddModal(true);
+              setModalError(null);
+            }}
           >
             <Plus size={14} />
             <span>New Plot</span>
@@ -130,9 +184,9 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
             </div>
             <button
               className="delete-icon-btn"
-              title="Delete Plot"
+              title={`Delete ${selectedParcel.plotNumber}`}
               onClick={() => {
-                if (confirm(`Delete parcel ${selectedParcel.plotNumber}?`)) {
+                if (confirm(`Are you sure you want to delete parcel "${selectedParcel.plotNumber}"?`)) {
                   onDeleteParcel(selectedParcel.id);
                 }
               }}
@@ -145,7 +199,9 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
           <div className="stat-grid-2">
             <div className="stat-card">
               <div className="stat-label">Calculated Area</div>
-              <div className="stat-val-highlight">{computation.areaSquareMeters.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</div>
+              <div className="stat-val-highlight">
+                {computation.areaSquareMeters.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²
+              </div>
               <div className="stat-sub">{computation.areaHectares.toFixed(4)} Hectares</div>
             </div>
             <div className="stat-card">
@@ -189,7 +245,7 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
         </div>
       ) : (
         <div className="empty-panel-msg">
-          No parcels defined. Click "New Plot" to define boundary beacons.
+          No parcels defined. Click "+ New Plot" to define boundary corner beacons.
         </div>
       )}
 
@@ -203,13 +259,20 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
             </div>
             <form onSubmit={handleCreateParcel}>
               <div className="modal-body">
+                {modalError && (
+                  <div className="form-error-banner">
+                    <AlertCircle size={13} />
+                    <span>{modalError}</span>
+                  </div>
+                )}
+
                 <div className="form-group">
                   <label>Plot Number *</label>
                   <input
                     type="text"
                     placeholder="e.g. PLOT 205"
                     value={newPlotNo}
-                    onChange={(e) => setNewPlotNo(e.target.value)}
+                    onChange={(e) => handlePlotNoChange(e.target.value)}
                     required
                   />
                 </div>
@@ -233,24 +296,30 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </div>
 
                 <div className="form-group">
-                  <label>Select Boundary Corner Beacons (in clockwise order) *</label>
-                  <div className="beacon-pick-list">
-                    {points.map(pt => {
-                      const isPicked = selectedBeaconIds.includes(pt.id);
-                      const orderIdx = selectedBeaconIds.indexOf(pt.id);
-                      return (
-                        <div
-                          key={pt.id}
-                          className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
-                          onClick={() => toggleBeaconSelection(pt.id)}
-                        >
-                          {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
-                          <span>{pt.id}</span>
-                        </div>
-                      );
-                    })}
+                  <label>Select Boundary Corner Beacons (in clockwise order, min 3) *</label>
+                  {points.length === 0 ? (
+                    <div className="hint-text text-amber">No beacons available. Add coordinates first.</div>
+                  ) : (
+                    <div className="beacon-pick-list">
+                      {points.map(pt => {
+                        const isPicked = selectedBeaconIds.includes(pt.id);
+                        const orderIdx = selectedBeaconIds.indexOf(pt.id);
+                        return (
+                          <div
+                            key={pt.id}
+                            className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
+                            onClick={() => toggleBeaconSelection(pt.id)}
+                          >
+                            {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
+                            <span>{pt.id}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="hint-text">
+                    Selected Order: {selectedBeaconIds.length > 0 ? selectedBeaconIds.join(' → ') : 'None'}
                   </div>
-                  <div className="hint-text">Selected: {selectedBeaconIds.join(' → ')}</div>
                 </div>
               </div>
 
@@ -258,7 +327,11 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary" disabled={selectedBeaconIds.length < 3}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={!!modalError || !newPlotNo.trim() || selectedBeaconIds.length < 3}
+                >
                   Create Parcel
                 </button>
               </div>
