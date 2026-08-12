@@ -313,19 +313,19 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
             <table className="schedule-table">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Bearing (W.C.B)</th>
-                  <th>Dist (m)</th>
+                  <th style={{ width: '26%' }}>From</th>
+                  <th style={{ width: '26%' }}>To</th>
+                  <th style={{ width: '30%' }}>Bearing (W.C.B)</th>
+                  <th style={{ width: '18%', textAlign: 'right' }}>Dist (m)</th>
                 </tr>
               </thead>
               <tbody>
                 {computation.legs.map((leg, idx) => (
                   <tr key={idx}>
-                    <td className="point-id-cell">{leg.fromPoint.id}</td>
-                    <td className="point-id-cell">{leg.toPoint.id}</td>
-                    <td className="mono-cell">{leg.bearing.formatted}</td>
-                    <td className="mono-cell">{leg.distance.toFixed(3)}</td>
+                    <td className="schedule-cell-id">{leg.fromPoint.id}</td>
+                    <td className="schedule-cell-id">{leg.toPoint.id}</td>
+                    <td className="schedule-cell-bearing">{leg.bearing.formatted}</td>
+                    <td className="schedule-cell-dist">{leg.distance.toFixed(3)}</td>
                   </tr>
                 ))}
               </tbody>

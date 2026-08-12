@@ -112,29 +112,27 @@ export function generateTitleDeedPlanPDF(
 
   // Extents calculated based on target points (focused purely on parcel in single plot mode)
   const extents = computeExtents(targetPoints.length > 0 ? targetPoints : points);
-  const paddingMeters = Math.max(extents.width, extents.height) * (isSinglePlot ? 0.35 : 0.25);
+  const centE = extents.centerX;
+  const centN = extents.centerY;
 
-  const minE = extents.minX - paddingMeters;
-  const maxE = extents.maxX + paddingMeters;
-  const minN = extents.minY - paddingMeters;
-  const maxN = extents.maxY + paddingMeters;
+  const autoScale = Math.min((drawAreaW - 20) / Math.max(10, extents.width), (drawAreaH - 20) / Math.max(10, extents.height));
+  const effectiveScale = (options.scaleRatio && options.scaleRatio > 0) ? options.scaleRatio : (project.scale || 1000);
+  const mapScale = (options.scaleRatio && options.scaleRatio > 0) ? (1000 / options.scaleRatio) : autoScale;
 
-  const worldW = Math.max(10, maxE - minE);
-  const worldH = Math.max(10, maxN - minN);
+  const centX = drawAreaX + drawAreaW / 2;
+  const centY = drawAreaY + drawAreaH / 2;
 
-  const scaleFactorX = drawAreaW / worldW;
-  const scaleFactorY = drawAreaH / worldH;
-  const mapScale = Math.min(scaleFactorX, scaleFactorY);
-
-  const mapOffsetX = drawAreaX + (drawAreaW - worldW * mapScale) / 2;
-  const mapOffsetY = drawAreaY + (drawAreaH - worldH * mapScale) / 2;
-
-  const toMapX = (easting: number) => mapOffsetX + (easting - minE) * mapScale;
-  const toMapY = (northing: number) => mapOffsetY + (maxN - northing) * mapScale;
+  const toMapX = (easting: number) => centX + (easting - centE) * mapScale;
+  const toMapY = (northing: number) => centY - (northing - centN) * mapScale;
 
   // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
-    const gridStep = isSinglePlot ? 25 : (project.scale && project.scale <= 1000 ? 50 : 100);
+    const gridStep = effectiveScale <= 250 ? 10 : effectiveScale <= 500 ? 25 : effectiveScale <= 1000 ? 50 : 100;
+    const minE = centE - (drawAreaW / (2 * mapScale));
+    const maxE = centE + (drawAreaW / (2 * mapScale));
+    const minN = centN - (drawAreaH / (2 * mapScale));
+    const maxN = centN + (drawAreaH / (2 * mapScale));
+
     const gStartE = Math.floor(minE / gridStep) * gridStep;
     const gEndE = Math.ceil(maxE / gridStep) * gridStep;
     const gStartN = Math.floor(minN / gridStep) * gridStep;

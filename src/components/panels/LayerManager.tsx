@@ -22,20 +22,26 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
     { key: 'controls', label: 'Control Triangles', color: '#f59e0b' }
   ];
 
+  const activeCount = layerItems.filter(i => layers[i.key]).length;
+
   return (
-    <div className="layers-panel">
+    <div className="layers-panel-container">
+      {/* Sleek, Un-nested Header matching Cadastral Parcels Panel */}
       <div
-        className="panel-header"
-        style={{ cursor: 'pointer', padding: '0 0 6px 0', borderBottom: isCollapsed ? 'none' : '1px solid var(--border-subtle)' }}
+        className="layers-header-row"
         onClick={() => setIsCollapsed(!isCollapsed)}
+        title={isCollapsed ? 'Click to expand CAD Layers' : 'Click to collapse CAD Layers'}
       >
-        <div className="panel-title">
-          <Layers size={15} className="text-emerald" />
-          <span>CAD Layers & Visibility</span>
+        <div className="layers-header-left">
+          <Layers size={14} className="text-emerald" />
+          <span className="layers-header-title">CAD Layers & Visibility</span>
         </div>
-        <button className="icon-btn" title={isCollapsed ? 'Expand Layers' : 'Collapse Layers'}>
-          {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </button>
+        <div className="layers-header-right">
+          <span className="layers-count-badge">{activeCount}/{layerItems.length} Active</span>
+          <span className="layers-chevron-icon">
+            {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </span>
+        </div>
       </div>
 
       {!isCollapsed && (
@@ -52,8 +58,15 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
                   <div className="layer-color-dot" style={{ backgroundColor: item.color }} />
                   <span className="layer-label">{item.label}</span>
                 </div>
-                <button className="layer-eye-btn" title={isVisible ? 'Hide Layer' : 'Show Layer'}>
-                  {isVisible ? <Eye size={14} className="text-emerald" /> : <EyeOff size={14} className="text-muted" />}
+                <button
+                  className="layer-eye-btn"
+                  title={isVisible ? 'Hide Layer' : 'Show Layer'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleLayer(item.key);
+                  }}
+                >
+                  {isVisible ? <Eye size={13} className="text-emerald" /> : <EyeOff size={13} className="text-muted" />}
                 </button>
               </div>
             );

@@ -54,44 +54,46 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   // Cadastral Sheet Numbers for this location
   const centPoint = targetPoints[0] || points[0] || { easting: 294312, northing: 992100 };
   const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
-  const activeSheet = sheetIndices.find(s => s.scale === scaleRatio) || sheetIndices[0];
+  const activeSheet = sheetIndices.find(s => s.scale === (scaleRatio === 0 ? 1000 : scaleRatio)) || sheetIndices[0];
 
   // Setback calculation
   const setbackResult = selectedParcel && showSetbacks
     ? computeParcelSetback(selectedParcel, points, setbackDist)
     : null;
 
-  // Compute SVG Vector Viewport Mapping
+  // Compute SVG Vector Viewport Mapping with True Cartographic Scale (1:N)
   const svgWidth = 520;
   const svgHeight = 440;
-  const svgMargin = 45;
 
   const extents = computeExtents(targetPoints.length > 0 ? targetPoints : points);
-  const paddingM = Math.max(extents.width, extents.height) * (isSinglePlot ? 0.35 : 0.25);
-  const minE = extents.minX - paddingM;
-  const maxE = extents.maxX + paddingM;
-  const minN = extents.minY - paddingM;
-  const maxN = extents.maxY + paddingM;
+  const centE = extents.centerX;
+  const centN = extents.centerY;
 
-  const worldW = Math.max(10, maxE - minE);
-  const worldH = Math.max(10, maxN - minN);
+  // Base mm conversion: A4 printable map width ~ 170mm mapped to 500 SVG units => ~2.94 units/mm
+  const autoFitScale = Math.min((svgWidth - 90) / Math.max(10, extents.width), (svgHeight - 90) / Math.max(10, extents.height));
+  const effectiveScaleRatio = scaleRatio === 0 ? Math.round(1000 / (autoFitScale / 2.94)) : scaleRatio;
+  const pixelsPerMeter = scaleRatio === 0 ? autoFitScale : (1000 / scaleRatio) * 2.94;
 
-  const drawW = svgWidth - svgMargin * 2;
-  const drawH = svgHeight - svgMargin * 2;
+  const toSvgX = (easting: number) => svgWidth / 2 + (easting - centE) * pixelsPerMeter;
+  const toSvgY = (northing: number) => svgHeight / 2 - (northing - centN) * pixelsPerMeter;
 
-  const scaleFactor = Math.min(drawW / worldW, drawH / worldH);
-  const svgOffsetX = svgMargin + (drawW - worldW * scaleFactor) / 2;
-  const svgOffsetY = svgMargin + (drawH - worldH * scaleFactor) / 2;
+  // Scale bar metrics
+  const scaleBarMeters = effectiveScaleRatio <= 250 ? 10 : effectiveScaleRatio <= 500 ? 20 : effectiveScaleRatio <= 1000 ? 50 : effectiveScaleRatio <= 2000 ? 100 : 200;
+  const scaleBarPx = scaleBarMeters * pixelsPerMeter;
 
-  const toSvgX = (easting: number) => svgOffsetX + (easting - minE) * scaleFactor;
-  const toSvgY = (northing: number) => svgOffsetY + (maxN - northing) * scaleFactor;
+  // Dynamic Grid step
+  const gridStep = effectiveScaleRatio <= 250 ? 10 : effectiveScaleRatio <= 500 ? 25 : effectiveScaleRatio <= 1000 ? 50 : 100;
+  const gStartE = Math.floor((centE - (svgWidth / (2 * pixelsPerMeter))) / gridStep) * gridStep;
+  const gEndE = Math.ceil((centE + (svgWidth / (2 * pixelsPerMeter))) / gridStep) * gridStep;
+  const gStartN = Math.floor((centN - (svgHeight / (2 * pixelsPerMeter))) / gridStep) * gridStep;
+  const gEndN = Math.ceil((centN + (svgHeight / (2 * pixelsPerMeter))) / gridStep) * gridStep;
 
   const handleDownloadPDF = () => {
     const opts: TdpRenderOptions = {
       pageSize,
       orientation,
       planType,
-      scaleRatio,
+      scaleRatio: effectiveScaleRatio,
       selectedParcelId,
       showCoordinateTable,
       showSealBox,
@@ -109,7 +111,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       pageSize,
       orientation,
       planType,
-      scaleRatio,
+      scaleRatio: effectiveScaleRatio,
       selectedParcelId,
       showCoordinateTable,
       showSealBox,
@@ -134,7 +136,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             <span>Title Deed Plan (TDP) Print Studio & Cadastral Suite</span>
           </div>
           <div className="header-actions-group">
-            <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan">
+            <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan (Pure Vector Clean White)">
               <Printer size={14} />
               <span>Print</span>
             </button>
@@ -196,15 +198,16 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               </div>
             </div>
 
-            {/* Scale Ratio */}
+            {/* Scale Ratio Selector */}
             <div className="form-group">
               <label>Drawing Scale Ratio (1:N)</label>
-              <select value={scaleRatio} onChange={(e) => setScaleRatio(parseInt(e.target.value) || 1000)}>
-                <option value={250}>1:250 (Detailed Site Plan)</option>
-                <option value={500}>1:500 (Abuja FCDA Standard)</option>
+              <select value={scaleRatio} onChange={(e) => setScaleRatio(parseInt(e.target.value) || 0)}>
+                <option value={0}>Auto-Fit (Optimal Scale)</option>
+                <option value={250}>1:250 (Detailed Site Plan - 4x Large)</option>
+                <option value={500}>1:500 (Abuja FCDA Standard - 2x Large)</option>
                 <option value={1000}>1:1,000 (Standard Cadastral)</option>
-                <option value={2000}>1:2,000 (Town Layout)</option>
-                <option value={5000}>1:5,000 (District Sheet)</option>
+                <option value={2000}>1:2,000 (Town Layout - 0.5x)</option>
+                <option value={5000}>1:5,000 (District Regional Sheet)</option>
               </select>
             </div>
 
@@ -215,7 +218,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                 <span>Calculated Cadastral Sheet</span>
               </div>
               <div className="sheet-number-highlight">{activeSheet.sheetNumber}</div>
-              <div className="sheet-meta-sub">{activeSheet.scaleLabel}</div>
+              <div className="sheet-meta-sub">{activeSheet.scaleLabel} (Scale 1:{effectiveScaleRatio})</div>
             </div>
 
             {/* Feature Toggles */}
@@ -249,7 +252,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   checked={showGridCrosses}
                   onChange={(e) => setShowGridCrosses(e.target.checked)}
                 />
-                <span>Geodetic Grid Crosses</span>
+                <span>Geodetic Grid Crosses ({gridStep}m)</span>
               </label>
             </div>
 
@@ -316,7 +319,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               <button
                 className="btn-secondary-xs"
                 title="Fit Page to View"
-                onClick={() => setPreviewZoom(0.85)}
+                onClick={() => setPreviewZoom(0.68)}
               >
                 <Maximize2 size={12} className="inline-icon" />
                 <span>Fit</span>
@@ -341,7 +344,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                       </div>
                       <div className="tdp-header-right-meta">
                         <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
-                        <div><strong>SCALE:</strong> 1:{scaleRatio}</div>
+                        <div><strong>SCALE:</strong> 1:{effectiveScaleRatio}</div>
                         <div><strong>PLAN NO:</strong> {project.code}</div>
                       </div>
                     </div>
@@ -355,14 +358,21 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         {/* 1. Grid Crosses */}
                         {showGridCrosses && (
                           <g className="svg-grid-crosses" stroke="#cbd5e1" strokeWidth="0.8">
-                            {[100, 200, 300, 400].map(gx =>
-                              [80, 160, 240, 320].map(gy => (
-                                <g key={`${gx}-${gy}`}>
-                                  <line x1={gx - 4} y1={gy} x2={gx + 4} y2={gy} />
-                                  <line x1={gx} y1={gy - 4} x2={gx} y2={gy + 4} />
-                                </g>
-                              ))
-                            )}
+                            {Array.from({ length: Math.ceil((gEndE - gStartE) / gridStep) + 1 }).map((_, ei) => {
+                              const ge = gStartE + ei * gridStep;
+                              return Array.from({ length: Math.ceil((gEndN - gStartN) / gridStep) + 1 }).map((_, ni) => {
+                                const gn = gStartN + ni * gridStep;
+                                const gx = toSvgX(ge);
+                                const gy = toSvgY(gn);
+                                if (gx < 10 || gx > svgWidth - 10 || gy < 10 || gy > svgHeight - 10) return null;
+                                return (
+                                  <g key={`${ge}-${gn}`}>
+                                    <line x1={gx - 4} y1={gy} x2={gx + 4} y2={gy} />
+                                    <line x1={gx} y1={gy - 4} x2={gx} y2={gy + 4} />
+                                  </g>
+                                );
+                              });
+                            })}
                           </g>
                         )}
 
@@ -510,17 +520,17 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                       <div className="arrow-label">GRID NORTH</div>
                     </div>
 
-                    {/* Metric Bar Scale */}
+                    {/* Dynamic Metric Bar Scale */}
                     <div className="tdp-scale-bar-box">
-                      <div className="scale-bar-graphic">
+                      <div className="scale-bar-graphic" style={{ width: `${Math.min(160, Math.max(40, scaleBarPx))}px` }}>
                         <div className="scale-bar-fill" />
                       </div>
                       <div className="scale-bar-text">
                         <span>0</span>
-                        <span>{isSinglePlot ? '10m' : '25m'}</span>
-                        <span>{isSinglePlot ? '20 METRES' : '50 METRES'}</span>
+                        <span>{scaleBarMeters / 2}m</span>
+                        <span>{scaleBarMeters} METRES</span>
                       </div>
-                      <div className="scale-ratio-text">SCALE 1:{scaleRatio}</div>
+                      <div className="scale-ratio-text">SCALE 1:{effectiveScaleRatio}</div>
                     </div>
                   </div>
 

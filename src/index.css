@@ -1946,12 +1946,9 @@ body {
   white-space: nowrap;
 }
 
-.schedule-table th:nth-child(1) { width: 27%; }
-.schedule-table th:nth-child(2) { width: 27%; }
-.schedule-table th:nth-child(3) { width: 28%; }
-.schedule-table th:nth-child(4) { width: 18%; text-align: right; }
-
 .schedule-table td {
+  display: table-cell !important;
+  vertical-align: middle;
   padding: 6px 8px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.08);
   white-space: nowrap;
@@ -1959,20 +1956,23 @@ body {
   text-overflow: ellipsis;
 }
 
-.schedule-table td.point-id-cell {
+.schedule-cell-id {
   font-weight: 600;
   color: #f8fafc;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
 }
 
-.schedule-table td.mono-cell {
+.schedule-cell-bearing {
   font-family: 'JetBrains Mono', monospace;
   color: #94a3b8;
   font-size: 11px;
 }
 
-.schedule-table td:nth-child(4) {
+.schedule-cell-dist {
+  font-family: 'JetBrains Mono', monospace;
+  color: #38bdf8;
+  font-size: 11px;
   text-align: right;
 }
 
@@ -1983,27 +1983,67 @@ body {
 /* ==========================================================================
    CAD Layers & Visibility Panel
    ========================================================================== */
-.layers-panel {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-top: 10px;
+.layers-panel-container {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 14px 14px 14px;
+}
+
+.layers-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.layers-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.layers-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.layers-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.layers-count-badge {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--emerald);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.layers-chevron-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
 }
 
 .layers-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .layer-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  border-radius: 5px;
+  padding: 5px 8px;
+  border-radius: 4px;
   background: rgba(15, 23, 42, 0.4);
   border: 1px solid rgba(148, 163, 184, 0.08);
   cursor: pointer;
@@ -2017,20 +2057,20 @@ body {
 }
 
 .layer-row.inactive {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .layer-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex: 1;
   min-width: 0;
 }
 
 .layer-color-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -2048,13 +2088,12 @@ body {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
   color: var(--text-muted);
-  transition: all 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .layer-eye-btn:hover {
