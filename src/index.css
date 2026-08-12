@@ -899,12 +899,405 @@ body {
   margin-top: 2px;
 }
 
-.preview-scroll-table {
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--border-color);
+.btn-tdp-highlight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  padding: 5px 12px;
   border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-tdp-highlight:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+/* Title Deed Plan Studio Modal */
+.tdp-modal-studio {
+  width: 95vw;
+  max-width: 1200px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tdp-studio-body {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  flex: 1;
+  overflow: hidden;
+  gap: 16px;
+  padding: 16px;
   background: var(--bg-dark);
+}
+
+.tdp-customizer-sidebar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sheet-index-card {
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.sheet-card-title {
+  font-size: 11px;
+  color: var(--cyan);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sheet-number-highlight {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: #38bdf8;
+  margin-top: 4px;
+}
+
+.sheet-meta-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setback-config-box {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 6px;
+}
+
+.setback-stats {
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* TDP Live Sheet Canvas Preview */
+.tdp-preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e293b;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  overflow: auto;
+  padding: 24px;
+}
+
+.tdp-sheet-canvas {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.tdp-sheet-canvas.a4.portrait {
+  width: 595px;
+  height: 842px;
+}
+
+.tdp-sheet-canvas.a4.landscape {
+  width: 842px;
+  height: 595px;
+}
+
+.tdp-sheet-canvas.a3.portrait {
+  width: 842px;
+  height: 1190px;
+}
+
+.tdp-sheet-canvas.a3.landscape {
+  width: 1190px;
+  height: 842px;
+}
+
+.tdp-neatline-outer {
+  height: 100%;
+  border: 2px solid #0f172a;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
+.tdp-neatline-inner {
+  height: 100%;
+  border: 1px solid #0f172a;
+  padding: 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.tdp-plan-header {
+  text-align: center;
+  position: relative;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 8px;
+}
+
+.tdp-plan-title {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.tdp-plan-subtitle {
+  font-size: 10px;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 2px;
+}
+
+.tdp-plan-location {
+  font-size: 9px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.tdp-header-right-meta {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 8px;
+  text-align: right;
+  line-height: 1.4;
+  color: #334155;
+}
+
+.tdp-map-frame {
+  flex: 1;
+  margin: 10px 0;
+  border: 1px dashed #cbd5e1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+}
+
+.tdp-grid-indicator {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 8px;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tdp-vector-plot-box {
+  border: 2px solid #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 30px 40px;
+  border-radius: 4px;
+}
+
+.tdp-plot-badge-center {
+  text-align: center;
+}
+
+.tdp-plot-no {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.tdp-owner {
+  font-size: 10px;
+  color: #475569;
+}
+
+.tdp-area-text {
+  font-size: 10px;
+  font-weight: 700;
+  color: #059669;
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 4px;
+}
+
+.tdp-north-arrow {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  text-align: center;
+}
+
+.arrow-head {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.arrow-stem {
+  width: 2px;
+  height: 20px;
+  background: #0f172a;
+  margin: 0 auto;
+}
+
+.arrow-label {
+  font-size: 6px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.tdp-scale-bar-box {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  font-size: 7px;
+}
+
+.scale-bar-graphic {
+  width: 80px;
+  height: 4px;
+  border: 1px solid #0f172a;
+}
+
+.scale-bar-fill {
+  width: 50%;
+  height: 100%;
+  background: #0f172a;
+}
+
+.scale-bar-text {
+  display: flex;
+  justify-content: space-between;
+  width: 80px;
+  font-size: 6px;
+  margin-top: 2px;
+}
+
+.scale-ratio-text {
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.tdp-plan-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  border-top: 1px solid #cbd5e1;
+  padding-top: 8px;
+}
+
+.tdp-coord-schedule-table {
+  font-size: 7px;
+}
+
+.schedule-table-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.tdp-coord-schedule-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tdp-coord-schedule-table th, .tdp-coord-schedule-table td {
+  border: 1px solid #cbd5e1;
+  padding: 2px 4px;
+  text-align: left;
+}
+
+.tdp-seal-block {
+  font-size: 7px;
+  position: relative;
+}
+
+.cert-title {
+  font-weight: 700;
+}
+
+.cert-body {
+  font-size: 6px;
+  color: #475569;
+  margin: 2px 0 6px 0;
+}
+
+.surveyor-name {
+  font-weight: 700;
+}
+
+.surcon-seal-box {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 50px;
+  height: 50px;
+  border: 1px dashed #94a3b8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 6px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* Print Stylesheet */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .tdp-sheet-canvas, .tdp-sheet-canvas * {
+    visibility: visible;
+  }
+  .tdp-sheet-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    height: 100% !important;
+    box-shadow: none !important;
+  }
 }
 
 .empty-cell {

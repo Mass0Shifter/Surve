@@ -3,7 +3,7 @@ import { ProjectMetadata, CoordinatePoint, Parcel, NigerianGridBelt } from '../.
 import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
 import { downloadFile } from '../../engine/exporters/csvExporter';
-import { Compass, Download, Settings, FileCode, RefreshCw, Tag, Save } from 'lucide-react';
+import { Compass, Download, Settings, FileCode, RefreshCw, Tag, Save, FileText } from 'lucide-react';
 
 interface HeaderProps {
   project: ProjectMetadata;
@@ -16,6 +16,7 @@ interface HeaderProps {
   onLoadSample: () => void;
   onOpenCogo: () => void;
   onOpenRenumber: () => void;
+  onOpenTdp: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,7 +29,8 @@ export const Header: React.FC<HeaderProps> = ({
   onUpdateProject,
   onLoadSample,
   onOpenCogo,
-  onOpenRenumber
+  onOpenRenumber,
+  onOpenTdp
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -57,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Compass size={22} className="text-emerald animate-pulse" />
           <div className="brand-text">
             <span className="brand-title">NSurvey</span>
-            <span className="brand-badge">SurvPack Pro</span>
+            <span className="brand-badge">Cadastral Pro</span>
           </div>
         </div>
 
@@ -118,6 +120,16 @@ export const Header: React.FC<HeaderProps> = ({
         <button className="btn-secondary-sm" onClick={onOpenCogo}>
           <Compass size={13} />
           <span>COGO</span>
+        </button>
+
+        {/* Official Title Deed Plan (TDP) Print Studio Button */}
+        <button
+          className="btn-tdp-highlight"
+          title="Generate Official Title Deed Plan (PDF / Print)"
+          onClick={onOpenTdp}
+        >
+          <FileText size={13} />
+          <span>Title Deed Plan (TDP)</span>
         </button>
 
         {/* Export Dropdown / Actions */}

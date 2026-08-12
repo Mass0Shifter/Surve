@@ -11,6 +11,7 @@ import { LayerManager } from './components/panels/LayerManager';
 import { CogoCalculator } from './components/panels/CogoCalculator';
 import { HistoryModal } from './components/panels/HistoryModal';
 import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
+import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
 const AUTOSAVE_KEY = 'nsurvey_autosave_enabled';
@@ -93,6 +94,7 @@ export const App: React.FC = () => {
   const [isCogoOpen, setIsCogoOpen] = useState<boolean>(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isRenumberOpen, setIsRenumberOpen] = useState<boolean>(false);
+  const [isTdpOpen, setIsTdpOpen] = useState<boolean>(false);
 
   // Active Layer Toggles
   const [layers, setLayers] = useState<CadLayers>({
@@ -199,11 +201,9 @@ export const App: React.FC = () => {
   const handleJumpToSnapshot = (index: number, isUndo: boolean) => {
     const current = stateRef.current;
     if (isUndo) {
-      // index is position in undoStack
       const target = undoStack[index];
       if (!target) return;
 
-      // Push current and intermediate states to redoStack
       const toRedo: HistorySnapshot[] = [
         {
           points: JSON.parse(JSON.stringify(current.points)),
@@ -221,7 +221,6 @@ export const App: React.FC = () => {
       setParcels(target.parcels);
       setProject(target.project);
     } else {
-      // index is position in redoStack
       const target = redoStack[index];
       if (!target) return;
 
@@ -384,13 +383,11 @@ export const App: React.FC = () => {
   const handleApplyRenumber = (renamedMap: Map<string, string>) => {
     recordSnapshot(`Batch Renumber ${points.length} Beacons`);
 
-    // 1. Update points
     const updatedPoints = points.map(p => {
       const newId = renamedMap.get(p.id);
       return newId ? { ...p, id: newId } : p;
     });
 
-    // 2. Cascade across parcels
     const updatedParcels = parcels.map(parcel => ({
       ...parcel,
       pointIds: parcel.pointIds.map(pid => renamedMap.get(pid) || pid)
@@ -463,6 +460,7 @@ export const App: React.FC = () => {
         onLoadSample={handleLoadSample}
         onOpenCogo={() => setIsCogoOpen(true)}
         onOpenRenumber={() => setIsRenumberOpen(true)}
+        onOpenTdp={() => setIsTdpOpen(true)}
       />
 
       {/* 2. CAD Tool Palette Toolbar with Undo/Redo & History */}
@@ -563,6 +561,15 @@ export const App: React.FC = () => {
         isOpen={isRenumberOpen}
         onClose={() => setIsRenumberOpen(false)}
         onApplyRenumber={handleApplyRenumber}
+      />
+
+      {/* Title Deed Plan (TDP) Print Studio Modal */}
+      <TitleDeedPlanModal
+        project={project}
+        points={points}
+        parcels={parcels}
+        isOpen={isTdpOpen}
+        onClose={() => setIsTdpOpen(false)}
       />
     </div>
   );

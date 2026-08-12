@@ -44,3 +44,11 @@ export function validateNigerianCoordinates(easting: number, northing: number): 
   }
   return { valid: true };
 }
+
+/**
+ * Returns human-readable name of the Nigerian Grid Belt.
+ */
+export function getDatumBeltName(belt: NigerianGridBelt): string {
+  const b = NIGERIAN_GRID_PARAMS.belts[belt];
+  return b ? b.name : 'Minna Datum Grid';
+}

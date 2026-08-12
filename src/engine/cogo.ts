@@ -109,11 +109,37 @@ export function computeParcel(parcel: Parcel, allPoints: CoordinatePoint[]): Par
 }
 
 /**
- * Calculates the bounding box extents for an array of coordinate points.
+ * Computes polygon area using Gauss's Shoelace formula for arbitrary vertices.
+ */
+export function shoelaceArea(vertices: { easting: number; northing: number }[]): number {
+  if (vertices.length < 3) return 0;
+  let sum1 = 0;
+  let sum2 = 0;
+  const n = vertices.length;
+  for (let i = 0; i < n; i++) {
+    const current = vertices[i];
+    const next = vertices[(i + 1) % n];
+    sum1 += current.easting * next.northing;
+    sum2 += next.easting * current.northing;
+  }
+  return 0.5 * Math.abs(sum1 - sum2);
+}
+
+/**
+ * Computes bounding box extents for an array of points
  */
 export function computeExtents(points: CoordinatePoint[]) {
   if (points.length === 0) {
-    return { minX: 0, maxX: 100, minY: 0, maxY: 100, width: 100, height: 100, centerX: 50, centerY: 50 };
+    return {
+      minX: 0,
+      maxX: 100,
+      minY: 0,
+      maxY: 100,
+      width: 100,
+      height: 100,
+      centerX: 50,
+      centerY: 50
+    };
   }
 
   let minX = Infinity;
@@ -121,17 +147,24 @@ export function computeExtents(points: CoordinatePoint[]) {
   let minY = Infinity;
   let maxY = -Infinity;
 
-  for (const p of points) {
-    if (p.easting < minX) minX = p.easting;
-    if (p.easting > maxX) maxX = p.easting;
-    if (p.northing < minY) minY = p.northing;
-    if (p.northing > maxY) maxY = p.northing;
+  for (const pt of points) {
+    if (pt.easting < minX) minX = pt.easting;
+    if (pt.easting > maxX) maxX = pt.easting;
+    if (pt.northing < minY) minY = pt.northing;
+    if (pt.northing > maxY) maxY = pt.northing;
   }
 
-  const width = Math.max(10, maxX - minX);
-  const height = Math.max(10, maxY - minY);
-  const centerX = minX + width / 2;
-  const centerY = minY + height / 2;
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
 
-  return { minX, maxX, minY, maxY, width, height, centerX, centerY };
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width,
+    height,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2
+  };
 }

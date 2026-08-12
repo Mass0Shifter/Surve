@@ -1,0 +1,337 @@
+import React, { useState } from 'react';
+import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
+import { generateTitleDeedPlanPDF, TdpRenderOptions } from '../../engine/pdf/tdpGenerator';
+import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
+import { computeParcelSetback } from '../../engine/cadastral/subdivision';
+import { FileText, Download, Printer, Settings2, ShieldCheck, Grid, Layers, Compass } from 'lucide-react';
+
+interface TitleDeedPlanModalProps {
+  project: ProjectMetadata;
+  points: CoordinatePoint[];
+  parcels: Parcel[];
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
+  project,
+  points,
+  parcels,
+  isOpen,
+  onClose
+}) => {
+  const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [selectedParcelId, setSelectedParcelId] = useState<string>(parcels[0]?.id || '');
+  const [scaleRatio, setScaleRatio] = useState<number>(project.scale || 1000);
+  const [showCoordinateTable, setShowCoordinateTable] = useState<boolean>(true);
+  const [showSealBox, setShowSealBox] = useState<boolean>(true);
+  const [showGridCrosses, setShowGridCrosses] = useState<boolean>(true);
+  const [showSetbacks, setShowSetbacks] = useState<boolean>(false);
+  const [setbackDist, setSetbackDist] = useState<number>(3.0);
+
+  if (!isOpen) return null;
+
+  const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
+
+  // Cadastral Sheet Numbers for this location
+  const centPoint = points[0] || { easting: 294312, northing: 992100 };
+  const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
+  const activeSheet = sheetIndices.find(s => s.scale === scaleRatio) || sheetIndices[0];
+
+  // Setback calculation
+  const setbackResult = selectedParcel && showSetbacks
+    ? computeParcelSetback(selectedParcel, points, setbackDist)
+    : null;
+
+  const handleDownloadPDF = () => {
+    const opts: TdpRenderOptions = {
+      pageSize,
+      orientation,
+      scaleRatio,
+      selectedParcelId,
+      showCoordinateTable,
+      showSealBox,
+      showGridCrosses,
+      showAdjoiningLabels: true
+    };
+
+    const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
+    const fileName = `${project.code || 'TDP'}_${selectedParcel?.plotNumber || 'PLAN'}.pdf`;
+    doc.save(fileName);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content tdp-modal-studio">
+        {/* Modal Top Header */}
+        <div className="modal-header">
+          <div className="modal-title">
+            <FileText size={18} className="text-emerald" />
+            <span>Title Deed Plan (TDP) Print Studio & Cadastral Suite</span>
+          </div>
+          <div className="header-actions-group">
+            <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan">
+              <Printer size={14} />
+              <span>Print</span>
+            </button>
+            <button className="btn-primary-sm" onClick={handleDownloadPDF} title="Download High-Resolution Vector PDF">
+              <Download size={14} />
+              <span>Download Vector PDF</span>
+            </button>
+            <button className="icon-btn" onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        <div className="tdp-studio-body">
+          {/* Left Controls Customizer Sidebar */}
+          <div className="tdp-customizer-sidebar">
+            <div className="sidebar-section-title">
+              <Settings2 size={14} className="text-emerald" />
+              <span>Plan Layout & Sheet Config</span>
+            </div>
+
+            {/* Target Parcel Selector */}
+            <div className="form-group">
+              <label>Focus Cadastral Parcel</label>
+              <select value={selectedParcelId} onChange={(e) => setSelectedParcelId(e.target.value)}>
+                {parcels.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Paper Size & Orientation */}
+            <div className="form-row-2">
+              <div className="form-group">
+                <label>Paper Size</label>
+                <select value={pageSize} onChange={(e) => setPageSize(e.target.value as any)}>
+                  <option value="a4">A4 (210 x 297 mm)</option>
+                  <option value="a3">A3 (297 x 420 mm)</option>
+                  <option value="legal">Legal (8.5 x 14 in)</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Orientation</label>
+                <select value={orientation} onChange={(e) => setOrientation(e.target.value as any)}>
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Scale Ratio */}
+            <div className="form-group">
+              <label>Drawing Scale Ratio (1:N)</label>
+              <select value={scaleRatio} onChange={(e) => setScaleRatio(parseInt(e.target.value) || 1000)}>
+                <option value={250}>1:250 (Detailed Site Plan)</option>
+                <option value={500}>1:500 (Abuja FCDA Standard)</option>
+                <option value={1000}>1:1,000 (Standard Cadastral)</option>
+                <option value={2000}>1:2,000 (Town Layout)</option>
+                <option value={5000}>1:5,000 (District Sheet)</option>
+              </select>
+            </div>
+
+            {/* Cadastral Sheet Index Card */}
+            <div className="sheet-index-card">
+              <div className="sheet-card-title">
+                <Grid size={12} className="text-cyan" />
+                <span>Calculated Cadastral Sheet</span>
+              </div>
+              <div className="sheet-number-highlight">{activeSheet.sheetNumber}</div>
+              <div className="sheet-meta-sub">{activeSheet.scaleLabel}</div>
+            </div>
+
+            {/* Feature Toggles */}
+            <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
+              <Layers size={14} className="text-cyan" />
+              <span>Survey Plan Elements</span>
+            </div>
+
+            <div className="toggle-list">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showCoordinateTable}
+                  onChange={(e) => setShowCoordinateTable(e.target.checked)}
+                />
+                <span>Coordinate Schedule Table</span>
+              </label>
+
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showSealBox}
+                  onChange={(e) => setShowSealBox(e.target.checked)}
+                />
+                <span>SURCON Surveyor's Seal & Cert</span>
+              </label>
+
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showGridCrosses}
+                  onChange={(e) => setShowGridCrosses(e.target.checked)}
+                />
+                <span>Geodetic Grid Crosses</span>
+              </label>
+            </div>
+
+            {/* Regulatory Building Setback Tool */}
+            <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
+              <Compass size={14} className="text-amber" />
+              <span>Building Setback Regulation</span>
+            </div>
+
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={showSetbacks}
+                onChange={(e) => setShowSetbacks(e.target.checked)}
+              />
+              <span>Calculate Building Footprint Setback</span>
+            </label>
+
+            {showSetbacks && (
+              <div className="setback-config-box">
+                <div className="form-group">
+                  <label>Setback Distance (m)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={setbackDist}
+                    onChange={(e) => setSetbackDist(parseFloat(e.target.value) || 3.0)}
+                  />
+                </div>
+                {setbackResult && (
+                  <div className="setback-stats">
+                    <div>Gross Plot Area: <strong>{setbackResult.originalArea.toFixed(1)} m²</strong></div>
+                    <div>Usable Build Footprint: <strong className="text-emerald">{setbackResult.usableBuildingArea.toFixed(1)} m²</strong></div>
+                    <div>Coverage Ratio: <strong>{((setbackResult.usableBuildingArea / setbackResult.originalArea) * 100).toFixed(1)}%</strong></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Right Live Print Preview Stage */}
+          <div className="tdp-preview-stage">
+            <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
+              {/* Outer Double Neatline */}
+              <div className="tdp-neatline-outer">
+                <div className="tdp-neatline-inner">
+                  {/* Plan Header */}
+                  <div className="tdp-plan-header">
+                    <div className="tdp-plan-title">TITLE DEED PLAN</div>
+                    <div className="tdp-plan-subtitle">
+                      PLAN SHOWING {selectedParcel?.plotNumber || project.title.toUpperCase()}
+                      {selectedParcel?.ownerName && ` (ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})`}
+                    </div>
+                    <div className="tdp-plan-location">
+                      SITUATED AT: {project.location.toUpperCase()} | DATUM: MINNA GRID
+                    </div>
+                    <div className="tdp-header-right-meta">
+                      <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
+                      <div><strong>SCALE:</strong> 1:{scaleRatio}</div>
+                      <div><strong>PLAN NO:</strong> {project.code}</div>
+                    </div>
+                  </div>
+
+                  {/* Plan Cadastral Drawing Area */}
+                  <div className="tdp-map-frame">
+                    <div className="tdp-grid-indicator">
+                      <span>+ {centPoint.easting.toFixed(0)}E, {centPoint.northing.toFixed(0)}N</span>
+                    </div>
+
+                    {/* Vector Plot Display */}
+                    <div className="tdp-vector-plot-box">
+                      <div className="tdp-plot-badge-center">
+                        <div className="tdp-plot-no">{selectedParcel?.plotNumber}</div>
+                        {selectedParcel?.ownerName && <div className="tdp-owner">{selectedParcel.ownerName}</div>}
+                        <div className="tdp-area-text">
+                          Area: {selectedParcel ? '824.50 sq.m' : '-'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* North Arrow */}
+                    <div className="tdp-north-arrow">
+                      <div className="arrow-head">N</div>
+                      <div className="arrow-stem" />
+                      <div className="arrow-label">GRID NORTH</div>
+                    </div>
+
+                    {/* Metric Bar Scale */}
+                    <div className="tdp-scale-bar-box">
+                      <div className="scale-bar-graphic">
+                        <div className="scale-bar-fill" />
+                      </div>
+                      <div className="scale-bar-text">
+                        <span>0</span>
+                        <span>25m</span>
+                        <span>50 METRES</span>
+                      </div>
+                      <div className="scale-ratio-text">SCALE 1:{scaleRatio}</div>
+                    </div>
+                  </div>
+
+                  {/* Plan Footer: Schedule & Seal */}
+                  <div className="tdp-plan-footer">
+                    {showCoordinateTable && (
+                      <div className="tdp-coord-schedule-table">
+                        <div className="schedule-table-title">COORDINATE SCHEDULE (MINNA DATUM)</div>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>BEACON ID</th>
+                              <th>EASTING (m)</th>
+                              <th>NORTHING (m)</th>
+                              <th>ORIGIN</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {points.slice(0, 6).map(pt => (
+                              <tr key={pt.id}>
+                                <td>{pt.id}</td>
+                                <td>{pt.easting.toFixed(3)}</td>
+                                <td>{pt.northing.toFixed(3)}</td>
+                                <td>{pt.isControl ? 'CONTROL' : 'CONCRETE'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {showSealBox && (
+                      <div className="tdp-seal-block">
+                        <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
+                        <div className="cert-body">
+                          I hereby certify that this plan was surveyed by me on the ground in accordance with the Survey Regulations.
+                        </div>
+                        <div className="surveyor-name">SURV. {project.surveyorName.toUpperCase()}</div>
+                        <div className="survey-firm">{project.surveyFirm.toUpperCase()}</div>
+                        <div className="survey-date">DATE: {project.date}</div>
+
+                        <div className="surcon-seal-box">
+                          <ShieldCheck size={18} className="text-muted" />
+                          <span>SURCON SEAL</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
