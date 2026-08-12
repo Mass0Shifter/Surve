@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { ProjectMetadata, CoordinatePoint, Parcel, NigerianGridBelt } from '../../engine/types';
 import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
-import { downloadFile } from '../../engine/exporters/csvExporter';
-import { Compass, Download, Settings, FileCode, RefreshCw, Tag, Save, FileText } from 'lucide-react';
+import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
+import { MenuBar } from './MenuBar';
+import { Compass, Settings, Save, FileText, Globe } from 'lucide-react';
 
 interface HeaderProps {
   project: ProjectMetadata;
@@ -13,11 +14,25 @@ interface HeaderProps {
   lastSavedTime: string | null;
   onToggleAutoSave: () => void;
   onUpdateProject: (proj: ProjectMetadata) => void;
+  onNewProject: () => void;
+  onImportCoordinates: () => void;
   onLoadSample: () => void;
   onOpenCogo: () => void;
   onOpenRenumber: () => void;
   onOpenTdp: () => void;
   onOpenTraverse: () => void;
+
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onOpenHistory: () => void;
+
+  isLeftVisible: boolean;
+  isRightVisible: boolean;
+  onToggleLeft: () => void;
+  onToggleRight: () => void;
+  onToggleMaximize: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,11 +43,23 @@ export const Header: React.FC<HeaderProps> = ({
   lastSavedTime,
   onToggleAutoSave,
   onUpdateProject,
+  onNewProject,
+  onImportCoordinates,
   onLoadSample,
   onOpenCogo,
   onOpenRenumber,
   onOpenTdp,
-  onOpenTraverse
+  onOpenTraverse,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  onOpenHistory,
+  isLeftVisible,
+  isRightVisible,
+  onToggleLeft,
+  onToggleRight,
+  onToggleMaximize
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -54,17 +81,58 @@ export const Header: React.FC<HeaderProps> = ({
     downloadFile(dxf, `${project.code || 'SURVPACK'}_PLAN.DXF`, 'application/dxf');
   };
 
+  const handleExportCSV = () => {
+    if (points.length === 0) {
+      alert('Cannot export Coordinate Book: No survey coordinates exist.');
+      return;
+    }
+    const csv = exportCoordinatesToCSV(points);
+    downloadFile(csv, `${project.code || 'SURVPACK'}_COORDINATES.CSV`, 'text/csv');
+  };
+
   return (
     <header className="app-header">
       <div className="header-left">
         <div className="brand-logo">
-          <Compass size={22} className="text-emerald animate-pulse" />
+          <Compass size={20} className="text-emerald animate-pulse" />
           <div className="brand-text">
             <span className="brand-title">NSurvey</span>
-            <span className="brand-badge">Cadastral Pro</span>
+            <span className="brand-badge">Pro</span>
           </div>
         </div>
 
+        {/* Traditional Desktop CAD Application Menu Bar */}
+        <MenuBar
+          onNewProject={onNewProject}
+          onImportCoordinates={onImportCoordinates}
+          onLoadDemo={onLoadSample}
+          onExportSCR={handleExportSCR}
+          onExportDXF={handleExportDXF}
+          onExportCSV={handleExportCSV}
+          onOpenTdp={onOpenTdp}
+          onOpenProjectSettings={() => setShowSettingsModal(true)}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onOpenHistory={onOpenHistory}
+          onOpenRenumber={onOpenRenumber}
+          isLeftVisible={isLeftVisible}
+          isRightVisible={isRightVisible}
+          onToggleLeft={onToggleLeft}
+          onToggleRight={onToggleRight}
+          onToggleMaximize={onToggleMaximize}
+          onOpenTraverse={onOpenTraverse}
+          onOpenCogo={onOpenCogo}
+          gridBelt={project.gridBelt}
+          onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}
+          autoSaveEnabled={autoSaveEnabled}
+          onToggleAutoSave={onToggleAutoSave}
+        />
+      </div>
+
+      <div className="header-right">
+        {/* Project Info Pill */}
         <div
           className="project-info-bar"
           onClick={() => setShowSettingsModal(true)}
@@ -72,11 +140,21 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <div className="proj-code-badge">{project.code}</div>
           <div className="proj-title-text">{project.title}</div>
-          <Settings size={14} className="proj-settings-icon" />
+          <Settings size={13} className="proj-settings-icon" />
         </div>
-      </div>
 
-      <div className="header-right">
+        {/* Datum Belt Indicator */}
+        <div className="datum-indicator-pill" title="Active Coordinate Projection Datum">
+          <Globe size={12} className="text-emerald" />
+          <span>
+            {project.gridBelt === NigerianGridBelt.MID_BELT
+              ? 'Mid Belt (8.5°E)'
+              : project.gridBelt === NigerianGridBelt.WEST_BELT
+              ? 'West Belt (4.5°E)'
+              : 'East Belt (12.5°E)'}
+          </span>
+        </div>
+
         {/* Toggleable Auto-Save Indicator */}
         <div
           className={`autosave-toggle-pill ${autoSaveEnabled ? 'active' : 'paused'}`}
@@ -87,115 +165,51 @@ export const Header: React.FC<HeaderProps> = ({
           <span>{autoSaveEnabled ? (lastSavedTime ? `Saved ${lastSavedTime}` : 'Auto-Save ON') : 'Auto-Save Paused'}</span>
         </div>
 
-        {/* Datum Belt Selector */}
-        <select
-          className="datum-select"
-          value={project.gridBelt}
-          onChange={(e) => onUpdateProject({ ...project, gridBelt: parseFloat(e.target.value) as NigerianGridBelt })}
-        >
-          <option value={NigerianGridBelt.WEST_BELT}>Minna West Belt (4.5°E)</option>
-          <option value={NigerianGridBelt.MID_BELT}>Minna Mid Belt (8.5°E - Abuja)</option>
-          <option value={NigerianGridBelt.EAST_BELT}>Minna East Belt (12.5°E)</option>
-        </select>
-
-        {/* Batch Renumber Beacons (frmRenum) */}
-        <button
-          className="btn-secondary-sm"
-          title="Batch Prefix & Renumber Beacons (frmRenum)"
-          onClick={onOpenRenumber}
-        >
-          <Tag size={13} />
-          <span>Renumber</span>
-        </button>
-
-        {/* Load Sample Benchmark */}
-        <button
-          className="btn-secondary-sm"
-          title="Reload CKC Extension Benchmark Data"
-          onClick={onLoadSample}
-        >
-          <RefreshCw size={13} />
-          <span>Demo Data</span>
-        </button>
-
-        {/* Traverse Studio Button */}
+        {/* Quick Access Highlights */}
         <button
           id="btn-open-traverse-modal"
           className="btn-traverse-highlight"
-          title="Traverse Field Book & Loop Balancing (Bowditch & Transit)"
+          title="Traverse Field Book & Loop Balancing Studio"
           onClick={onOpenTraverse}
         >
           <Compass size={13} className="text-cyan" />
-          <span>Traverse (Loop)</span>
+          <span>Traverse</span>
         </button>
 
-        {/* Quick COGO Calculator */}
-        <button className="btn-secondary-sm" onClick={onOpenCogo}>
-          <Compass size={13} />
-          <span>COGO</span>
-        </button>
-
-        {/* Official Title Deed Plan (TDP) Print Studio Button */}
         <button
           className="btn-tdp-highlight"
           title="Generate Official Title Deed Plan (PDF / Print)"
           onClick={onOpenTdp}
         >
           <FileText size={13} />
-          <span>Title Deed Plan (TDP)</span>
+          <span>TDP Studio</span>
         </button>
-
-        {/* Export Dropdown / Actions */}
-        <div className="export-btn-group">
-          <button
-            className="btn-export-scr"
-            title="Generate & Download AutoCAD Script (.SCR)"
-            onClick={handleExportSCR}
-          >
-            <FileCode size={13} />
-            <span>AutoCAD .SCR</span>
-          </button>
-          <button
-            className="btn-export-dxf"
-            title="Generate & Download Standard Vector DXF"
-            onClick={handleExportDXF}
-          >
-            <Download size={13} />
-            <span>Export DXF</span>
-          </button>
-        </div>
       </div>
 
-      {/* Project Settings Modal */}
+      {/* Project Metadata Modal */}
       {showSettingsModal && (
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="modal-header">
-              <h3>Project Metadata & Survey Authority</h3>
+              <div className="modal-title">
+                <Settings size={18} className="text-emerald" />
+                <span>Project Metadata & Cadastral Settings</span>
+              </div>
               <button className="icon-btn" onClick={() => setShowSettingsModal(false)}>✕</button>
             </div>
+
             <div className="modal-body">
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label>Project Job Code</label>
-                  <input
-                    type="text"
-                    value={project.code}
-                    onChange={(e) => onUpdateProject({ ...project, code: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Survey Date</label>
-                  <input
-                    type="date"
-                    value={project.date}
-                    onChange={(e) => onUpdateProject({ ...project, date: e.target.value })}
-                  />
-                </div>
+              <div className="form-group">
+                <label>Job Code / File Number</label>
+                <input
+                  type="text"
+                  value={project.code}
+                  onChange={(e) => onUpdateProject({ ...project, code: e.target.value })}
+                />
               </div>
 
               <div className="form-group">
-                <label>Project Title / Plan Name</label>
+                <label>Project Title / Description</label>
                 <input
                   type="text"
                   value={project.title}
@@ -204,7 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Survey Location / Cadastral District</label>
+                <label>Location / Cadastral District</label>
                 <input
                   type="text"
                   value={project.location}
@@ -212,36 +226,29 @@ export const Header: React.FC<HeaderProps> = ({
                 />
               </div>
 
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label>Surveyor Name</label>
-                  <input
-                    type="text"
-                    value={project.surveyorName}
-                    onChange={(e) => onUpdateProject({ ...project, surveyorName: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Firm / Organization</label>
-                  <input
-                    type="text"
-                    value={project.surveyFirm}
-                    onChange={(e) => onUpdateProject({ ...project, surveyFirm: e.target.value })}
-                  />
-                </div>
+              <div className="form-group">
+                <label>Surveyor General / Supervising Surveyor</label>
+                <input
+                  type="text"
+                  value={project.surveyorName}
+                  onChange={(e) => onUpdateProject({ ...project, surveyorName: e.target.value })}
+                />
               </div>
 
               <div className="form-row-2">
                 <div className="form-group">
-                  <label>Client Name</label>
-                  <input
-                    type="text"
-                    value={project.clientName}
-                    onChange={(e) => onUpdateProject({ ...project, clientName: e.target.value })}
-                  />
+                  <label>Minna Datum Belt</label>
+                  <select
+                    value={project.gridBelt}
+                    onChange={(e) => onUpdateProject({ ...project, gridBelt: parseFloat(e.target.value) as NigerianGridBelt })}
+                  >
+                    <option value={NigerianGridBelt.WEST_BELT}>West Belt (4.5°E)</option>
+                    <option value={NigerianGridBelt.MID_BELT}>Mid Belt (8.5°E - Abuja)</option>
+                    <option value={NigerianGridBelt.EAST_BELT}>East Belt (12.5°E)</option>
+                  </select>
                 </div>
                 <div className="form-group">
-                  <label>Scale Ratio (1:N)</label>
+                  <label>Default Scale (1:N)</label>
                   <input
                     type="number"
                     value={project.scale}
@@ -250,8 +257,11 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </div>
             </div>
+
             <div className="modal-footer">
-              <button className="btn-primary" onClick={() => setShowSettingsModal(false)}>Save Settings</button>
+              <button className="btn-primary" onClick={() => setShowSettingsModal(false)}>
+                Done
+              </button>
             </div>
           </div>
         </div>

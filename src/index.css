@@ -134,6 +134,166 @@ body {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+/* Traditional Desktop Application Menu Bar */
+.cad-menu-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 10px;
+}
+
+.menu-bar-item-container {
+  position: relative;
+}
+
+.menu-bar-btn {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid transparent;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.menu-bar-btn:hover, .menu-bar-btn.active {
+  background: var(--bg-surface-hover);
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.15);
+}
+
+.menu-dropdown-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 260px;
+  background: #111827;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7);
+  padding: 6px 0;
+  z-index: 1000;
+  animation: fadeIn 0.1s ease;
+}
+
+.menu-dropdown-header {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 6px 14px 2px 14px;
+  letter-spacing: 0.5px;
+}
+
+.menu-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.menu-dropdown-item:hover {
+  background: rgba(16, 185, 129, 0.12);
+  color: #f8fafc;
+}
+
+.menu-dropdown-item.selected {
+  color: var(--emerald);
+  font-weight: 600;
+}
+
+.menu-dropdown-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.menu-dropdown-item.disabled:hover {
+  background: transparent;
+  color: var(--text-main);
+}
+
+.menu-item-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.menu-shortcut {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: rgba(30, 41, 59, 0.6);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.menu-check {
+  color: var(--emerald);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.menu-dropdown-divider {
+  height: 1px;
+  background: rgba(148, 163, 184, 0.1);
+  margin: 5px 0;
+}
+
+.datum-indicator-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Error Boundary Diagnostic Card */
+.error-boundary-card {
+  padding: 24px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  margin: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.error-boundary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+.error-boundary-msg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #fecaca;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px 12px;
+  border-radius: 5px;
+  width: 100%;
+  overflow-x: auto;
+}
+
 .project-info-bar {
   display: flex;
   align-items: center;
@@ -162,7 +322,7 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-main);
-  max-width: 260px;
+  max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -176,7 +336,7 @@ body {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .datum-select {

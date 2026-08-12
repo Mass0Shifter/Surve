@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot } from './engine/types';
+import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot, NigerianGridBelt } from './engine/types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from './engine/sampleData';
 import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
@@ -13,6 +13,7 @@ import { HistoryModal } from './components/panels/HistoryModal';
 import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
 import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
@@ -493,26 +494,78 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleNewProject = () => {
+    if (points.length > 0 && !confirm('Are you sure you want to create a New Project? All unsaved work in the current session will be cleared.')) {
+      return;
+    }
+    recordSnapshot('Create New Project');
+    setProject({
+      title: 'UNTITLED SURVEY PLAN',
+      location: 'NIGERIA',
+      code: `JOB-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+      surveyFirm: 'GEOMATICS & SURVEY ASSOCIATES',
+      surveyorName: 'SURV. (CHIEF) O. C. EZE',
+      surveyorNumber: 'SURCON/REG/2014/4891',
+      clientName: 'NEW CLIENT',
+      address: 'ABUJA, NIGERIA',
+      phone: '+234 803 000 0000',
+      date: new Date().toLocaleDateString('en-GB'),
+      scale: 1000,
+      gridBelt: project.gridBelt || NigerianGridBelt.MID_BELT
+    });
+    setPoints([]);
+    setParcels([]);
+    setSelectedPointId(null);
+    setSelectedParcelId(null);
+  };
+
+  const handleToggleMaximizeCanvas = () => {
+    if (isLeftVisible || isRightVisible) {
+      setIsLeftVisible(false);
+      setIsRightVisible(false);
+    } else {
+      setIsLeftVisible(true);
+      setIsRightVisible(true);
+    }
+  };
+
   return (
-    <div className="app-container">
-      {/* 1. Header */}
-      <Header
-        project={project}
-        points={points}
-        parcels={parcels}
-        autoSaveEnabled={autoSaveEnabled}
-        lastSavedTime={lastSavedTime}
-        onToggleAutoSave={handleToggleAutoSave}
-        onUpdateProject={(newProj) => {
-          recordSnapshot('Update Project Metadata');
-          setProject(newProj);
-        }}
-        onLoadSample={handleLoadSample}
-        onOpenCogo={() => setIsCogoOpen(true)}
-        onOpenRenumber={() => setIsRenumberOpen(true)}
-        onOpenTdp={() => setIsTdpOpen(true)}
-        onOpenTraverse={() => setIsTraverseOpen(true)}
-      />
+    <ErrorBoundary fallbackTitle="NSurvey Workspace Recovery">
+      <div className="app-container">
+        {/* 1. Header with Native Desktop CAD MenuBar */}
+        <Header
+          project={project}
+          points={points}
+          parcels={parcels}
+          autoSaveEnabled={autoSaveEnabled}
+          lastSavedTime={lastSavedTime}
+          onToggleAutoSave={handleToggleAutoSave}
+          onUpdateProject={(newProj) => {
+            recordSnapshot('Update Project Metadata');
+            setProject(newProj);
+          }}
+          onNewProject={handleNewProject}
+          onImportCoordinates={() => {
+            setIsLeftVisible(true);
+            const input = document.getElementById('csv-file-input');
+            if (input) input.click();
+          }}
+          onLoadSample={handleLoadSample}
+          onOpenCogo={() => setIsCogoOpen(true)}
+          onOpenRenumber={() => setIsRenumberOpen(true)}
+          onOpenTdp={() => setIsTdpOpen(true)}
+          onOpenTraverse={() => setIsTraverseOpen(true)}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          onOpenHistory={() => setIsHistoryOpen(true)}
+          isLeftVisible={isLeftVisible}
+          isRightVisible={isRightVisible}
+          onToggleLeft={() => setIsLeftVisible(v => !v)}
+          onToggleRight={() => setIsRightVisible(v => !v)}
+          onToggleMaximize={handleToggleMaximizeCanvas}
+        />
 
       {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
       <Toolbar
@@ -680,5 +733,6 @@ export const App: React.FC = () => {
         onInjectTraverse={handleInjectTraverse}
       />
     </div>
+    </ErrorBoundary>
   );
 };
