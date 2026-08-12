@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { CadLayers } from '../../engine/types';
-import { Eye, EyeOff, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, EyeOff, Layers, ChevronDown, ChevronUp, Mountain } from 'lucide-react';
 
 interface LayerManagerProps {
   layers: CadLayers;
   onToggleLayer: (layerKey: keyof CadLayers) => void;
+  onUpdateLayerValue: (layerKey: keyof CadLayers, value: any) => void;
 }
 
-export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLayer }) => {
+export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLayer, onUpdateLayerValue }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isDtmCollapsed, setIsDtmCollapsed] = useState(false);
 
   const layerItems: { key: keyof CadLayers; label: string; color: string }[] = [
     { key: 'beacons', label: 'Beacon Symbols', color: '#ef4444' },
@@ -22,11 +24,12 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
     { key: 'controls', label: 'Control Triangles', color: '#f59e0b' }
   ];
 
-  const activeCount = layerItems.filter(i => layers[i.key]).length;
+  const booleanLayers = layerItems as { key: keyof CadLayers; label: string; color: string }[];
+  const activeCount = booleanLayers.filter(i => (layers[i.key] as boolean)).length;
 
   return (
     <div className="layers-panel-container">
-      {/* Sleek, Un-nested Header matching Cadastral Parcels Panel */}
+      {/* CAD Layers Header */}
       <div
         className="layers-header-row"
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -34,7 +37,7 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
       >
         <div className="layers-header-left">
           <Layers size={14} className="text-emerald" />
-          <span className="layers-header-title">CAD Layers & Visibility</span>
+          <span className="layers-header-title">CAD Layers &amp; Visibility</span>
         </div>
         <div className="layers-header-right">
           <span className="layers-count-badge">{activeCount}/{layerItems.length} Active</span>
@@ -47,7 +50,7 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
       {!isCollapsed && (
         <div className="layers-list">
           {layerItems.map(item => {
-            const isVisible = layers[item.key];
+            const isVisible = layers[item.key] as boolean;
             return (
               <div
                 key={item.key}
@@ -71,6 +74,84 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* DTM & Contour Layer Section */}
+      <div
+        className="layers-header-row dtm-section-header"
+        onClick={() => setIsDtmCollapsed(!isDtmCollapsed)}
+        style={{ marginTop: '4px', borderTop: '1px solid rgba(148,163,184,0.1)', paddingTop: '8px' }}
+      >
+        <div className="layers-header-left">
+          <Mountain size={14} className="text-amber" />
+          <span className="layers-header-title">DTM &amp; Contour Layer</span>
+        </div>
+        <div className="layers-header-right">
+          <span className="layers-count-badge" style={{ color: layers.contours ? 'var(--emerald)' : 'var(--text-muted)' }}>
+            {layers.contours ? 'ON' : 'OFF'}
+          </span>
+          <span className="layers-chevron-icon">
+            {isDtmCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </span>
+        </div>
+      </div>
+
+      {!isDtmCollapsed && (
+        <div className="dtm-controls-panel">
+          {/* Enable Contour Layer Toggle */}
+          <div
+            className={`layer-row ${layers.contours ? 'active' : 'inactive'}`}
+            onClick={() => onToggleLayer('contours')}
+          >
+            <div className="layer-left">
+              <div className="layer-color-dot" style={{ background: 'linear-gradient(135deg, #10b981, #22d3ee)' }} />
+              <span className="layer-label">Show Contour Lines</span>
+            </div>
+            <button className="layer-eye-btn" onClick={(e) => { e.stopPropagation(); onToggleLayer('contours'); }}>
+              {layers.contours ? <Eye size={13} className="text-emerald" /> : <EyeOff size={13} className="text-muted" />}
+            </button>
+          </div>
+
+          {/* Contour Interval */}
+          <div className="dtm-param-row">
+            <label className="dtm-param-label">Contour Interval (m)</label>
+            <input
+              type="number"
+              className="dtm-param-input"
+              value={layers.contourInterval}
+              min={0.1}
+              step={0.5}
+              onChange={(e) => onUpdateLayerValue('contourInterval', parseFloat(e.target.value) || 1)}
+            />
+          </div>
+
+          {/* Major Contour Every N */}
+          <div className="dtm-param-row">
+            <label className="dtm-param-label">Major Every N Contours</label>
+            <input
+              type="number"
+              className="dtm-param-input"
+              value={layers.majorContourEvery}
+              min={2}
+              step={1}
+              onChange={(e) => onUpdateLayerValue('majorContourEvery', parseInt(e.target.value) || 5)}
+            />
+          </div>
+
+          {/* Show Labels Toggle */}
+          <div
+            className={`layer-row ${layers.showContourLabels ? 'active' : 'inactive'}`}
+            onClick={() => onToggleLayer('showContourLabels')}
+          >
+            <div className="layer-left">
+              <div className="layer-color-dot" style={{ backgroundColor: '#f59e0b' }} />
+              <span className="layer-label">Contour Elevation Labels</span>
+            </div>
+            <button className="layer-eye-btn" onClick={(e) => { e.stopPropagation(); onToggleLayer('showContourLabels'); }}>
+              {layers.showContourLabels ? <Eye size={13} className="text-emerald" /> : <EyeOff size={13} className="text-muted" />}
+            </button>
+          </div>
         </div>
       )}
     </div>

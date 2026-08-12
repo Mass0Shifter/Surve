@@ -2519,6 +2519,46 @@ body {
 }
 
 /* ==========================================================================
+   DTM Controls Panel & Amber Text Utility
+   ========================================================================== */
+.text-amber { color: #f59e0b !important; }
+
+.dtm-controls-panel {
+  padding: 6px 0;
+}
+
+.dtm-section-header {
+  cursor: pointer;
+}
+
+.dtm-param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 14px;
+  gap: 8px;
+}
+
+.dtm-param-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.dtm-param-input {
+  width: 72px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* ==========================================================================
    Spirit Leveling Studio Modal Styles
    ========================================================================== */
 .modal-content.leveling-modal-studio {

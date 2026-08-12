@@ -1,7 +1,8 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { CoordinatePoint, Parcel, CadLayers, CadTool } from '../../engine/types';
 import { computeParcel, computeExtents } from '../../engine/cogo';
 import { decimalToDMS } from '../../engine/formats';
+import { buildDTM, DTMPoint } from '../../engine/dtm/dtmEngine';
 import { Maximize2, ZoomIn, ZoomOut, X } from 'lucide-react';
 
 interface CadCanvasProps {
@@ -110,6 +111,16 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       northing: (pan.y - screenY) / zoom
     };
   }, [pan, zoom]);
+
+  // Pre-compute DTM / Contours (memoized — only recalculates when points or layer settings change)
+  const dtmResult = useMemo(() => {
+    if (!layers.contours) return null;
+    const dtmPoints: DTMPoint[] = points
+      .filter(p => typeof p.elevation === 'number' && !isNaN(p.elevation!))
+      .map(p => ({ id: p.id, x: p.easting, y: p.northing, z: p.elevation! }));
+    if (dtmPoints.length < 3) return null;
+    return buildDTM(dtmPoints, layers.contourInterval || 2, layers.majorContourEvery || 5);
+  }, [points, layers.contours, layers.contourInterval, layers.majorContourEvery]);
 
   // Find nearest beacon for snapping (within 12px)
   const findSnapBeacon = useCallback((screenX: number, screenY: number) => {
@@ -409,7 +420,46 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
-    // 5. North Arrow Indicator
+    // 5. Draw DTM Contour Lines
+    if (layers.contours && dtmResult && dtmResult.contours.length > 0) {
+      for (const seg of dtmResult.contours) {
+        const p1 = worldToScreen(seg.x1, seg.y1);
+        const p2 = worldToScreen(seg.x2, seg.y2);
+
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+
+        if (seg.isMajor) {
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.85)'; // Vivid emerald for major
+          ctx.lineWidth = 1.8;
+        } else {
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)'; // Faint emerald for minor
+          ctx.lineWidth = 0.9;
+        }
+        ctx.setLineDash([]);
+        ctx.stroke();
+
+        // Label major contours at midpoint if enabled
+        if (seg.isMajor && layers.showContourLabels) {
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          const labelText = `${seg.elevation.toFixed(1)}m`;
+
+          ctx.save();
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+          ctx.font = '600 8px "JetBrains Mono", monospace';
+          const tw = ctx.measureText(labelText).width;
+          ctx.fillRect(midX - tw / 2 - 2, midY - 8, tw + 4, 10);
+          ctx.fillStyle = '#10b981';
+          ctx.textAlign = 'center';
+          ctx.fillText(labelText, midX, midY);
+          ctx.restore();
+        }
+      }
+    }
+
+    // 6. North Arrow Indicator
     ctx.save();
     const naX = rect.width - 40;
     const naY = 40;
@@ -470,7 +520,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     measureEnd,
     currentMouseWorld,
     worldToScreen,
-    screenToWorld
+    screenToWorld,
+    dtmResult
   ]);
 
   // Mouse Interaction Handlers

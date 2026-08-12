@@ -14,6 +14,7 @@ import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
 import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
 import { LevelingStudioModal } from './components/leveling/LevelingStudioModal';
+import { TacheometryStudioModal } from './components/tacheometry/TacheometryStudioModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -109,8 +110,9 @@ export const App: React.FC = () => {
   const [isTdpOpen, setIsTdpOpen] = useState<boolean>(false);
   const [isTraverseOpen, setIsTraverseOpen] = useState<boolean>(false);
   const [isLevelingOpen, setIsLevelingOpen] = useState<boolean>(false);
+  const [isTachOpen, setIsTachOpen] = useState<boolean>(false);
 
-  // Active Layer Toggles
+  // Active Layer Toggles (including DTM / Contour settings)
   const [layers, setLayers] = useState<CadLayers>({
     beacons: true,
     beaconLabels: true,
@@ -120,11 +122,26 @@ export const App: React.FC = () => {
     distances: true,
     parcelFill: true,
     gridCrosses: true,
-    controls: true
+    controls: true,
+    // DTM Contour defaults
+    contours: false,
+    contourInterval: 2,
+    majorContourEvery: 5,
+    showContourLabels: true
   });
 
   const handleToggleLayer = (layerKey: keyof CadLayers) => {
-    setLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
+    setLayers(prev => {
+      const val = prev[layerKey];
+      if (typeof val === 'boolean') {
+        return { ...prev, [layerKey]: !val };
+      }
+      return prev;
+    });
+  };
+
+  const handleUpdateLayerValue = (layerKey: keyof CadLayers, value: any) => {
+    setLayers(prev => ({ ...prev, [layerKey]: value }));
   };
 
   // Mouse Drag Resizer Listeners
@@ -576,6 +593,7 @@ export const App: React.FC = () => {
           onOpenTdp={() => setIsTdpOpen(true)}
           onOpenTraverse={() => setIsTraverseOpen(true)}
           onOpenLeveling={() => setIsLevelingOpen(true)}
+          onOpenTacheometry={() => setIsTachOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -684,6 +702,7 @@ export const App: React.FC = () => {
             <LayerManager
               layers={layers}
               onToggleLayer={handleToggleLayer}
+              onUpdateLayerValue={handleUpdateLayerValue}
             />
           </aside>
         ) : (
@@ -759,6 +778,25 @@ export const App: React.FC = () => {
         isOpen={isLevelingOpen}
         onClose={() => setIsLevelingOpen(false)}
         onApplyElevations={handleApplyLevelingElevations}
+      />
+
+      {/* Stadia Tacheometry & Total Station Studio Modal */}
+      <TacheometryStudioModal
+        isOpen={isTachOpen}
+        onClose={() => setIsTachOpen(false)}
+        onInjectSpotHeights={(newPoints) => {
+          recordSnapshot('Inject Tacheometry Spot Heights');
+          const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const merged = [...points];
+          for (const np of newPoints) {
+            if (!existingMap.has(np.id.toLowerCase())) merged.push(np);
+            else {
+              const idx = merged.findIndex(p => p.id.toLowerCase() === np.id.toLowerCase());
+              if (idx !== -1) merged[idx] = np;
+            }
+          }
+          setPoints(merged);
+        }}
       />
     </div>
     </ErrorBoundary>

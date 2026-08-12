@@ -76,6 +76,11 @@ export interface CadLayers {
   parcelFill: boolean;
   gridCrosses: boolean;
   controls: boolean;
+  // DTM / Contour Layer
+  contours: boolean;
+  contourInterval: number;       // metres between contour lines, e.g. 2
+  majorContourEvery: number;     // every N minor contours is a major, e.g. 5
+  showContourLabels: boolean;
 }
 
 export type CadTool = 'select' | 'pan' | 'add_beacon' | 'draw_parcel' | 'measure' | 'inverse';
