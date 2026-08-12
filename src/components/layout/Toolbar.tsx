@@ -1,6 +1,6 @@
 import React from 'react';
 import { CadTool } from '../../engine/types';
-import { MousePointer, Hand, PlusCircle, Ruler, Compass, Undo2, Redo2, History } from 'lucide-react';
+import { MousePointer, Hand, PlusCircle, Ruler, Compass, Undo2, Redo2, History, PanelLeft, PanelRight, Maximize2, Minimize2 } from 'lucide-react';
 
 interface ToolbarProps {
   activeTool: CadTool;
@@ -12,6 +12,11 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   historyCount: number;
+  isLeftVisible: boolean;
+  isRightVisible: boolean;
+  onToggleLeft: () => void;
+  onToggleRight: () => void;
+  onToggleMaximizeCanvas: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -23,8 +28,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canRedo,
   onUndo,
   onRedo,
-  historyCount
+  historyCount,
+  isLeftVisible,
+  isRightVisible,
+  onToggleLeft,
+  onToggleRight,
+  onToggleMaximizeCanvas
 }) => {
+  const isMaximized = !isLeftVisible && !isRightVisible;
+
   const tools: { id: CadTool; label: string; icon: React.ReactNode }[] = [
     { id: 'select', label: 'Select Object', icon: <MousePointer size={15} /> },
     { id: 'pan', label: 'Pan Viewport', icon: <Hand size={15} /> },
@@ -34,6 +46,36 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div className="cad-toolbar">
+      {/* Workbench Panel Toggles */}
+      <div className="tool-group">
+        <button
+          className={`tool-btn ${isLeftVisible ? 'active' : ''}`}
+          title={isLeftVisible ? 'Hide Coordinates Panel' : 'Show Coordinates Panel'}
+          onClick={onToggleLeft}
+        >
+          <PanelLeft size={15} />
+          <span className="tool-btn-label">Coords</span>
+        </button>
+        <button
+          className={`tool-btn ${isRightVisible ? 'active' : ''}`}
+          title={isRightVisible ? 'Hide Inspector & Layers' : 'Show Inspector & Layers'}
+          onClick={onToggleRight}
+        >
+          <PanelRight size={15} />
+          <span className="tool-btn-label">Inspector</span>
+        </button>
+        <button
+          className={`tool-btn ${isMaximized ? 'active' : ''}`}
+          title={isMaximized ? 'Restore Panels' : 'Maximize Canvas (Full View)'}
+          onClick={onToggleMaximizeCanvas}
+        >
+          {isMaximized ? <Minimize2 size={15} className="text-emerald" /> : <Maximize2 size={15} />}
+          <span className="tool-btn-label">{isMaximized ? 'Restore' : 'Max View'}</span>
+        </button>
+      </div>
+
+      <div className="tool-divider" />
+
       {/* Undo & Redo Group */}
       <div className="tool-group">
         <button

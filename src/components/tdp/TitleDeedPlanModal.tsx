@@ -4,7 +4,7 @@ import { generateTitleDeedPlanPDF, TdpRenderOptions } from '../../engine/pdf/tdp
 import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
 import { computeParcel, computeExtents } from '../../engine/cogo';
-import { FileText, Download, Printer, Settings2, ShieldCheck, Grid, Layers, Compass } from 'lucide-react';
+import { FileText, Download, Printer, Settings2, ShieldCheck, Grid, Layers, Compass, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
   project: ProjectMetadata;
@@ -31,6 +31,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const [showGridCrosses, setShowGridCrosses] = useState<boolean>(true);
   const [showSetbacks, setShowSetbacks] = useState<boolean>(false);
   const [setbackDist, setSetbackDist] = useState<number>(3.0);
+
+  // Preview Zoom Level (0.5 to 1.5)
+  const [previewZoom, setPreviewZoom] = useState<number>(0.85);
 
   if (!isOpen) return null;
 
@@ -59,9 +62,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     : null;
 
   // Compute SVG Vector Viewport Mapping
-  const svgWidth = 500;
-  const svgHeight = 420;
-  const svgMargin = 50;
+  const svgWidth = 520;
+  const svgHeight = 440;
+  const svgMargin = 45;
 
   const extents = computeExtents(targetPoints.length > 0 ? targetPoints : points);
   const paddingM = Math.max(extents.width, extents.height) * (isSinglePlot ? 0.35 : 0.25);
@@ -275,171 +278,199 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             )}
           </div>
 
-          {/* Right Live Print Preview Stage */}
+          {/* Right Live Print Preview Stage with Zoom Scale Controls */}
           <div className="tdp-preview-stage">
-            <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
-              {/* Outer Double Neatline */}
-              <div className="tdp-neatline-outer">
-                <div className="tdp-neatline-inner">
-                  {/* Plan Header */}
-                  <div className="tdp-plan-header">
-                    <div className="tdp-plan-title">TITLE DEED PLAN</div>
-                    <div className="tdp-plan-subtitle">
-                      {isSinglePlot && selectedParcel
-                        ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
-                        : `SURVEY PLAN OF ${project.title.toUpperCase()}`}
+            {/* Preview Zoom Controls Floating Bar */}
+            <div className="preview-zoom-bar">
+              <button
+                className="icon-btn"
+                title="Zoom Out Preview"
+                onClick={() => setPreviewZoom(z => Math.max(0.4, z - 0.1))}
+              >
+                <ZoomOut size={13} />
+              </button>
+              <span className="zoom-text">{(previewZoom * 100).toFixed(0)}%</span>
+              <button
+                className="icon-btn"
+                title="Zoom In Preview"
+                onClick={() => setPreviewZoom(z => Math.min(1.5, z + 0.1))}
+              >
+                <ZoomIn size={13} />
+              </button>
+              <button
+                className="btn-secondary-xs"
+                title="Fit Page to View"
+                onClick={() => setPreviewZoom(0.85)}
+              >
+                <Maximize2 size={12} className="inline-icon" />
+                <span>Fit</span>
+              </button>
+            </div>
+
+            <div className="tdp-canvas-scaler" style={{ transform: `scale(${previewZoom})` }}>
+              <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
+                {/* Outer Double Neatline */}
+                <div className="tdp-neatline-outer">
+                  <div className="tdp-neatline-inner">
+                    {/* Plan Header */}
+                    <div className="tdp-plan-header">
+                      <div className="tdp-plan-title">TITLE DEED PLAN</div>
+                      <div className="tdp-plan-subtitle">
+                        {isSinglePlot && selectedParcel
+                          ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+                          : `SURVEY PLAN OF ${project.title.toUpperCase()}`}
+                      </div>
+                      <div className="tdp-plan-location">
+                        SITUATED AT: {project.location.toUpperCase()} | DATUM: MINNA GRID
+                      </div>
+                      <div className="tdp-header-right-meta">
+                        <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
+                        <div><strong>SCALE:</strong> 1:{scaleRatio}</div>
+                        <div><strong>PLAN NO:</strong> {project.code}</div>
+                      </div>
                     </div>
-                    <div className="tdp-plan-location">
-                      SITUATED AT: {project.location.toUpperCase()} | DATUM: MINNA GRID
-                    </div>
-                    <div className="tdp-header-right-meta">
-                      <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
-                      <div><strong>SCALE:</strong> 1:{scaleRatio}</div>
-                      <div><strong>PLAN NO:</strong> {project.code}</div>
-                    </div>
-                  </div>
 
-                  {/* Plan Cadastral Drawing Area with Dynamic SVG Vector Engine */}
-                  <div className="tdp-map-frame">
-                    <svg
-                      viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-                      className="tdp-vector-svg"
-                    >
-                      {/* 1. Grid Crosses */}
-                      {showGridCrosses && (
-                        <g className="svg-grid-crosses" stroke="#cbd5e1" strokeWidth="0.8">
-                          {[100, 200, 300, 400].map(gx =>
-                            [80, 160, 240, 320].map(gy => (
-                              <g key={`${gx}-${gy}`}>
-                                <line x1={gx - 4} y1={gy} x2={gx + 4} y2={gy} />
-                                <line x1={gx} y1={gy - 4} x2={gx} y2={gy + 4} />
-                              </g>
-                            ))
-                          )}
-                        </g>
-                      )}
+                    {/* Plan Cadastral Drawing Area with Dynamic SVG Vector Engine */}
+                    <div className="tdp-map-frame">
+                      <svg
+                        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                        className="tdp-vector-svg"
+                      >
+                        {/* 1. Grid Crosses */}
+                        {showGridCrosses && (
+                          <g className="svg-grid-crosses" stroke="#cbd5e1" strokeWidth="0.8">
+                            {[100, 200, 300, 400].map(gx =>
+                              [80, 160, 240, 320].map(gy => (
+                                <g key={`${gx}-${gy}`}>
+                                  <line x1={gx - 4} y1={gy} x2={gx + 4} y2={gy} />
+                                  <line x1={gx} y1={gy - 4} x2={gx} y2={gy + 4} />
+                                </g>
+                              ))
+                            )}
+                          </g>
+                        )}
 
-                      {/* 2. Parcel Vector Polygons & Labels */}
-                      {targetParcels.map(parcel => {
-                        const comp = computeParcel(parcel, points);
-                        if (!comp || comp.vertices.length < 3) return null;
+                        {/* 2. Parcel Vector Polygons & Labels */}
+                        {targetParcels.map(parcel => {
+                          const comp = computeParcel(parcel, points);
+                          if (!comp || comp.vertices.length < 3) return null;
 
-                        const polyPoints = comp.vertices
-                          .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
-                          .join(' ');
+                          const polyPoints = comp.vertices
+                            .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
+                            .join(' ');
 
-                        const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
-                        const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
+                          const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
+                          const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
 
-                        return (
-                          <g key={parcel.id} className="svg-parcel-group">
-                            {/* Shaded Polygon Fill & Stroke */}
-                            <polygon
-                              points={polyPoints}
-                              fill="rgba(16, 185, 129, 0.12)"
-                              stroke="#10b981"
-                              strokeWidth="2"
-                              strokeLinejoin="round"
-                            />
+                          return (
+                            <g key={parcel.id} className="svg-parcel-group">
+                              {/* Shaded Polygon Fill & Stroke */}
+                              <polygon
+                                points={polyPoints}
+                                fill="rgba(16, 185, 129, 0.12)"
+                                stroke="#10b981"
+                                strokeWidth="2"
+                                strokeLinejoin="round"
+                              />
 
-                            {/* Centroid Badge */}
-                            <text
-                              x={centSvgX}
-                              y={centSvgY - 6}
-                              textAnchor="middle"
-                              fontWeight="bold"
-                              fontSize="12"
-                              fill="#0f172a"
-                            >
-                              {parcel.plotNumber}
-                            </text>
-                            {parcel.ownerName && (
+                              {/* Centroid Badge */}
                               <text
                                 x={centSvgX}
-                                y={centSvgY + 7}
+                                y={centSvgY - 6}
                                 textAnchor="middle"
-                                fontSize="9"
-                                fill="#475569"
+                                fontWeight="bold"
+                                fontSize="12"
+                                fill="#0f172a"
                               >
-                                {parcel.ownerName}
+                                {parcel.plotNumber}
                               </text>
-                            )}
-                            <text
-                              x={centSvgX}
-                              y={centSvgY + 20}
-                              textAnchor="middle"
-                              fontWeight="bold"
-                              fontSize="9"
-                              fill="#059669"
-                              fontFamily="monospace"
-                            >
-                              {comp.areaSquareMeters.toFixed(2)} Sq.m ({comp.areaHectares.toFixed(4)} Ha)
-                            </text>
+                              {parcel.ownerName && (
+                                <text
+                                  x={centSvgX}
+                                  y={centSvgY + 7}
+                                  textAnchor="middle"
+                                  fontSize="9"
+                                  fill="#475569"
+                                >
+                                  {parcel.ownerName}
+                                </text>
+                              )}
+                              <text
+                                x={centSvgX}
+                                y={centSvgY + 20}
+                                textAnchor="middle"
+                                fontWeight="bold"
+                                fontSize="9"
+                                fill="#059669"
+                                fontFamily="monospace"
+                              >
+                                {comp.areaSquareMeters.toFixed(2)} Sq.m ({comp.areaHectares.toFixed(4)} Ha)
+                              </text>
 
-                            {/* Leg Bearings & Distances */}
-                            {comp.legs.map((leg, lidx) => {
-                              const x1 = toSvgX(leg.fromPoint.easting);
-                              const y1 = toSvgY(leg.fromPoint.northing);
-                              const x2 = toSvgX(leg.toPoint.easting);
-                              const y2 = toSvgY(leg.toPoint.northing);
+                              {/* Leg Bearings & Distances */}
+                              {comp.legs.map((leg, lidx) => {
+                                const x1 = toSvgX(leg.fromPoint.easting);
+                                const y1 = toSvgY(leg.fromPoint.northing);
+                                const x2 = toSvgX(leg.toPoint.easting);
+                                const y2 = toSvgY(leg.toPoint.northing);
 
-                              const midX = (x1 + x2) / 2;
-                              const midY = (y1 + y2) / 2;
+                                const midX = (x1 + x2) / 2;
+                                const midY = (y1 + y2) / 2;
 
-                              const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-                              let textRot = angle;
-                              if (textRot > 90 || textRot < -90) {
-                                textRot += 180;
-                              }
+                                const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                                let textRot = angle;
+                                if (textRot > 90 || textRot < -90) {
+                                  textRot += 180;
+                                }
 
-                              return (
-                                <g key={lidx} transform={`translate(${midX}, ${midY}) rotate(${textRot})`}>
-                                  <text
-                                    y={-5}
-                                    textAnchor="middle"
-                                    fontSize="8"
-                                    fill="#1e293b"
-                                    fontWeight="500"
-                                    fontFamily="monospace"
-                                  >
-                                    {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)
-                                  </text>
-                                </g>
-                              );
-                            })}
-                          </g>
-                        );
-                      })}
+                                return (
+                                  <g key={lidx} transform={`translate(${midX}, ${midY}) rotate(${textRot})`}>
+                                    <text
+                                      y={-5}
+                                      textAnchor="middle"
+                                      fontSize="8"
+                                      fill="#1e293b"
+                                      fontWeight="500"
+                                      fontFamily="monospace"
+                                    >
+                                      {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          );
+                        })}
 
-                      {/* 3. Inward Setback Line Preview */}
-                      {showSetbacks && setbackResult && (
-                        <polygon
-                          points={setbackResult.setbackVertices.map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`).join(' ')}
-                          fill="rgba(245, 158, 11, 0.08)"
-                          stroke="#f59e0b"
-                          strokeWidth="1.2"
-                          strokeDasharray="4 3"
-                        />
-                      )}
+                        {/* 3. Inward Setback Line Preview */}
+                        {showSetbacks && setbackResult && (
+                          <polygon
+                            points={setbackResult.setbackVertices.map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`).join(' ')}
+                            fill="rgba(245, 158, 11, 0.08)"
+                            stroke="#f59e0b"
+                            strokeWidth="1.2"
+                            strokeDasharray="4 3"
+                          />
+                        )}
 
-                      {/* 4. Concrete Beacon Symbols */}
-                      {targetPoints.map(pt => {
-                        const bx = toSvgX(pt.easting);
-                        const by = toSvgY(pt.northing);
-                        return (
-                          <g key={pt.id} className="svg-beacon-group">
-                            {pt.isControl ? (
-                              <polygon
-                                points={`${bx},${by - 5} ${bx + 4},${by + 3} ${bx - 4},${by + 3}`}
-                                fill="#f59e0b"
-                                stroke="#ffffff"
-                                strokeWidth="1"
-                              />
-                            ) : (
+                        {/* 4. Concrete Beacon Symbols */}
+                        {targetPoints.map(pt => {
+                          const bx = toSvgX(pt.easting);
+                          const by = toSvgY(pt.northing);
+                          return (
+                            <g key={pt.id} className="svg-beacon-group">
+                              {pt.isControl ? (
+                                <polygon
+                                  points={`${bx},${by - 5} ${bx + 4},${by + 3} ${bx - 4},${by + 3}`}
+                                  fill="#f59e0b"
+                                  stroke="#ffffff"
+                                  strokeWidth="1"
+                                />
+                              ) : (
                               <>
-                                <circle cx={bx} cy={by} r="3" fill="#dc2626" stroke="#ffffff" strokeWidth="0.8" />
-                                <line x1={bx - 3} y1={by} x2={bx + 3} y2={by} stroke="#ffffff" strokeWidth="0.6" />
-                                <line x1={bx} y1={by - 3} x2={bx} y2={by + 3} stroke="#ffffff" strokeWidth="0.6" />
+                                <circle cx={bx} cy={by} r="3.5" fill="#dc2626" stroke="#ffffff" strokeWidth="0.8" />
+                                <line x1={bx - 3.5} y1={by} x2={bx + 3.5} y2={by} stroke="#ffffff" strokeWidth="0.6" />
+                                <line x1={bx} y1={by - 3.5} x2={bx} y2={by + 3.5} stroke="#ffffff" strokeWidth="0.6" />
                               </>
                             )}
                             <text
@@ -524,6 +555,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           </div>
         </div>

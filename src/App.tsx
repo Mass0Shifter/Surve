@@ -12,6 +12,7 @@ import { CogoCalculator } from './components/panels/CogoCalculator';
 import { HistoryModal } from './components/panels/HistoryModal';
 import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
+import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
 const AUTOSAVE_KEY = 'nsurvey_autosave_enabled';
@@ -31,7 +32,16 @@ export const App: React.FC = () => {
 
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
 
-  // Master Project State (restore from LocalStorage if available)
+  // Resizable & Collapsible Sidebars State
+  const [leftWidth, setLeftWidth] = useState<number>(330);
+  const [rightWidth, setRightWidth] = useState<number>(370);
+  const [isLeftVisible, setIsLeftVisible] = useState<boolean>(true);
+  const [isRightVisible, setIsRightVisible] = useState<boolean>(true);
+
+  const isDraggingLeftRef = useRef(false);
+  const isDraggingRightRef = useRef(false);
+
+  // Master Project State
   const [project, setProject] = useState<ProjectMetadata>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -75,7 +85,6 @@ export const App: React.FC = () => {
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
 
-  // Ref to always access current state in event listeners without re-binding
   const stateRef = useRef({ points, parcels, project });
   stateRef.current = { points, parcels, project };
 
@@ -111,6 +120,45 @@ export const App: React.FC = () => {
 
   const handleToggleLayer = (layerKey: keyof CadLayers) => {
     setLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
+  };
+
+  // Mouse Drag Resizer Listeners
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingLeftRef.current) {
+        const newW = Math.max(220, Math.min(550, e.clientX));
+        setLeftWidth(newW);
+      } else if (isDraggingRightRef.current) {
+        const newW = Math.max(240, Math.min(600, window.innerWidth - e.clientX));
+        setRightWidth(newW);
+      }
+    };
+
+    const handleMouseUp = () => {
+      isDraggingLeftRef.current = false;
+      isDraggingRightRef.current = false;
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const handleStartDragLeft = () => {
+    isDraggingLeftRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleStartDragRight = () => {
+    isDraggingRightRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
   };
 
   // LocalStorage Auto-Save Effect
@@ -197,7 +245,6 @@ export const App: React.FC = () => {
     setRedoStack(prev => prev.slice(0, -1));
   }, [redoStack]);
 
-  // Jump to specific point in history timeline
   const handleJumpToSnapshot = (index: number, isUndo: boolean) => {
     const current = stateRef.current;
     if (isUndo) {
@@ -247,34 +294,6 @@ export const App: React.FC = () => {
     setUndoStack([]);
     setRedoStack([]);
   };
-
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-        if (e.key === 'z' || e.key === 'Z') {
-          if (e.shiftKey) {
-            e.preventDefault();
-            handleRedo();
-          } else {
-            e.preventDefault();
-            handleUndo();
-          }
-        } else if (e.key === 'y' || e.key === 'Y') {
-          e.preventDefault();
-          handleRedo();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
 
   // Coordinate Handlers
   const handleAddPoint = (newPt: CoordinatePoint): boolean => {
@@ -379,7 +398,6 @@ export const App: React.FC = () => {
     setPoints(newPointsList);
   };
 
-  // Batch Renumbering Handler (frmRenum)
   const handleApplyRenumber = (renamedMap: Map<string, string>) => {
     recordSnapshot(`Batch Renumber ${points.length} Beacons`);
 
@@ -400,7 +418,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Parcel Management Handlers
   const handleAddParcel = (newParcel: Parcel): boolean => {
     const isDup = parcels.some(p => p.plotNumber.toLowerCase() === newParcel.plotNumber.trim().toLowerCase());
     if (isDup) {
@@ -433,7 +450,6 @@ export const App: React.FC = () => {
     if (selectedParcelId === id) setSelectedParcelId(parcels[0]?.id || null);
   };
 
-  // Reset to Sample Benchmark
   const handleLoadSample = () => {
     recordSnapshot(`Reset to Demo Benchmark`);
     setProject(SAMPLE_PROJECT_METADATA);
@@ -463,7 +479,7 @@ export const App: React.FC = () => {
         onOpenTdp={() => setIsTdpOpen(true)}
       />
 
-      {/* 2. CAD Tool Palette Toolbar with Undo/Redo & History */}
+      {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
       <Toolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}
@@ -474,22 +490,53 @@ export const App: React.FC = () => {
         onUndo={handleUndo}
         onRedo={handleRedo}
         historyCount={undoStack.length + redoStack.length + 1}
+        isLeftVisible={isLeftVisible}
+        isRightVisible={isRightVisible}
+        onToggleLeft={() => setIsLeftVisible(v => !v)}
+        onToggleRight={() => setIsRightVisible(v => !v)}
+        onToggleMaximizeCanvas={() => {
+          if (isLeftVisible || isRightVisible) {
+            setIsLeftVisible(false);
+            setIsRightVisible(false);
+          } else {
+            setIsLeftVisible(true);
+            setIsRightVisible(true);
+          }
+        }}
       />
 
-      {/* 3. Main CAD Workstation Area */}
+      {/* 3. Main Resizable CAD Workstation Area */}
       <main className="app-workspace">
         {/* Left Side: Coordinate Table */}
-        <aside className="workspace-sidebar left-sidebar">
-          <CoordinateTable
-            points={points}
-            selectedPointId={selectedPointId}
-            onSelectPoint={setSelectedPointId}
-            onAddPoint={handleAddPoint}
-            onUpdatePoint={handleUpdatePoint}
-            onDeletePoint={handleDeletePoint}
-            onBatchImport={handleBatchImport}
-          />
-        </aside>
+        {isLeftVisible ? (
+          <aside className="workspace-sidebar left-sidebar" style={{ width: `${leftWidth}px` }}>
+            <CoordinateTable
+              points={points}
+              selectedPointId={selectedPointId}
+              onSelectPoint={setSelectedPointId}
+              onAddPoint={handleAddPoint}
+              onUpdatePoint={handleUpdatePoint}
+              onDeletePoint={handleDeletePoint}
+              onBatchImport={handleBatchImport}
+            />
+            {/* Left Resizer Drag Handle */}
+            <div
+              className="resizer-handle resizer-right"
+              onMouseDown={handleStartDragLeft}
+              title="Drag to resize Coordinates panel"
+            />
+          </aside>
+        ) : (
+          <button
+            className="collapsed-edge-tab left-edge-tab"
+            title="Restore Coordinates Panel"
+            onClick={() => setIsLeftVisible(true)}
+          >
+            <MapPin size={13} />
+            <span>Coords</span>
+            <ChevronRight size={12} />
+          </button>
+        )}
 
         {/* Center: Interactive 2D Vector CAD Canvas */}
         <section className="workspace-center">
@@ -508,21 +555,39 @@ export const App: React.FC = () => {
         </section>
 
         {/* Right Side: Parcel Inspector & Layer Manager */}
-        <aside className="workspace-sidebar right-sidebar">
-          <ParcelInspector
-            parcels={parcels}
-            points={points}
-            selectedParcelId={selectedParcelId}
-            onSelectParcel={setSelectedParcelId}
-            onAddParcel={handleAddParcel}
-            onUpdateParcel={handleUpdateParcel}
-            onDeleteParcel={handleDeleteParcel}
-          />
-          <LayerManager
-            layers={layers}
-            onToggleLayer={handleToggleLayer}
-          />
-        </aside>
+        {isRightVisible ? (
+          <aside className="workspace-sidebar right-sidebar" style={{ width: `${rightWidth}px` }}>
+            {/* Right Resizer Drag Handle */}
+            <div
+              className="resizer-handle resizer-left"
+              onMouseDown={handleStartDragRight}
+              title="Drag to resize Inspector panel"
+            />
+            <ParcelInspector
+              parcels={parcels}
+              points={points}
+              selectedParcelId={selectedParcelId}
+              onSelectParcel={setSelectedParcelId}
+              onAddParcel={handleAddParcel}
+              onUpdateParcel={handleUpdateParcel}
+              onDeleteParcel={handleDeleteParcel}
+            />
+            <LayerManager
+              layers={layers}
+              onToggleLayer={handleToggleLayer}
+            />
+          </aside>
+        ) : (
+          <button
+            className="collapsed-edge-tab right-edge-tab"
+            title="Restore Inspector & Layers Panel"
+            onClick={() => setIsRightVisible(true)}
+          >
+            <ChevronLeft size={12} />
+            <span>Inspector</span>
+            <Layers size={13} />
+          </button>
+        )}
       </main>
 
       {/* 4. Live Cursor Coordinate Status Bar */}
@@ -554,7 +619,7 @@ export const App: React.FC = () => {
         onClearHistory={handleClearHistory}
       />
 
-      {/* Batch Beacon Prefix & Renumbering Modal (frmRenum) */}
+      {/* Batch Beacon Prefix & Renumbering Modal */}
       <BeaconRenumberModal
         points={points}
         parcels={parcels}

@@ -920,13 +920,133 @@ body {
   transform: translateY(-1px);
 }
 
-/* Title Deed Plan Studio Modal */
-.tdp-modal-studio {
-  width: 95vw;
-  max-width: 1200px;
-  height: 90vh;
+/* Title Deed Plan Studio Modal Sizing Override */
+.modal-content.tdp-modal-studio {
+  width: 95vw !important;
+  max-width: 1400px !important;
+  height: 92vh !important;
+  max-height: 92vh !important;
   display: flex;
   flex-direction: column;
+}
+
+/* Resizable Sidebars & Splitters */
+.workspace-sidebar {
+  position: relative;
+  transition: width 0.05s ease;
+}
+
+.resizer-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 15;
+  transition: background 0.2s ease;
+}
+
+.resizer-handle:hover, .resizer-handle:active {
+  background: var(--emerald);
+  box-shadow: 0 0 8px var(--emerald);
+}
+
+.resizer-right {
+  right: -3px;
+}
+
+.resizer-left {
+  left: -3px;
+}
+
+/* Collapsed Side Tab Handles */
+.collapsed-edge-tab {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.collapsed-edge-tab:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--emerald);
+  color: var(--emerald);
+}
+
+.left-edge-tab {
+  left: 0;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+}
+
+.right-edge-tab {
+  right: 0;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+}
+
+/* Preview Zoom Bar */
+.preview-zoom-bar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.zoom-text {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: #f8fafc;
+  min-width: 36px;
+  text-align: center;
+}
+
+.btn-secondary-xs {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.btn-secondary-xs:hover {
+  border-color: var(--emerald);
+  color: var(--emerald);
+}
+
+.tdp-canvas-scaler {
+  transform-origin: top center;
+  transition: transform 0.2s ease;
+  display: flex;
+  justify-content: center;
 }
 
 .header-actions-group {
