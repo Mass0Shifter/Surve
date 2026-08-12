@@ -59,6 +59,15 @@ export function parseDMSToDecimal(dmsStr: string): number {
 }
 
 /**
+ * Normalizes an angle or bearing to the range [0, 360) degrees.
+ */
+export function normalizeBearing(bearingDeg: number): number {
+  let norm = bearingDeg % 360;
+  if (norm < 0) norm += 360;
+  return norm;
+}
+
+/**
  * Formats a metric number with precision.
  */
 export function formatMetric(val: number, decimals: number = 3): string {

@@ -17,6 +17,7 @@ interface HeaderProps {
   onOpenCogo: () => void;
   onOpenRenumber: () => void;
   onOpenTdp: () => void;
+  onOpenTraverse: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,7 +31,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLoadSample,
   onOpenCogo,
   onOpenRenumber,
-  onOpenTdp
+  onOpenTdp,
+  onOpenTraverse
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -114,6 +116,16 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <RefreshCw size={13} />
           <span>Demo Data</span>
+        </button>
+
+        {/* Traverse Studio Button */}
+        <button
+          className="btn-secondary-sm"
+          title="Traverse Field Book & Loop Balancing (Bowditch & Transit)"
+          onClick={onOpenTraverse}
+        >
+          <Compass size={13} className="text-cyan" />
+          <span>Traverse (Loop)</span>
         </button>
 
         {/* Quick COGO Calculator */}

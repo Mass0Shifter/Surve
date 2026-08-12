@@ -12,6 +12,7 @@ import { CogoCalculator } from './components/panels/CogoCalculator';
 import { HistoryModal } from './components/panels/HistoryModal';
 import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
+import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
@@ -104,6 +105,7 @@ export const App: React.FC = () => {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isRenumberOpen, setIsRenumberOpen] = useState<boolean>(false);
   const [isTdpOpen, setIsTdpOpen] = useState<boolean>(false);
+  const [isTraverseOpen, setIsTraverseOpen] = useState<boolean>(false);
 
   // Active Layer Toggles
   const [layers, setLayers] = useState<CadLayers>({
@@ -459,6 +461,38 @@ export const App: React.FC = () => {
     setSelectedParcelId(SAMPLE_PARCELS[0]?.id || null);
   };
 
+  const handleInjectTraverse = (balancedPoints: CoordinatePoint[], tName: string) => {
+    recordSnapshot(`Inject Traverse Loop ${tName}`);
+
+    // Merge points avoiding duplicates
+    const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+    const newPointsList = [...points];
+
+    for (const bp of balancedPoints) {
+      if (!existingMap.has(bp.id.toLowerCase())) {
+        existingMap.set(bp.id.toLowerCase(), bp);
+        newPointsList.push(bp);
+      } else {
+        const idx = newPointsList.findIndex(p => p.id.toLowerCase() === bp.id.toLowerCase());
+        if (idx !== -1) newPointsList[idx] = bp;
+      }
+    }
+    setPoints(newPointsList);
+
+    // Create connected parcel boundary if >= 3 points
+    if (balancedPoints.length >= 3) {
+      const newParcel: Parcel = {
+        id: `parcel_trav_${Date.now()}`,
+        plotNumber: tName,
+        pointIds: balancedPoints.map(p => p.id),
+        ownerName: 'Traverse Boundary Loop',
+        color: '#38bdf8'
+      };
+      setParcels(prev => [...prev.filter(p => p.plotNumber !== tName), newParcel]);
+      setSelectedParcelId(newParcel.id);
+    }
+  };
+
   return (
     <div className="app-container">
       {/* 1. Header */}
@@ -477,6 +511,7 @@ export const App: React.FC = () => {
         onOpenCogo={() => setIsCogoOpen(true)}
         onOpenRenumber={() => setIsRenumberOpen(true)}
         onOpenTdp={() => setIsTdpOpen(true)}
+        onOpenTraverse={() => setIsTraverseOpen(true)}
       />
 
       {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
@@ -635,6 +670,14 @@ export const App: React.FC = () => {
         parcels={parcels}
         isOpen={isTdpOpen}
         onClose={() => setIsTdpOpen(false)}
+      />
+
+      {/* Traverse Loop Balancing Studio Modal */}
+      <TraverseStudioModal
+        isOpen={isTraverseOpen}
+        onClose={() => setIsTraverseOpen(false)}
+        existingPoints={points}
+        onInjectTraverse={handleInjectTraverse}
       />
     </div>
   );
