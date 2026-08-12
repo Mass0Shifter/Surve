@@ -3,24 +3,32 @@ import { ProjectMetadata, CoordinatePoint, Parcel, NigerianGridBelt } from '../.
 import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
 import { downloadFile } from '../../engine/exporters/csvExporter';
-import { Compass, Download, Settings, FileCode, RefreshCw } from 'lucide-react';
+import { Compass, Download, Settings, FileCode, RefreshCw, Tag, Save } from 'lucide-react';
 
 interface HeaderProps {
   project: ProjectMetadata;
   points: CoordinatePoint[];
   parcels: Parcel[];
+  autoSaveEnabled: boolean;
+  lastSavedTime: string | null;
+  onToggleAutoSave: () => void;
   onUpdateProject: (proj: ProjectMetadata) => void;
   onLoadSample: () => void;
   onOpenCogo: () => void;
+  onOpenRenumber: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   project,
   points,
   parcels,
+  autoSaveEnabled,
+  lastSavedTime,
+  onToggleAutoSave,
   onUpdateProject,
   onLoadSample,
-  onOpenCogo
+  onOpenCogo,
+  onOpenRenumber
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -53,7 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        <div className="project-info-bar" onClick={() => setShowSettingsModal(true)} title="Click to edit project metadata">
+        <div
+          className="project-info-bar"
+          onClick={() => setShowSettingsModal(true)}
+          title="Click to edit project metadata"
+        >
           <div className="proj-code-badge">{project.code}</div>
           <div className="proj-title-text">{project.title}</div>
           <Settings size={14} className="proj-settings-icon" />
@@ -61,6 +73,16 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="header-right">
+        {/* Toggleable Auto-Save Indicator */}
+        <div
+          className={`autosave-toggle-pill ${autoSaveEnabled ? 'active' : 'paused'}`}
+          onClick={onToggleAutoSave}
+          title={`Click to ${autoSaveEnabled ? 'pause' : 'enable'} project auto-save`}
+        >
+          <Save size={12} className={autoSaveEnabled ? 'text-emerald' : 'text-muted'} />
+          <span>{autoSaveEnabled ? (lastSavedTime ? `Saved ${lastSavedTime}` : 'Auto-Save ON') : 'Auto-Save Paused'}</span>
+        </div>
+
         {/* Datum Belt Selector */}
         <select
           className="datum-select"
@@ -71,6 +93,16 @@ export const Header: React.FC<HeaderProps> = ({
           <option value={NigerianGridBelt.MID_BELT}>Minna Mid Belt (8.5°E - Abuja)</option>
           <option value={NigerianGridBelt.EAST_BELT}>Minna East Belt (12.5°E)</option>
         </select>
+
+        {/* Batch Renumber Beacons (frmRenum) */}
+        <button
+          className="btn-secondary-sm"
+          title="Batch Prefix & Renumber Beacons (frmRenum)"
+          onClick={onOpenRenumber}
+        >
+          <Tag size={13} />
+          <span>Renumber</span>
+        </button>
 
         {/* Load Sample Benchmark */}
         <button

@@ -691,6 +691,222 @@ body {
   gap: 4px;
 }
 
+.autosave-toggle-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.autosave-toggle-pill.active {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--emerald);
+}
+
+.autosave-toggle-pill.paused {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.4);
+  color: var(--text-muted);
+}
+
+.autosave-toggle-pill:hover {
+  filter: brightness(1.15);
+}
+
+/* Measurement Result Pill */
+.measurement-result-pill {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #f59e0b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  color: #fbbf24;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+
+.icon-btn-xs {
+  background: transparent;
+  border: none;
+  color: #fbbf24;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 50%;
+}
+
+.icon-btn-xs:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* History Modal & Timeline */
+.history-modal, .renumber-modal {
+  width: 540px;
+}
+
+.history-settings-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.history-settings-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.history-limit-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-limit-controls input[type="range"] {
+  width: 110px;
+  accent-color: var(--emerald);
+}
+
+.btn-danger-xs {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-danger-xs:hover {
+  background: var(--rose);
+  color: white;
+}
+
+.history-timeline-scroll {
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.timeline-item:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--emerald);
+}
+
+.timeline-item.current-item {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: var(--emerald);
+  cursor: default;
+}
+
+.timeline-item.redo-item {
+  opacity: 0.7;
+}
+
+.timeline-item.redo-item:hover {
+  opacity: 1;
+}
+
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.timeline-dot.current-dot {
+  background: var(--emerald);
+  box-shadow: 0 0 8px var(--emerald);
+}
+
+.timeline-dot.undo-dot {
+  background: var(--cyan);
+}
+
+.timeline-dot.redo-dot {
+  background: var(--amber);
+}
+
+.timeline-info {
+  flex: 1;
+}
+
+.timeline-desc {
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-badge-sub {
+  font-size: 9px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.timeline-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.preview-scroll-table {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-dark);
+}
+
 .empty-cell {
   text-align: center;
   padding: 20px;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool } from './engine/types';
+import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot } from './engine/types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from './engine/sampleData';
 import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
@@ -9,19 +9,66 @@ import { CoordinateTable } from './components/tables/CoordinateTable';
 import { ParcelInspector } from './components/panels/ParcelInspector';
 import { LayerManager } from './components/panels/LayerManager';
 import { CogoCalculator } from './components/panels/CogoCalculator';
+import { HistoryModal } from './components/panels/HistoryModal';
+import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 
-interface HistorySnapshot {
-  points: CoordinatePoint[];
-  parcels: Parcel[];
-  project: ProjectMetadata;
-  description: string;
-}
+const STORAGE_KEY = 'nsurvey_project_state_v1';
+const AUTOSAVE_KEY = 'nsurvey_autosave_enabled';
+const HISTORY_LIMIT_KEY = 'nsurvey_history_limit';
 
 export const App: React.FC = () => {
-  // Master Project State
-  const [project, setProject] = useState<ProjectMetadata>(SAMPLE_PROJECT_METADATA);
-  const [points, setPoints] = useState<CoordinatePoint[]>(SAMPLE_COORDINATES);
-  const [parcels, setParcels] = useState<Parcel[]>(SAMPLE_PARCELS);
+  // Auto-Save & History Capacity Settings
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [historyLimit, setHistoryLimit] = useState<number>(() => {
+    const saved = localStorage.getItem(HISTORY_LIMIT_KEY);
+    return saved ? Math.min(256, Math.max(10, parseInt(saved) || 50)) : 50;
+  });
+
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+
+  // Master Project State (restore from LocalStorage if available)
+  const [project, setProject] = useState<ProjectMetadata>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.project) return parsed.project;
+      }
+    } catch {
+      // fallback
+    }
+    return SAMPLE_PROJECT_METADATA;
+  });
+
+  const [points, setPoints] = useState<CoordinatePoint[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.points && Array.isArray(parsed.points)) return parsed.points;
+      }
+    } catch {
+      // fallback
+    }
+    return SAMPLE_COORDINATES;
+  });
+
+  const [parcels, setParcels] = useState<Parcel[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.parcels && Array.isArray(parsed.parcels)) return parsed.parcels;
+      }
+    } catch {
+      // fallback
+    }
+    return SAMPLE_PARCELS;
+  });
 
   // Undo / Redo History Stacks
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
@@ -42,8 +89,10 @@ export const App: React.FC = () => {
     northing: points[0]?.northing || 992100.125
   });
 
-  // Modal State
+  // Modal States
   const [isCogoOpen, setIsCogoOpen] = useState<boolean>(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const [isRenumberOpen, setIsRenumberOpen] = useState<boolean>(false);
 
   // Active Layer Toggles
   const [layers, setLayers] = useState<CadLayers>({
@@ -62,6 +111,34 @@ export const App: React.FC = () => {
     setLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
   };
 
+  // LocalStorage Auto-Save Effect
+  useEffect(() => {
+    if (autoSaveEnabled) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ project, points, parcels }));
+        localStorage.setItem(AUTOSAVE_KEY, 'true');
+        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setLastSavedTime(now);
+      } catch (err) {
+        console.warn('Auto-save failed:', err);
+      }
+    } else {
+      localStorage.setItem(AUTOSAVE_KEY, 'false');
+      setLastSavedTime(null);
+    }
+  }, [project, points, parcels, autoSaveEnabled]);
+
+  const handleToggleAutoSave = () => {
+    setAutoSaveEnabled(prev => !prev);
+  };
+
+  const handleSetHistoryLimit = (limit: number) => {
+    const clamped = Math.min(256, Math.max(10, limit));
+    setHistoryLimit(clamped);
+    localStorage.setItem(HISTORY_LIMIT_KEY, clamped.toString());
+    setUndoStack(prev => prev.slice(-clamped));
+  };
+
   // Push state snapshot onto undo stack before mutations
   const recordSnapshot = useCallback((description: string) => {
     const current = stateRef.current;
@@ -69,11 +146,12 @@ export const App: React.FC = () => {
       points: JSON.parse(JSON.stringify(current.points)),
       parcels: JSON.parse(JSON.stringify(current.parcels)),
       project: JSON.parse(JSON.stringify(current.project)),
-      description
+      description,
+      timestamp: Date.now()
     };
-    setUndoStack(prev => [...prev.slice(-49), snapshot]); // Keep up to 50 items
-    setRedoStack([]); // Clear redo stack on new action
-  }, []);
+    setUndoStack(prev => [...prev.slice(-(historyLimit - 1)), snapshot]);
+    setRedoStack([]);
+  }, [historyLimit]);
 
   // Undo Handler
   const handleUndo = useCallback(() => {
@@ -81,16 +159,15 @@ export const App: React.FC = () => {
     const current = stateRef.current;
     const previous = undoStack[undoStack.length - 1];
 
-    // Push current to redo stack
     const redoSnapshot: HistorySnapshot = {
       points: JSON.parse(JSON.stringify(current.points)),
       parcels: JSON.parse(JSON.stringify(current.parcels)),
       project: JSON.parse(JSON.stringify(current.project)),
-      description: 'Current State'
+      description: 'Current State',
+      timestamp: Date.now()
     };
     setRedoStack(prev => [...prev, redoSnapshot]);
 
-    // Apply previous state
     setPoints(previous.points);
     setParcels(previous.parcels);
     setProject(previous.project);
@@ -103,26 +180,78 @@ export const App: React.FC = () => {
     const current = stateRef.current;
     const next = redoStack[redoStack.length - 1];
 
-    // Push current to undo stack
     const undoSnapshot: HistorySnapshot = {
       points: JSON.parse(JSON.stringify(current.points)),
       parcels: JSON.parse(JSON.stringify(current.parcels)),
       project: JSON.parse(JSON.stringify(current.project)),
-      description: 'Before Redo'
+      description: 'Before Redo',
+      timestamp: Date.now()
     };
     setUndoStack(prev => [...prev, undoSnapshot]);
 
-    // Apply next state
     setPoints(next.points);
     setParcels(next.parcels);
     setProject(next.project);
     setRedoStack(prev => prev.slice(0, -1));
   }, [redoStack]);
 
-  // Global Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+  // Jump to specific point in history timeline
+  const handleJumpToSnapshot = (index: number, isUndo: boolean) => {
+    const current = stateRef.current;
+    if (isUndo) {
+      // index is position in undoStack
+      const target = undoStack[index];
+      if (!target) return;
+
+      // Push current and intermediate states to redoStack
+      const toRedo: HistorySnapshot[] = [
+        {
+          points: JSON.parse(JSON.stringify(current.points)),
+          parcels: JSON.parse(JSON.stringify(current.parcels)),
+          project: JSON.parse(JSON.stringify(current.project)),
+          description: 'State before jump',
+          timestamp: Date.now()
+        },
+        ...undoStack.slice(index + 1)
+      ];
+
+      setRedoStack(prev => [...prev, ...toRedo]);
+      setUndoStack(undoStack.slice(0, index));
+      setPoints(target.points);
+      setParcels(target.parcels);
+      setProject(target.project);
+    } else {
+      // index is position in redoStack
+      const target = redoStack[index];
+      if (!target) return;
+
+      const toUndo: HistorySnapshot[] = [
+        {
+          points: JSON.parse(JSON.stringify(current.points)),
+          parcels: JSON.parse(JSON.stringify(current.parcels)),
+          project: JSON.parse(JSON.stringify(current.project)),
+          description: 'State before jump',
+          timestamp: Date.now()
+        },
+        ...redoStack.slice(index + 1)
+      ];
+
+      setUndoStack(prev => [...prev, ...toUndo]);
+      setRedoStack(redoStack.slice(0, index));
+      setPoints(target.points);
+      setParcels(target.parcels);
+      setProject(target.project);
+    }
+  };
+
+  const handleClearHistory = () => {
+    setUndoStack([]);
+    setRedoStack([]);
+  };
+
+  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger undo/redo if user is actively typing inside an input or textarea
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
@@ -131,16 +260,13 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         if (e.key === 'z' || e.key === 'Z') {
           if (e.shiftKey) {
-            // Ctrl+Shift+Z = Redo
             e.preventDefault();
             handleRedo();
           } else {
-            // Ctrl+Z = Undo
             e.preventDefault();
             handleUndo();
           }
         } else if (e.key === 'y' || e.key === 'Y') {
-          // Ctrl+Y = Redo
           e.preventDefault();
           handleRedo();
         }
@@ -151,7 +277,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Coordinate Management Handlers with History
+  // Coordinate Handlers
   const handleAddPoint = (newPt: CoordinatePoint): boolean => {
     const isDup = points.some(p => p.id.toLowerCase() === newPt.id.trim().toLowerCase());
     if (isDup) {
@@ -254,7 +380,30 @@ export const App: React.FC = () => {
     setPoints(newPointsList);
   };
 
-  // Parcel Management Handlers with History
+  // Batch Renumbering Handler (frmRenum)
+  const handleApplyRenumber = (renamedMap: Map<string, string>) => {
+    recordSnapshot(`Batch Renumber ${points.length} Beacons`);
+
+    // 1. Update points
+    const updatedPoints = points.map(p => {
+      const newId = renamedMap.get(p.id);
+      return newId ? { ...p, id: newId } : p;
+    });
+
+    // 2. Cascade across parcels
+    const updatedParcels = parcels.map(parcel => ({
+      ...parcel,
+      pointIds: parcel.pointIds.map(pid => renamedMap.get(pid) || pid)
+    }));
+
+    setPoints(updatedPoints);
+    setParcels(updatedParcels);
+    if (selectedPointId) {
+      setSelectedPointId(renamedMap.get(selectedPointId) || selectedPointId);
+    }
+  };
+
+  // Parcel Management Handlers
   const handleAddParcel = (newParcel: Parcel): boolean => {
     const isDup = parcels.some(p => p.plotNumber.toLowerCase() === newParcel.plotNumber.trim().toLowerCase());
     if (isDup) {
@@ -304,23 +453,29 @@ export const App: React.FC = () => {
         project={project}
         points={points}
         parcels={parcels}
+        autoSaveEnabled={autoSaveEnabled}
+        lastSavedTime={lastSavedTime}
+        onToggleAutoSave={handleToggleAutoSave}
         onUpdateProject={(newProj) => {
           recordSnapshot('Update Project Metadata');
           setProject(newProj);
         }}
         onLoadSample={handleLoadSample}
         onOpenCogo={() => setIsCogoOpen(true)}
+        onOpenRenumber={() => setIsRenumberOpen(true)}
       />
 
-      {/* 2. CAD Tool Palette Toolbar with Undo/Redo */}
+      {/* 2. CAD Tool Palette Toolbar with Undo/Redo & History */}
       <Toolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}
         onOpenCogo={() => setIsCogoOpen(true)}
+        onOpenHistory={() => setIsHistoryOpen(true)}
         canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        historyCount={undoStack.length + redoStack.length + 1}
       />
 
       {/* 3. Main CAD Workstation Area */}
@@ -386,6 +541,28 @@ export const App: React.FC = () => {
         points={points}
         isOpen={isCogoOpen}
         onClose={() => setIsCogoOpen(false)}
+      />
+
+      {/* History & Version Control Timeline Modal */}
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        undoStack={undoStack}
+        redoStack={redoStack}
+        currentSnapshot={{ points, parcels, project, description: 'Live Workspace' }}
+        historyLimit={historyLimit}
+        onSetHistoryLimit={handleSetHistoryLimit}
+        onJumpToSnapshot={handleJumpToSnapshot}
+        onClearHistory={handleClearHistory}
+      />
+
+      {/* Batch Beacon Prefix & Renumbering Modal (frmRenum) */}
+      <BeaconRenumberModal
+        points={points}
+        parcels={parcels}
+        isOpen={isRenumberOpen}
+        onClose={() => setIsRenumberOpen(false)}
+        onApplyRenumber={handleApplyRenumber}
       />
     </div>
   );

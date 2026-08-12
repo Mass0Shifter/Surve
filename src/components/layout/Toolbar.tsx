@@ -1,30 +1,35 @@
 import React from 'react';
 import { CadTool } from '../../engine/types';
-import { MousePointer, Hand, PlusCircle, Compass, Undo2, Redo2 } from 'lucide-react';
+import { MousePointer, Hand, PlusCircle, Ruler, Compass, Undo2, Redo2, History } from 'lucide-react';
 
 interface ToolbarProps {
   activeTool: CadTool;
   onSelectTool: (tool: CadTool) => void;
   onOpenCogo: () => void;
+  onOpenHistory: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  historyCount: number;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   activeTool,
   onSelectTool,
   onOpenCogo,
+  onOpenHistory,
   canUndo,
   canRedo,
   onUndo,
-  onRedo
+  onRedo,
+  historyCount
 }) => {
   const tools: { id: CadTool; label: string; icon: React.ReactNode }[] = [
     { id: 'select', label: 'Select Object', icon: <MousePointer size={15} /> },
     { id: 'pan', label: 'Pan Viewport', icon: <Hand size={15} /> },
-    { id: 'add_beacon', label: 'Add Beacon (Click Canvas)', icon: <PlusCircle size={15} /> }
+    { id: 'add_beacon', label: 'Add Beacon (Click Canvas)', icon: <PlusCircle size={15} /> },
+    { id: 'measure', label: 'Measure Distance & Bearing', icon: <Ruler size={15} /> }
   ];
 
   return (
@@ -51,11 +56,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Redo2 size={15} />
           <span className="tool-btn-label">Redo</span>
         </button>
+        <button
+          className="tool-btn"
+          title="View Version Timeline & History"
+          onClick={onOpenHistory}
+        >
+          <History size={15} className="text-cyan" />
+          <span className="tool-btn-label">History ({historyCount})</span>
+        </button>
       </div>
 
       <div className="tool-divider" />
 
-      {/* CAD Navigation & Pointing Tools */}
+      {/* CAD Navigation, Pointing, and Measurement Tools */}
       <div className="tool-group">
         {tools.map(t => {
           const isActive = activeTool === t.id;

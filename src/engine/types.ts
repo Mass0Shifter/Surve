@@ -79,3 +79,11 @@ export interface CadLayers {
 }
 
 export type CadTool = 'select' | 'pan' | 'add_beacon' | 'draw_parcel' | 'measure' | 'inverse';
+
+export interface HistorySnapshot {
+  points: CoordinatePoint[];
+  parcels: Parcel[];
+  project: ProjectMetadata;
+  description: string;
+  timestamp?: number;
+}

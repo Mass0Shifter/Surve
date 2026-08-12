@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { CoordinatePoint, Parcel, CadLayers, CadTool } from '../../engine/types';
 import { computeParcel, computeExtents } from '../../engine/cogo';
-import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { decimalToDMS } from '../../engine/formats';
+import { Maximize2, ZoomIn, ZoomOut, X } from 'lucide-react';
 
 interface CadCanvasProps {
   points: CoordinatePoint[];
@@ -32,10 +33,23 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Viewport State
-  const [zoom, setZoom] = useState<number>(3.0); // Pixels per survey meter
+  const [zoom, setZoom] = useState<number>(3.0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Measurement Tool State
+  const [measureStart, setMeasureStart] = useState<{ easting: number; northing: number; pointId?: string } | null>(null);
+  const [measureEnd, setMeasureEnd] = useState<{ easting: number; northing: number; pointId?: string } | null>(null);
+  const [currentMouseWorld, setCurrentMouseWorld] = useState<{ easting: number; northing: number } | null>(null);
+
+  // Clear measurement if tool changes away from 'measure'
+  useEffect(() => {
+    if (activeTool !== 'measure') {
+      setMeasureStart(null);
+      setMeasureEnd(null);
+    }
+  }, [activeTool]);
 
   // Coordinate Extents Calculation & Auto-Fit
   const fitExtents = useCallback(() => {
@@ -44,7 +58,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     const rect = canvas.getBoundingClientRect();
     const extents = computeExtents(points);
 
-    const margin = 60; // Pixels padding
+    const margin = 60;
     const availWidth = Math.max(100, rect.width - margin * 2);
     const availHeight = Math.max(100, rect.height - margin * 2);
 
@@ -52,41 +66,46 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     const scaleY = availHeight / extents.height;
     const newZoom = Math.max(0.1, Math.min(20, Math.min(scaleX, scaleY)));
 
-    // Center of canvas in pixels
     const canvasCenterX = rect.width / 2;
     const canvasCenterY = rect.height / 2;
 
-    // Pan such that (extents.centerX, extents.centerY) maps to canvas center
     const newPanX = canvasCenterX - extents.centerX * newZoom;
-    const newPanY = canvasCenterY + extents.centerY * newZoom; // Invert Northing
+    const newPanY = canvasCenterY + extents.centerY * newZoom;
 
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
   }, [points]);
 
-  // Initial fit on mount if points exist
   useEffect(() => {
     if (points.length > 0) {
       fitExtents();
     }
   }, [fitExtents]);
 
-  // Coordinate Conversion Helpers:
-  // Survey (Easting, Northing) -> Screen (X, Y)
   const worldToScreen = useCallback((easting: number, northing: number) => {
     return {
       x: pan.x + easting * zoom,
-      y: pan.y - northing * zoom // Northing is inverted in screen space
+      y: pan.y - northing * zoom
     };
   }, [pan, zoom]);
 
-  // Screen (X, Y) -> Survey (Easting, Northing)
   const screenToWorld = useCallback((screenX: number, screenY: number) => {
     return {
       easting: (screenX - pan.x) / zoom,
       northing: (pan.y - screenY) / zoom
     };
   }, [pan, zoom]);
+
+  // Find nearest beacon for snapping (within 12px)
+  const findSnapBeacon = useCallback((screenX: number, screenY: number) => {
+    for (const p of points) {
+      const scr = worldToScreen(p.easting, p.northing);
+      if (Math.hypot(scr.x - screenX, scr.y - screenY) <= 12) {
+        return p;
+      }
+    }
+    return null;
+  }, [points, worldToScreen]);
 
   // Rendering Loop
   useEffect(() => {
@@ -102,11 +121,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Clear background (Dark CAD Slate #0f172a)
+    // Clear background
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, rect.width, rect.height);
 
-    // 1. Draw Grid Crosses & Coordinate Neatlines
+    // 1. Draw Grid Crosses
     if (layers.gridCrosses) {
       const topLeftWorld = screenToWorld(0, 0);
       const btmRightWorld = screenToWorld(rect.width, rect.height);
@@ -116,7 +135,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       const minN = Math.min(topLeftWorld.northing, btmRightWorld.northing);
       const maxN = Math.max(topLeftWorld.northing, btmRightWorld.northing);
 
-      // Adaptive grid step (10m, 20m, 50m, 100m, 200m based on zoom)
       let gridStep = 50;
       if (zoom > 8) gridStep = 10;
       else if (zoom > 4) gridStep = 25;
@@ -132,7 +150,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.15)';
       ctx.lineWidth = 1;
 
-      // Draw faint grid lines and crosses
       for (let e = startE; e <= endE; e += gridStep) {
         for (let n = startN; n <= endN; n += gridStep) {
           const pt = worldToScreen(e, n);
@@ -145,7 +162,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.lineTo(pt.x, pt.y + crossSize);
           ctx.stroke();
 
-          // Coordinate label at every 2nd step
           if (zoom >= 2 && e % (gridStep * 2) === 0 && n % (gridStep * 2) === 0) {
             ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
             ctx.font = '9px "JetBrains Mono", monospace';
@@ -155,7 +171,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
-    // 2. Draw Parcels (Hatching, Boundaries, Centroid Labels)
+    // 2. Draw Parcels
     for (const parcel of parcels) {
       const comp = computeParcel(parcel, points);
       if (!comp || comp.vertices.length < 3) continue;
@@ -163,7 +179,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       const isSelected = parcel.id === selectedParcelId;
       const screenVertices = comp.vertices.map(v => worldToScreen(v.easting, v.northing));
 
-      // A. Parcel Fill / Hatching
+      // A. Parcel Fill
       if (layers.parcelFill) {
         ctx.beginPath();
         ctx.moveTo(screenVertices[0].x, screenVertices[0].y);
@@ -222,7 +238,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           const midX = (p1.x + p2.x) / 2;
           const midY = (p1.y + p2.y) / 2;
 
-          // Normal angle for text perpendicular offset
           const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
           const perpAngle = angle + Math.PI / 2;
           const offsetDist = 12;
@@ -233,7 +248,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.save();
           ctx.translate(textX, textY);
 
-          // Rotate text along the line
           let textRot = angle;
           if (textRot > Math.PI / 2 || textRot < -Math.PI / 2) {
             textRot += Math.PI;
@@ -259,14 +273,13 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
-    // 3. Draw Beacons / Survey Points
+    // 3. Draw Beacons
     if (layers.beacons) {
       for (const pt of points) {
         const scr = worldToScreen(pt.easting, pt.northing);
         const isSelected = pt.id === selectedPointId;
         const isControl = pt.isControl;
 
-        // Outer Glow / Ring for selected point
         if (isSelected) {
           ctx.beginPath();
           ctx.arc(scr.x, scr.y, 10, 0, 2 * Math.PI);
@@ -277,9 +290,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.stroke();
         }
 
-        // Concrete Pillar Beacon Symbol
         if (isControl) {
-          // Geodetic Control Triangle
           ctx.beginPath();
           const r = 6;
           ctx.moveTo(scr.x, scr.y - r);
@@ -292,7 +303,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.lineWidth = 1;
           ctx.stroke();
         } else {
-          // Property Beacon Concrete Pillar (Concentric circles with center cross)
           ctx.beginPath();
           ctx.arc(scr.x, scr.y, 4, 0, 2 * Math.PI);
           ctx.fillStyle = isSelected ? '#10b981' : '#ef4444';
@@ -301,18 +311,16 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.lineWidth = 1;
           ctx.stroke();
 
-          // Center crosshair
           ctx.beginPath();
           ctx.moveTo(scr.x - 2, scr.y);
           ctx.lineTo(scr.x + 2, scr.y);
           ctx.moveTo(scr.x, scr.y - 2);
-          ctx.lineTo(scr.x, scr.y + 2);
+          ctx.lineTo(scr.x + 2, scr.y);
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 0.8;
           ctx.stroke();
         }
 
-        // Beacon ID Label
         if (layers.beaconLabels) {
           ctx.fillStyle = isSelected ? '#10b981' : '#f8fafc';
           ctx.font = '600 10px "Inter", sans-serif';
@@ -320,7 +328,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ctx.fillText(pt.id, scr.x + 7, scr.y - 4);
         }
 
-        // Coordinates Label
         if (layers.coordinates && zoom >= 2.0) {
           ctx.fillStyle = '#94a3b8';
           ctx.font = '8px "JetBrains Mono", monospace';
@@ -330,7 +337,64 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
 
-    // 4. North Arrow Indicator (Top Right)
+    // 4. Draw Interactive Measurement Line & Dynamic Badge
+    if (activeTool === 'measure' && measureStart) {
+      const targetWorld = measureEnd || currentMouseWorld;
+      if (targetWorld) {
+        const p1 = worldToScreen(measureStart.easting, measureStart.northing);
+        const p2 = worldToScreen(targetWorld.easting, targetWorld.northing);
+
+        const deltaE = targetWorld.easting - measureStart.easting;
+        const deltaN = targetWorld.northing - measureStart.northing;
+        const dist = Math.hypot(deltaE, deltaN);
+
+        let rad = Math.atan2(deltaE, deltaN);
+        let deg = (rad * 180) / Math.PI;
+        if (deg < 0) deg += 360;
+        const dms = decimalToDMS(deg);
+
+        // Draw glowing measurement line
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([6, 4]);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.strokeStyle = '#f59e0b'; // Amber dashed
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Endpoint markers
+        ctx.beginPath();
+        ctx.arc(p1.x, p1.y, 5, 0, 2 * Math.PI);
+        ctx.arc(p2.x, p2.y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fill();
+
+        // Measurement Floating Badge
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+
+        const badgeText = `${dist.toFixed(3)}m | WCB: ${dms.formatted}`;
+        ctx.font = '600 11px "JetBrains Mono", monospace';
+        const textWidth = ctx.measureText(badgeText).width;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(midX - textWidth / 2 - 8, midY - 14, textWidth + 16, 24, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.textAlign = 'center';
+        ctx.fillText(badgeText, midX, midY + 2);
+        ctx.restore();
+      }
+    }
+
+    // 5. North Arrow Indicator
     ctx.save();
     const naX = rect.width - 40;
     const naY = 40;
@@ -339,7 +403,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     ctx.lineTo(naX + 6, naY + 10);
     ctx.lineTo(naX, naY + 6);
     ctx.closePath();
-    ctx.fillStyle = '#ef4444'; // Red North half
+    ctx.fillStyle = '#ef4444';
     ctx.fill();
 
     ctx.beginPath();
@@ -347,7 +411,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     ctx.lineTo(naX - 6, naY + 10);
     ctx.lineTo(naX, naY + 6);
     ctx.closePath();
-    ctx.fillStyle = '#f8fafc'; // White South half
+    ctx.fillStyle = '#f8fafc';
     ctx.fill();
 
     ctx.fillStyle = '#f8fafc';
@@ -356,9 +420,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     ctx.fillText('N', naX, naY - 22);
     ctx.restore();
 
-    // 5. Dynamic Scale Bar (Bottom Left)
+    // 6. Dynamic Scale Bar
     ctx.save();
-    const scaleBarLengthMeters = 20; // 20m
+    const scaleBarLengthMeters = 20;
     const scaleBarPixels = scaleBarLengthMeters * zoom;
     if (scaleBarPixels > 40 && scaleBarPixels < 300) {
       const sbX = 20;
@@ -378,12 +442,25 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       ctx.fillText(`${scaleBarLengthMeters}m`, sbX + scaleBarPixels, sbY - 6);
     }
     ctx.restore();
-  }, [points, parcels, layers, zoom, pan, selectedPointId, selectedParcelId, worldToScreen, screenToWorld]);
+  }, [
+    points,
+    parcels,
+    layers,
+    zoom,
+    pan,
+    selectedPointId,
+    selectedParcelId,
+    activeTool,
+    measureStart,
+    measureEnd,
+    currentMouseWorld,
+    worldToScreen,
+    screenToWorld
+  ]);
 
   // Mouse Interaction Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button === 1 || activeTool === 'pan' || e.shiftKey) {
-      // Pan drag
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       return;
@@ -396,12 +473,28 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       const clickY = e.clientY - rect.top;
       const world = screenToWorld(clickX, clickY);
 
+      // A. Measurement Tool Click Handling
+      if (activeTool === 'measure') {
+        const snap = findSnapBeacon(clickX, clickY);
+        const targetPt = snap ? { easting: snap.easting, northing: snap.northing, pointId: snap.id } : { easting: world.easting, northing: world.northing };
+
+        if (!measureStart || measureEnd) {
+          // Set first point
+          setMeasureStart(targetPt);
+          setMeasureEnd(null);
+        } else {
+          // Set second point & lock measurement
+          setMeasureEnd(targetPt);
+        }
+        return;
+      }
+
       if (activeTool === 'add_beacon') {
         onAddPointAtCoord(world.easting, world.northing);
         return;
       }
 
-      // Check point selection (within 8px radius)
+      // Check point selection
       let clickedPointId: string | null = null;
       for (const p of points) {
         const scr = worldToScreen(p.easting, p.northing);
@@ -437,7 +530,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         onSelectPoint(null);
       }
 
-      // Start drag if clicking on background
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
@@ -451,6 +543,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     const world = screenToWorld(mouseX, mouseY);
     onCursorMove(world.easting, world.northing);
 
+    if (activeTool === 'measure') {
+      const snap = findSnapBeacon(mouseX, mouseY);
+      setCurrentMouseWorld(snap ? { easting: snap.easting, northing: snap.northing } : world);
+    }
+
     if (isDragging) {
       setPan({
         x: e.clientX - dragStart.x,
@@ -463,7 +560,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     setIsDragging(false);
   };
 
-  // Zoom via Scroll Wheel centered at mouse position
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -474,7 +570,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
     const newZoom = Math.max(0.1, Math.min(30, zoom * zoomFactor));
 
-    // Keep world coordinate under mouse fixed
     const world = screenToWorld(mouseX, mouseY);
     const newPanX = mouseX - world.easting * newZoom;
     const newPanY = mouseY + world.northing * newZoom;
@@ -493,6 +588,25 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
       />
+
+      {/* Measurement Active Overlay Card */}
+      {activeTool === 'measure' && measureStart && measureEnd && (
+        <div className="measurement-result-pill">
+          <span>
+            Distance: <strong>{Math.hypot(measureEnd.easting - measureStart.easting, measureEnd.northing - measureStart.northing).toFixed(3)} m</strong>
+          </span>
+          <button
+            className="icon-btn-xs"
+            title="Clear measurement"
+            onClick={() => {
+              setMeasureStart(null);
+              setMeasureEnd(null);
+            }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Floating Canvas Controls */}
       <div className="cad-floating-controls">
