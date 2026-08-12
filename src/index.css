@@ -1153,13 +1153,16 @@ body {
 /* TDP Live Sheet Canvas Preview */
 .tdp-preview-stage {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   background: #1e293b;
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  overflow: auto;
-  padding: 24px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 24px 24px 48px 24px;
+  position: relative;
 }
 
 .tdp-sheet-canvas {
@@ -1904,3 +1907,202 @@ body {
 .text-rose { color: var(--rose); }
 .text-muted { color: var(--text-muted); }
 .inline-icon { display: inline-block; vertical-align: middle; }
+
+/* ==========================================================================
+   Parcel Inspector Schedule Table Styles
+   ========================================================================== */
+.schedule-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.table-scroll-container {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+
+.schedule-table th {
+  background: rgba(30, 41, 59, 0.7);
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.schedule-table th:nth-child(1) { width: 27%; }
+.schedule-table th:nth-child(2) { width: 27%; }
+.schedule-table th:nth-child(3) { width: 28%; }
+.schedule-table th:nth-child(4) { width: 18%; text-align: right; }
+
+.schedule-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-table td.point-id-cell {
+  font-weight: 600;
+  color: #f8fafc;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.schedule-table td.mono-cell {
+  font-family: 'JetBrains Mono', monospace;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.schedule-table td:nth-child(4) {
+  text-align: right;
+}
+
+.schedule-table tr:hover {
+  background: rgba(16, 185, 129, 0.05);
+}
+
+/* ==========================================================================
+   CAD Layers & Visibility Panel
+   ========================================================================== */
+.layers-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.layers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.layer-row:hover {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.layer-row.inactive {
+  opacity: 0.55;
+}
+
+.layer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.layer-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.layer-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-eye-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+
+.layer-eye-btn:hover {
+  color: var(--emerald);
+}
+
+/* ==========================================================================
+   Clean Vector Print Stylesheet
+   ========================================================================== */
+@media print {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .app-container, .cad-toolbar, .workspace-sidebar, .status-bar, .modal-overlay, .tdp-customizer-sidebar, .preview-zoom-bar, .modal-header {
+    display: none !important;
+  }
+
+  .tdp-modal-studio, .tdp-preview-stage {
+    position: static !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .tdp-canvas-scaler {
+    transform: none !important;
+  }
+
+  .tdp-sheet-canvas {
+    box-shadow: none !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    page-break-after: avoid;
+  }
+}

@@ -32,8 +32,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const [showSetbacks, setShowSetbacks] = useState<boolean>(false);
   const [setbackDist, setSetbackDist] = useState<number>(3.0);
 
-  // Preview Zoom Level (0.5 to 1.5)
-  const [previewZoom, setPreviewZoom] = useState<number>(0.85);
+  // Preview Zoom Level (default 0.68 for perfect A4 portrait fit)
+  const [previewZoom, setPreviewZoom] = useState<number>(0.68);
 
   if (!isOpen) return null;
 
@@ -105,7 +105,23 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    const opts: TdpRenderOptions = {
+      pageSize,
+      orientation,
+      planType,
+      scaleRatio,
+      selectedParcelId,
+      showCoordinateTable,
+      showSealBox,
+      showGridCrosses,
+      showAdjoiningLabels: true
+    };
+
+    // Generate crisp vector PDF and trigger clean print window
+    const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
+    doc.autoPrint();
+    const blobUrl = doc.output('bloburl');
+    window.open(blobUrl, '_blank');
   };
 
   return (

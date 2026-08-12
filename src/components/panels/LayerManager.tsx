@@ -26,11 +26,11 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
     <div className="layers-panel">
       <div
         className="panel-header"
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'pointer', padding: '0 0 6px 0', borderBottom: isCollapsed ? 'none' : '1px solid var(--border-subtle)' }}
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
         <div className="panel-title">
-          <Layers size={16} className="text-emerald" />
+          <Layers size={15} className="text-emerald" />
           <span>CAD Layers & Visibility</span>
         </div>
         <button className="icon-btn" title={isCollapsed ? 'Expand Layers' : 'Collapse Layers'}>
@@ -48,10 +48,12 @@ export const LayerManager: React.FC<LayerManagerProps> = ({ layers, onToggleLaye
                 className={`layer-row ${isVisible ? 'active' : 'inactive'}`}
                 onClick={() => onToggleLayer(item.key)}
               >
-                <div className="layer-color-dot" style={{ backgroundColor: item.color }} />
-                <span className="layer-label">{item.label}</span>
+                <div className="layer-left">
+                  <div className="layer-color-dot" style={{ backgroundColor: item.color }} />
+                  <span className="layer-label">{item.label}</span>
+                </div>
                 <button className="layer-eye-btn" title={isVisible ? 'Hide Layer' : 'Show Layer'}>
-                  {isVisible ? <Eye size={13} className="text-emerald" /> : <EyeOff size={13} className="text-muted" />}
+                  {isVisible ? <Eye size={14} className="text-emerald" /> : <EyeOff size={14} className="text-muted" />}
                 </button>
               </div>
             );
