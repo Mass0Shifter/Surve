@@ -48,20 +48,22 @@ function intersectLineSegment(
   S1: { x: number; y: number },
   S2: { x: number; y: number }
 ): { x: number; y: number; tSegment: number } | null {
-  const dx = S2.x - S1.x;
-  const dy = S2.y - S1.y;
+  const dSx = S2.x - S1.x;
+  const dSy = S2.y - S1.y;
 
-  const denom = Ldir.x * dy - Ldir.y * dx;
-  if (Math.abs(denom) < 1e-10) return null; // Parallel
+  const denom = dSy * Ldir.x - dSx * Ldir.y;
+  if (Math.abs(denom) < 1e-9) return null; // Parallel lines
 
-  const tSegment = ((L1.x - S1.x) * Ldir.y - (L1.y - S1.y) * Ldir.x) / denom;
-  if (tSegment < -1e-6 || tSegment > 1 + 1e-6) return null; // Outside segment
+  const num = (S1.x - L1.x) * Ldir.y - (S1.y - L1.y) * Ldir.x;
+  const s = num / denom;
 
-  const tClamped = Math.max(0, Math.min(1, tSegment));
+  if (s < -1e-5 || s > 1 + 1e-5) return null; // Outside segment
+
+  const sClamped = Math.max(0, Math.min(1, s));
   return {
-    x: S1.x + tClamped * dx,
-    y: S1.y + tClamped * dy,
-    tSegment: tClamped
+    x: S1.x + sClamped * dSx,
+    y: S1.y + sClamped * dSy,
+    tSegment: sClamped
   };
 }
 
