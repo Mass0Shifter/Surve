@@ -18,6 +18,7 @@ import { TacheometryStudioModal } from './components/tacheometry/TacheometryStud
 import { SetoutStudioModal } from './components/setout/SetoutStudioModal';
 import { DatumTransformModal } from './components/transform/DatumTransformModal';
 import { AlignmentStudioModal } from './components/alignment/AlignmentStudioModal';
+import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStudioModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -117,6 +118,7 @@ export const App: React.FC = () => {
   const [isSetoutOpen, setIsSetoutOpen] = useState<boolean>(false);
   const [isDatumTransformOpen, setIsDatumTransformOpen] = useState<boolean>(false);
   const [isAlignmentOpen, setIsAlignmentOpen] = useState<boolean>(false);
+  const [isSubdivisionOpen, setIsSubdivisionOpen] = useState<boolean>(false);
   const [setoutOverlay, setSetoutOverlay] = useState<SetoutOverlay | null>(null);
   const [alignmentOverlay, setAlignmentOverlay] = useState<AlignmentOverlay | null>(null);
 
@@ -490,6 +492,8 @@ export const App: React.FC = () => {
     setParcels(SAMPLE_PARCELS);
     setSelectedPointId(null);
     setSelectedParcelId(SAMPLE_PARCELS[0]?.id || null);
+    setSetoutOverlay(null);
+    setAlignmentOverlay(null);
   };
 
   const handleInjectTraverse = (balancedPoints: CoordinatePoint[], tName: string) => {
@@ -547,6 +551,8 @@ export const App: React.FC = () => {
     setParcels([]);
     setSelectedPointId(null);
     setSelectedParcelId(null);
+    setSetoutOverlay(null);
+    setAlignmentOverlay(null);
   };
 
   const handleToggleMaximizeCanvas = () => {
@@ -608,6 +614,7 @@ export const App: React.FC = () => {
           onOpenSetout={() => setIsSetoutOpen(true)}
           onOpenDatumTransform={() => setIsDatumTransformOpen(true)}
           onOpenAlignment={() => setIsAlignmentOpen(true)}
+          onOpenSubdivision={() => setIsSubdivisionOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -874,6 +881,32 @@ export const App: React.FC = () => {
             }
           }
           setPoints(merged);
+        }}
+      />
+
+      {/* Area Sub-Division & Land Splitting Studio Modal */}
+      <SubdivisionStudioModal
+        isOpen={isSubdivisionOpen}
+        onClose={() => setIsSubdivisionOpen(false)}
+        parcels={parcels}
+        existingPoints={points}
+        onApplySubdivision={(parentParcelId, childA, childB, newBeacons) => {
+          recordSnapshot(`Sub-Divide Parcel ${parentParcelId}`);
+
+          // 1. Add new partition beacons
+          const existingPtMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const mergedPoints = [...points];
+          for (const nb of newBeacons) {
+            if (!existingPtMap.has(nb.id.toLowerCase())) mergedPoints.push(nb);
+          }
+          setPoints(mergedPoints);
+
+          // 2. Replace parent parcel with Child A and Child B
+          setParcels(prev => {
+            const filtered = prev.filter(p => p.id !== parentParcelId);
+            return [...filtered, childA, childB];
+          });
+          setSelectedParcelId(childA.id);
         }}
       />
     </div>

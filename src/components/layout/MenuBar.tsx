@@ -14,6 +14,7 @@ import {
   Maximize2,
   PanelLeft,
   PanelRight,
+  Layers,
   Compass,
   Ruler,
   Settings,
@@ -53,6 +54,7 @@ interface MenuBarProps {
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
   onOpenAlignment: () => void;
+  onOpenSubdivision: () => void;
   onOpenCogo: () => void;
 
   gridBelt: NigerianGridBelt;
@@ -89,6 +91,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenSetout,
   onOpenDatumTransform,
   onOpenAlignment,
+  onOpenSubdivision,
   onOpenCogo: _onOpenCogo,
   gridBelt,
   onSelectBelt,
@@ -338,6 +341,13 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               <div className="menu-item-left">
                 <Compass size={14} className="text-magenta" style={{ color: '#ec4899' }} />
                 <span>Horizontal Alignment &amp; Earthworks Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenSubdivision)}>
+              <div className="menu-item-left">
+                <Layers size={14} className="text-emerald" />
+                <span>Area Sub-Division &amp; Land Splitting Studio</span>
               </div>
             </div>
 

@@ -61,9 +61,9 @@ export const AlignmentStudioModal: React.FC<AlignmentStudioModalProps> = ({
     }
   }, [alignmentResult, existingPoints, formationParams]);
 
-  // Update CAD canvas overlay (persists even when modal closes)
+  // Update CAD canvas overlay while modal is open
   useEffect(() => {
-    if (!alignmentResult) {
+    if (!isOpen || !alignmentResult) {
       onOverlayChange(null);
       return;
     }
@@ -78,9 +78,10 @@ export const AlignmentStudioModal: React.FC<AlignmentStudioModalProps> = ({
         label: cp.label
       }))
     });
-  }, [alignmentResult, onOverlayChange]);
+  }, [isOpen, alignmentResult, onOverlayChange]);
 
   const handleClose = () => {
+    onOverlayChange(null);
     onClose();
   };
 

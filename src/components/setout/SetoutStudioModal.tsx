@@ -40,9 +40,9 @@ export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
     }
   }, [station, designPoints]);
 
-  // Push overlay to CAD canvas (persists even when modal closes)
+  // Push overlay to CAD canvas while modal is open
   useEffect(() => {
-    if (!schedule) {
+    if (!isOpen || !schedule) {
       onOverlayChange(null);
       return;
     }
@@ -55,9 +55,10 @@ export const SetoutStudioModal: React.FC<SetoutStudioModalProps> = ({
         label:    r.designPoint.pointId
       }))
     });
-  }, [schedule, onOverlayChange]);
+  }, [isOpen, schedule, onOverlayChange]);
 
   const handleClose = () => {
+    onOverlayChange(null);
     onClose();
   };
 
