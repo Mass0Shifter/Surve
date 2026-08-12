@@ -2519,6 +2519,62 @@ body {
 }
 
 /* ==========================================================================
+   Spirit Leveling Studio Modal Styles
+   ========================================================================== */
+.modal-content.leveling-modal-studio {
+  width: 96vw !important;
+  max-width: 1320px !important;
+  height: 88vh !important;
+  max-height: 88vh !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.arithmetic-check-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.arithmetic-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.arithmetic-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.arithmetic-item {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.arithmetic-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.arithmetic-val {
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+/* ==========================================================================
    Clean Vector Print Stylesheet
    ========================================================================== */
 @media print {

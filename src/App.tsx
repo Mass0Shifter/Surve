@@ -13,6 +13,7 @@ import { HistoryModal } from './components/panels/HistoryModal';
 import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
 import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
 import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
+import { LevelingStudioModal } from './components/leveling/LevelingStudioModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -107,6 +108,7 @@ export const App: React.FC = () => {
   const [isRenumberOpen, setIsRenumberOpen] = useState<boolean>(false);
   const [isTdpOpen, setIsTdpOpen] = useState<boolean>(false);
   const [isTraverseOpen, setIsTraverseOpen] = useState<boolean>(false);
+  const [isLevelingOpen, setIsLevelingOpen] = useState<boolean>(false);
 
   // Active Layer Toggles
   const [layers, setLayers] = useState<CadLayers>({
@@ -529,6 +531,24 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleApplyLevelingElevations = (stationElevations: { stationId: string; elevation: number }[]) => {
+    recordSnapshot('Apply Leveling Elevations');
+    const elevMap = new Map(stationElevations.map(s => [s.stationId.toLowerCase(), s.elevation]));
+    let matchCount = 0;
+
+    const updatedPoints = points.map(p => {
+      const key = p.id.toLowerCase();
+      if (elevMap.has(key)) {
+        matchCount++;
+        return { ...p, elevation: elevMap.get(key) };
+      }
+      return p;
+    });
+
+    setPoints(updatedPoints);
+    alert(`Leveling Synchronization: Updated 3D Elevations (Z) for ${matchCount} matching coordinate beacons in the workspace!`);
+  };
+
   return (
     <ErrorBoundary fallbackTitle="NSurvey Workspace Recovery">
       <div className="app-container">
@@ -555,6 +575,7 @@ export const App: React.FC = () => {
           onOpenRenumber={() => setIsRenumberOpen(true)}
           onOpenTdp={() => setIsTdpOpen(true)}
           onOpenTraverse={() => setIsTraverseOpen(true)}
+          onOpenLeveling={() => setIsLevelingOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -731,6 +752,13 @@ export const App: React.FC = () => {
         onClose={() => setIsTraverseOpen(false)}
         existingPoints={points}
         onInjectTraverse={handleInjectTraverse}
+      />
+
+      {/* Spirit Leveling Studio Modal */}
+      <LevelingStudioModal
+        isOpen={isLevelingOpen}
+        onClose={() => setIsLevelingOpen(false)}
+        onApplyElevations={handleApplyLevelingElevations}
       />
     </div>
     </ErrorBoundary>

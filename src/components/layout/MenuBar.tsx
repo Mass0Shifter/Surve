@@ -15,6 +15,7 @@ import {
   PanelLeft,
   PanelRight,
   Compass,
+  Ruler,
   Settings,
   Globe,
   Save,
@@ -46,6 +47,7 @@ interface MenuBarProps {
   onToggleMaximize: () => void;
 
   onOpenTraverse: () => void;
+  onOpenLeveling: () => void;
   onOpenCogo: () => void;
 
   gridBelt: NigerianGridBelt;
@@ -77,6 +79,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onToggleRight,
   onToggleMaximize,
   onOpenTraverse,
+  onOpenLeveling,
   onOpenCogo,
   gridBelt,
   onSelectBelt,
@@ -294,9 +297,16 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               </div>
             </div>
 
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenLeveling)}>
+              <div className="menu-item-left">
+                <Ruler size={14} className="text-emerald" />
+                <span>Spirit Leveling Studio (HPC & Rise/Fall)</span>
+              </div>
+            </div>
+
             <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCogo)}>
               <div className="menu-item-left">
-                <Compass size={14} className="text-emerald" />
+                <Compass size={14} className="text-muted" />
                 <span>COGO & Coordinate Inversing Calculator</span>
               </div>
             </div>

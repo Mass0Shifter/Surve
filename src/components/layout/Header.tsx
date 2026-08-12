@@ -21,6 +21,7 @@ interface HeaderProps {
   onOpenRenumber: () => void;
   onOpenTdp: () => void;
   onOpenTraverse: () => void;
+  onOpenLeveling: () => void;
 
   onUndo: () => void;
   onRedo: () => void;
@@ -50,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRenumber,
   onOpenTdp,
   onOpenTraverse,
+  onOpenLeveling,
   onUndo,
   onRedo,
   canUndo,
@@ -123,6 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
           onToggleRight={onToggleRight}
           onToggleMaximize={onToggleMaximize}
           onOpenTraverse={onOpenTraverse}
+          onOpenLeveling={onOpenLeveling}
           onOpenCogo={onOpenCogo}
           gridBelt={project.gridBelt}
           onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}
