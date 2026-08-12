@@ -1,0 +1,24 @@
+# Ignore Legacy VB6 Folder
+SurvPack30/
+SurvPack30/
+*.dwl
+*.dwl2
+
+# Node & Build artifacts
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
