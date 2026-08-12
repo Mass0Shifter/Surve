@@ -120,7 +120,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Traverse Studio Button */}
         <button
-          className="btn-secondary-sm"
+          id="btn-open-traverse-modal"
+          className="btn-traverse-highlight"
           title="Traverse Field Book & Loop Balancing (Bowditch & Transit)"
           onClick={onOpenTraverse}
         >
