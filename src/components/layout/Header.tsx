@@ -26,8 +26,11 @@ interface HeaderProps {
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
   onOpenAlignment: () => void;
+  onOpenVerticalAlignment: () => void;
   onOpenSubdivision: () => void;
-
+  onOpenDxf: () => void;
+  onOpenResection: () => void;
+  onOpenCsvImporter: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -61,7 +64,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSetout,
   onOpenDatumTransform,
   onOpenAlignment,
+  onOpenVerticalAlignment,
   onOpenSubdivision,
+  onOpenDxf,
+  onOpenResection,
+  onOpenCsvImporter,
   onUndo,
   onRedo,
   canUndo,
@@ -140,7 +147,11 @@ export const Header: React.FC<HeaderProps> = ({
           onOpenSetout={onOpenSetout}
           onOpenDatumTransform={onOpenDatumTransform}
           onOpenAlignment={onOpenAlignment}
+          onOpenVerticalAlignment={onOpenVerticalAlignment}
           onOpenSubdivision={onOpenSubdivision}
+          onOpenDxf={onOpenDxf}
+          onOpenResection={onOpenResection}
+          onOpenCsvImporter={onOpenCsvImporter}
           onOpenCogo={onOpenCogo}
           gridBelt={project.gridBelt}
           onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}

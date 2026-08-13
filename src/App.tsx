@@ -18,7 +18,11 @@ import { TacheometryStudioModal } from './components/tacheometry/TacheometryStud
 import { SetoutStudioModal } from './components/setout/SetoutStudioModal';
 import { DatumTransformModal } from './components/transform/DatumTransformModal';
 import { AlignmentStudioModal } from './components/alignment/AlignmentStudioModal';
+import { VerticalAlignmentModal } from './components/alignment/VerticalAlignmentModal';
 import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStudioModal';
+import { DxfStudioModal } from './components/dxf/DxfStudioModal';
+import { ResectionStudioModal } from './components/resection/ResectionStudioModal';
+import { CsvImporterModal } from './components/importer/CsvImporterModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -118,7 +122,11 @@ export const App: React.FC = () => {
   const [isSetoutOpen, setIsSetoutOpen] = useState<boolean>(false);
   const [isDatumTransformOpen, setIsDatumTransformOpen] = useState<boolean>(false);
   const [isAlignmentOpen, setIsAlignmentOpen] = useState<boolean>(false);
+  const [isVerticalOpen, setIsVerticalOpen] = useState<boolean>(false);
   const [isSubdivisionOpen, setIsSubdivisionOpen] = useState<boolean>(false);
+  const [isDxfOpen, setIsDxfOpen] = useState<boolean>(false);
+  const [isResectionOpen, setIsResectionOpen] = useState<boolean>(false);
+  const [isCsvImporterOpen, setIsCsvImporterOpen] = useState<boolean>(false);
   const [setoutOverlay, setSetoutOverlay] = useState<SetoutOverlay | null>(null);
   const [alignmentOverlay, setAlignmentOverlay] = useState<AlignmentOverlay | null>(null);
 
@@ -614,7 +622,11 @@ export const App: React.FC = () => {
           onOpenSetout={() => setIsSetoutOpen(true)}
           onOpenDatumTransform={() => setIsDatumTransformOpen(true)}
           onOpenAlignment={() => setIsAlignmentOpen(true)}
+          onOpenVerticalAlignment={() => setIsVerticalOpen(true)}
           onOpenSubdivision={() => setIsSubdivisionOpen(true)}
+          onOpenDxf={() => setIsDxfOpen(true)}
+          onOpenResection={() => setIsResectionOpen(true)}
+          onOpenCsvImporter={() => setIsCsvImporterOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -907,6 +919,87 @@ export const App: React.FC = () => {
             return [...filtered, childA, childB];
           });
           setSelectedParcelId(childA.id);
+        }}
+      />
+
+      {/* AutoCAD DXF Import & Export Studio Modal */}
+      <DxfStudioModal
+        isOpen={isDxfOpen}
+        onClose={() => setIsDxfOpen(false)}
+        workspacePoints={points}
+        workspaceParcels={parcels}
+        alignmentOverlay={alignmentOverlay}
+        setoutOverlay={setoutOverlay}
+        onImportToWorkspace={(impPoints, impParcels) => {
+          recordSnapshot('Import DXF Beacons & Parcels');
+          const existingPtMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const mergedPoints = [...points];
+          for (const ip of impPoints) {
+            if (!existingPtMap.has(ip.id.toLowerCase())) mergedPoints.push(ip);
+          }
+          setPoints(mergedPoints);
+
+          const existingPclMap = new Map(parcels.map(p => [p.plotNumber.toLowerCase(), p]));
+          const mergedParcels = [...parcels];
+          for (const ip of impParcels) {
+            if (!existingPclMap.has(ip.plotNumber.toLowerCase())) mergedParcels.push(ip);
+          }
+          setParcels(mergedParcels);
+        }}
+      />
+
+      {/* Road Vertical Alignment & Longitudinal Profile Studio Modal */}
+      <VerticalAlignmentModal
+        isOpen={isVerticalOpen}
+        onClose={() => setIsVerticalOpen(false)}
+        onInjectVerticalBeacons={(newBeacons) => {
+          recordSnapshot('Inject 3D Vertical Alignment Profile');
+          const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const merged = [...points];
+          for (const nb of newBeacons) {
+            if (!existingMap.has(nb.id.toLowerCase())) merged.push(nb);
+            else {
+              const idx = merged.findIndex(p => p.id.toLowerCase() === nb.id.toLowerCase());
+              if (idx !== -1) merged[idx] = nb;
+            }
+          }
+          setPoints(merged);
+        }}
+      />
+
+      {/* Module 7: Resection & COGO Intersections Studio Modal */}
+      <ResectionStudioModal
+        isOpen={isResectionOpen}
+        onClose={() => setIsResectionOpen(false)}
+        workspacePoints={points}
+        onInjectPoint={(newPt) => {
+          recordSnapshot(`Inject Solved Point ${newPt.id}`);
+          const existing = points.find(p => p.id.toLowerCase() === newPt.id.toLowerCase());
+          if (existing) {
+            setPoints(points.map(p => p.id.toLowerCase() === newPt.id.toLowerCase() ? newPt : p));
+          } else {
+            setPoints([...points, newPt]);
+          }
+        }}
+      />
+
+      {/* Module 8: Universal Field CSV & Custom Schema Importer Modal */}
+      <CsvImporterModal
+        isOpen={isCsvImporterOpen}
+        onClose={() => setIsCsvImporterOpen(false)}
+        onImportPoints={(impPoints) => {
+          recordSnapshot(`Import ${impPoints.length} CSV Survey Points`);
+          const existingMap = new Map(points.map(p => [p.id.toLowerCase(), p]));
+          const merged = [...points];
+          for (const ip of impPoints) {
+            if (!existingMap.has(ip.id.toLowerCase())) {
+              merged.push(ip);
+            } else {
+              const idx = merged.findIndex(p => p.id.toLowerCase() === ip.id.toLowerCase());
+              if (idx !== -1) merged[idx] = ip;
+            }
+          }
+          setPoints(merged);
         }}
       />
     </div>

@@ -772,22 +772,50 @@ body {
 }
 
 .add-coord-form input,
+.modal-content input,
+.modal-content select,
 .modal-body input,
-.modal-body select {
-  background: var(--bg-input);
-  color: var(--text-main);
-  border: 1px solid var(--border-subtle);
-  padding: 6px 8px;
-  border-radius: 4px;
+.modal-body select,
+.control-card input,
+.control-card select,
+.traverse-studio-body input,
+.traverse-studio-body select,
+.form-group input,
+.form-group select,
+.dms-input-row input {
+  background: var(--bg-input) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border-strong) !important;
+  padding: 6px 10px;
+  border-radius: 5px;
   font-size: 11px;
   font-family: var(--font-ui);
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.modal-content select option,
+.control-card select option,
+.traverse-studio-body select option,
+.form-group select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
 }
 
 .add-coord-form input:focus,
+.modal-content input:focus,
+.modal-content select:focus,
 .modal-body input:focus,
-.modal-body select:focus {
-  border-color: var(--emerald);
+.modal-body select:focus,
+.control-card input:focus,
+.control-card select:focus,
+.traverse-studio-body input:focus,
+.traverse-studio-body select:focus,
+.form-group input:focus,
+.form-group select:focus,
+.dms-input-row input:focus {
+  border-color: var(--emerald) !important;
+  box-shadow: 0 0 0 2px var(--emerald-glow) !important;
 }
 
 .checkbox-label {
@@ -2432,7 +2460,7 @@ body {
   font-size: 11px;
 }
 
-.fieldbook-table-container, .reduction-table-container {
+.fieldbook-table-container, .reduction-table-container, .table-wrapper {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -2453,29 +2481,29 @@ body {
   color: var(--text-main);
 }
 
-.fieldbook-table, .reduction-table {
+.fieldbook-table, .reduction-table, .traverse-table, .survey-studio-table, .studio-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
 }
 
-.fieldbook-table th, .reduction-table th {
-  background: rgba(30, 41, 59, 0.8);
+.fieldbook-table th, .reduction-table th, .traverse-table th, .survey-studio-table th, .studio-table th {
+  background: rgba(30, 41, 59, 0.9);
   color: var(--text-muted);
   font-weight: 600;
-  padding: 7px 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border-color);
   text-align: left;
   white-space: nowrap;
 }
 
-.fieldbook-table td, .reduction-table td {
-  padding: 6px 10px;
+.fieldbook-table td, .reduction-table td, .traverse-table td, .survey-studio-table td, .studio-table td {
+  padding: 8px 12px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.08);
   white-space: nowrap;
 }
 
-.fieldbook-table tr:hover, .reduction-table tr:hover {
+.fieldbook-table tr:hover, .reduction-table tr:hover, .traverse-table tr:hover, .survey-studio-table tr:hover, .studio-table tr:hover {
   background: rgba(16, 185, 129, 0.04);
 }
 

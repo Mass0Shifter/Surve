@@ -54,7 +54,11 @@ interface MenuBarProps {
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
   onOpenAlignment: () => void;
+  onOpenVerticalAlignment: () => void;
   onOpenSubdivision: () => void;
+  onOpenDxf: () => void;
+  onOpenResection: () => void;
+  onOpenCsvImporter: () => void;
   onOpenCogo: () => void;
 
   gridBelt: NigerianGridBelt;
@@ -67,7 +71,7 @@ type MenuKey = 'file' | 'edit' | 'view' | 'tools' | 'settings' | null;
 
 export const MenuBar: React.FC<MenuBarProps> = ({
   onNewProject,
-  onImportCoordinates,
+  onImportCoordinates: _onImportCoordinates,
   onLoadDemo,
   onExportSCR,
   onExportDXF,
@@ -91,7 +95,11 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenSetout,
   onOpenDatumTransform,
   onOpenAlignment,
+  onOpenVerticalAlignment,
   onOpenSubdivision,
+  onOpenDxf,
+  onOpenResection,
+  onOpenCsvImporter,
   onOpenCogo: _onOpenCogo,
   gridBelt,
   onSelectBelt,
@@ -143,10 +151,10 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               <span className="menu-shortcut">Ctrl+N</span>
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onImportCoordinates)}>
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCsvImporter)}>
               <div className="menu-item-left">
-                <Upload size={14} className="text-muted" />
-                <span>Import Coordinates (CSV / TXT / DAT)...</span>
+                <Upload size={14} className="text-cyan" />
+                <span>Universal Field CSV Importer...</span>
               </div>
               <span className="menu-shortcut">Ctrl+I</span>
             </div>
@@ -344,10 +352,38 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               </div>
             </div>
 
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenVerticalAlignment)}>
+              <div className="menu-item-left">
+                <Compass size={14} className="text-emerald" />
+                <span>Road Vertical Curve Profile Studio</span>
+              </div>
+            </div>
+
             <div className="menu-dropdown-item" onClick={() => handleAction(onOpenSubdivision)}>
               <div className="menu-item-left">
                 <Layers size={14} className="text-emerald" />
                 <span>Area Sub-Division &amp; Land Splitting Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenDxf)}>
+              <div className="menu-item-left">
+                <FileCode size={14} className="text-cyan" />
+                <span>AutoCAD DXF Import &amp; Export Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenResection)}>
+              <div className="menu-item-left">
+                <Target size={14} className="text-amber" />
+                <span>Resection &amp; COGO Intersections Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCsvImporter)}>
+              <div className="menu-item-left">
+                <Upload size={14} className="text-cyan" />
+                <span>Universal Field CSV &amp; Raw Schema Importer</span>
               </div>
             </div>
 
