@@ -92,14 +92,17 @@ export function generateTitleDeedPlanPDF(
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105);
 
+  const maxTitleW = outerW - 60;
   const planSub = isSinglePlot && selectedParcel
     ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
     : `SURVEY PLAN OF ${project.title.toUpperCase()}`;
 
-  doc.text(planSub, pageWidth / 2, headerY + 9, { align: 'center' });
+  doc.setFontSize(8.5);
+  doc.text(planSub, pageWidth / 2, headerY + 9, { align: 'center', maxWidth: maxTitleW });
 
+  doc.setFontSize(7.5);
   const locText = `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
-  doc.text(locText, pageWidth / 2, headerY + 13.5, { align: 'center' });
+  doc.text(locText, pageWidth / 2, headerY + 13.5, { align: 'center', maxWidth: maxTitleW });
 
   // Divider Line
   doc.setLineWidth(0.3);
@@ -169,16 +172,14 @@ export function generateTitleDeedPlanPDF(
         if (mx >= drawAreaX && mx <= drawAreaX + drawAreaW && my >= drawAreaY && my <= drawAreaY + drawAreaH) {
           doc.line(mx - 2, my, mx + 2, my);
           doc.line(mx, my - 2, mx, my + 2);
-          if (e % (gridStep * 2) === 0 && n % (gridStep * 2) === 0) {
-            doc.text(`${e}E`, mx + 2, my - 1);
-            doc.text(`${n}N`, mx + 2, my + 3);
-          }
         }
       }
     }
   }
 
-  // 7. Draw Parcels
+  // 7. Draw Parcels (Shaded Polygons, Boundaries, Centroid & Line Dimensions)
+  const renderedEdges = new Set<string>();
+
   for (const parcel of targetParcels) {
     const comp = computeParcel(parcel, points);
     if (!comp || comp.vertices.length < 3) continue;
@@ -196,51 +197,147 @@ export function generateTitleDeedPlanPDF(
     }
 
     // Centroid Label
-    const centX = mapVerts.reduce((s, v) => s + v.x, 0) / mapVerts.length;
-    const centY = mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
+    const pCentX = mapVerts.reduce((s, v) => s + v.x, 0) / mapVerts.length;
+    const pCentY = mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(isSinglePlot ? 10 : 8);
     doc.setTextColor(15, 23, 42);
-    doc.text(parcel.plotNumber, centX, centY - 2, { align: 'center' });
+    doc.text(parcel.plotNumber, pCentX, pCentY - (isSinglePlot ? 3 : 1.2), { align: 'center' });
 
-    if (parcel.ownerName) {
+    if (parcel.ownerName && isSinglePlot) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(71, 85, 105);
-      doc.text(parcel.ownerName, centX, centY + 2, { align: 'center' });
+      doc.text(parcel.ownerName, pCentX, pCentY + 1.5, { align: 'center' });
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(isSinglePlot ? 7.5 : 6);
     doc.setTextColor(16, 185, 129);
-    doc.text(`AREA: ${comp.areaSquareMeters.toFixed(2)} Sq.m (${comp.areaHectares.toFixed(4)} Ha)`, centX, centY + 6.5, { align: 'center' });
+    doc.text(`${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`, pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
 
-    // Leg Bearings & Distances
-    doc.setFontSize(6.5);
+    // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
     doc.setTextColor(30, 41, 59);
 
     for (const leg of comp.legs) {
+      const edgeKey = [leg.fromPoint.id, leg.toPoint.id].sort().join('__');
+      if (renderedEdges.has(edgeKey)) continue;
+      renderedEdges.add(edgeKey);
+
       const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
       const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
+
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const segLen = Math.hypot(dx, dy);
+      if (segLen < 0.5) continue;
 
       const midX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
 
-      const angleRad = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-      let angleDeg = angleRad * (180 / Math.PI);
-      if (angleDeg > 90 || angleDeg < -90) {
-        angleDeg += 180;
+      let angleRad = Math.atan2(dy, dx);
+      if (angleRad > Math.PI / 2) angleRad -= Math.PI;
+      if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
+
+      // Unit tangent vector in direction of reading
+      const ux = Math.cos(angleRad);
+      const uy = Math.sin(angleRad);
+
+      // Perpendicular normal vector
+      let nx = -uy;
+      let ny = ux;
+
+      // Ensure normal points outward from polygon centroid
+      const toCentX = midX - pCentX;
+      const toCentY = midY - pCentY;
+      if (nx * toCentX + ny * toCentY < 0) {
+        nx = -nx;
+        ny = -ny;
       }
 
-      const perpAngle = angleRad + Math.PI / 2;
-      const offX = Math.cos(perpAngle) * 3.2;
-      const offY = Math.sin(perpAngle) * 3.2;
-
       const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
-      doc.text(legText, midX + offX, midY + offY, { align: 'center', angle: -angleDeg });
+      const textWidth = doc.getTextWidth(legText);
+      // Cap-height compensation (1.4mm font height + 0.9mm line clearance)
+      const offDist = 2.3;
+
+      // Analytically compute start point along line tangent and outward normal
+      const startX = midX - ux * (textWidth / 2) + nx * offDist;
+      const startY = midY - uy * (textWidth / 2) + ny * offDist;
+      const angleDeg = angleRad * (180 / Math.PI);
+
+      doc.text(legText, startX, startY, { angle: -angleDeg });
     }
   }
+
+  // Helper to compute outward exterior normal offset for beacon labels
+  const computeBeaconLabelPos = (pt: CoordinatePoint, sx: number, sy: number) => {
+    for (const parcel of targetParcels) {
+      const idx = parcel.pointIds.indexOf(pt.id);
+      if (idx !== -1 && parcel.pointIds.length >= 3) {
+        const comp = computeParcel(parcel, points);
+        if (comp && comp.vertices.length >= 3) {
+          const vCentX = comp.vertices.reduce((s, v) => s + toMapX(v.easting), 0) / comp.vertices.length;
+          const vCentY = comp.vertices.reduce((s, v) => s + toMapY(v.northing), 0) / comp.vertices.length;
+
+          const n = parcel.pointIds.length;
+          const prevId = parcel.pointIds[(idx - 1 + n) % n];
+          const nextId = parcel.pointIds[(idx + 1) % n];
+          const prevPt = points.find(p => p.id === prevId);
+          const nextPt = points.find(p => p.id === nextId);
+
+          if (prevPt && nextPt) {
+            const px = toMapX(prevPt.easting);
+            const py = toMapY(prevPt.northing);
+            const nx = toMapX(nextPt.easting);
+            const ny = toMapY(nextPt.northing);
+
+            const v1x = sx - px;
+            const v1y = sy - py;
+            const v2x = nx - sx;
+            const v2y = ny - sy;
+            const l1 = Math.hypot(v1x, v1y) || 1;
+            const l2 = Math.hypot(v2x, v2y) || 1;
+
+            const u1x = v1x / l1;
+            const u1y = v1y / l1;
+            const u2x = v2x / l2;
+            const u2y = v2y / l2;
+
+            let bx = -(u1y + u2y);
+            let by = (u1x + u2x);
+            let bl = Math.hypot(bx, by);
+
+            if (bl < 0.01) {
+              bx = sx - vCentX;
+              by = sy - vCentY;
+              bl = Math.hypot(bx, by) || 1;
+            }
+
+            bx /= bl;
+            by /= bl;
+
+            const toCentX = sx - vCentX;
+            const toCentY = sy - vCentY;
+            if (bx * toCentX + by * toCentY < 0) {
+              bx = -bx;
+              by = -by;
+            }
+
+            const dist = 3.2;
+            return {
+              x: sx + bx * dist + (bx < -0.3 ? -1.0 : bx > 0.3 ? 1.0 : 0),
+              y: sy + by * dist + (by < -0.2 ? -1.0 : by > 0.2 ? 2.5 : 0.8),
+              align: bx < -0.3 ? 'right' : bx > 0.3 ? 'left' : 'center'
+            };
+          }
+        }
+      }
+    }
+    return { x: sx + 2.5, y: sy - 1.2, align: 'left' };
+  };
 
   // 8. Draw Concrete Beacon Symbols (only relevant points)
   for (const pt of targetPoints) {
@@ -250,20 +347,21 @@ export function generateTitleDeedPlanPDF(
     if (pt.isControl) {
       doc.setDrawColor(245, 158, 11);
       doc.setLineWidth(0.4);
-      doc.triangle(sx, sy - 2.5, sx + 2.5, sy + 1.8, sx - 2.5, sy + 1.8);
+      doc.triangle(sx, sy - 2.2, sx + 2.2, sy + 1.6, sx - 2.2, sy + 1.6);
     } else {
       doc.setDrawColor(220, 38, 38);
       doc.setLineWidth(0.3);
-      doc.circle(sx, sy, 1.5);
-      doc.line(sx - 1.5, sy, sx + 1.5, sy);
-      doc.line(sx, sy - 1.5, sx, sy + 1.5);
+      doc.circle(sx, sy, 1.4);
+      doc.line(sx - 1.4, sy, sx + 1.4, sy);
+      doc.line(sx, sy - 1.4, sx, sy + 1.4);
     }
 
-    // Beacon ID Label
+    // Beacon ID Label (Placed on Exterior Angle Bisector)
+    const lbl = computeBeaconLabelPos(pt, sx, sy);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(6.0);
     doc.setTextColor(15, 23, 42);
-    doc.text(pt.id, sx + 3, sy - 1.5);
+    doc.text(pt.id, lbl.x, lbl.y, { align: lbl.align as any });
   }
 
   // 9. Vector North Arrow
@@ -284,19 +382,23 @@ export function generateTitleDeedPlanPDF(
   doc.setFont('helvetica', 'normal');
   doc.text('GRID NORTH', naX, naY + 13, { align: 'center' });
 
-  // 10. Metric Bar Scale
+  // 10. Metric Bar Scale (Dynamically Scaled for Generous Spacing)
   const sbX = drawAreaX + 6;
   const sbY = drawAreaY + drawAreaH - 8;
-  const scaleBarMeters = isSinglePlot ? 20 : (effectiveScale <= 500 ? 20 : 50);
-  const scaleBarMm = scaleBarMeters * mapScale;
 
-  if (scaleBarMm > 15 && scaleBarMm < drawAreaW * 0.4) {
+  const targetBarMm = 35;
+  const rawMeters = targetBarMm / mapScale;
+  const niceIntervals = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+  const scaleBarMeters = niceIntervals.find(n => n >= rawMeters * 0.75) || 50;
+  const scaleBarMm = Math.min(drawAreaW * 0.35, scaleBarMeters * mapScale);
+
+  if (scaleBarMm > 15) {
     doc.setDrawColor(15, 23, 42);
     doc.setLineWidth(0.4);
     doc.rect(sbX, sbY, scaleBarMm, 1.8, 'S');
     doc.rect(sbX, sbY, scaleBarMm / 2, 1.8, 'F');
 
-    doc.setFontSize(6);
+    doc.setFontSize(5.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
     doc.text('0', sbX, sbY - 1.5);
@@ -391,23 +493,28 @@ export function generateTitleDeedPlanPDF(
 
     // Embed Official Seal Stamp Image (Surveyor Seal or Firm Seal)
     const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
+    const sealBoxW = 22;
+    const sealBoxH = 18;
+    const sealImgX = sealX + sealW - sealBoxW - 1;
+    const sealImgY = sealY + 4;
+
     if (sealStampUrl) {
       try {
-        doc.addImage(sealStampUrl, 'PNG', sealX + sealW - 21, sealY + 4, 20, 20);
+        doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
       } catch (e) {
         console.warn('Failed to embed seal stamp image in PDF', e);
         doc.setDrawColor(203, 213, 225);
-        doc.rect(sealX + sealW - 21, sealY + 4, 20, 20);
+        doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
         doc.setFontSize(5);
         doc.setTextColor(148, 163, 184);
-        doc.text('SURCON\nSEAL', sealX + sealW - 11, sealY + 13, { align: 'center' });
+        doc.text('SURCON\nSEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
       }
     } else {
       doc.setDrawColor(203, 213, 225);
-      doc.rect(sealX + sealW - 21, sealY + 4, 20, 20);
+      doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
       doc.setFontSize(5);
       doc.setTextColor(148, 163, 184);
-      doc.text('SURCON\nOFFICIAL SEAL', sealX + sealW - 11, sealY + 13, { align: 'center' });
+      doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
     }
   }
 

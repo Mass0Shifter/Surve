@@ -500,101 +500,128 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         )}
 
                         {/* 2. Parcel Vector Polygons & Labels */}
-                        {targetParcels.map(parcel => {
-                          const comp = computeParcel(parcel, points);
-                          if (!comp || comp.vertices.length < 3) return null;
+                        {(() => {
+                          const renderedEdges = new Set<string>();
+                          return targetParcels.map(parcel => {
+                            const comp = computeParcel(parcel, points);
+                            if (!comp || comp.vertices.length < 3) return null;
 
-                          const polyPoints = comp.vertices
-                            .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
-                            .join(' ');
+                            const polyPoints = comp.vertices
+                              .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
+                              .join(' ');
 
-                          const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
-                          const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
+                            const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
+                            const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
 
-                          return (
-                            <g key={parcel.id} className="svg-parcel-group">
-                              {/* Shaded Polygon Fill & Stroke */}
-                              <polygon
-                                points={polyPoints}
-                                fill="rgba(16, 185, 129, 0.12)"
-                                stroke="#10b981"
-                                strokeWidth="2"
-                                strokeLinejoin="round"
-                              />
+                            return (
+                              <g key={parcel.id} className="svg-parcel-group">
+                                {/* Shaded Polygon Fill & Stroke */}
+                                <polygon
+                                  points={polyPoints}
+                                  fill="rgba(16, 185, 129, 0.12)"
+                                  stroke="#10b981"
+                                  strokeWidth="2"
+                                  strokeLinejoin="round"
+                                />
 
-                              {/* Centroid Badge */}
-                              <text
-                                x={centSvgX}
-                                y={centSvgY - 6}
-                                textAnchor="middle"
-                                fontWeight="bold"
-                                fontSize="12"
-                                fill="#0f172a"
-                              >
-                                {parcel.plotNumber}
-                              </text>
-                              {parcel.ownerName && (
+                                {/* Centroid Badge */}
                                 <text
                                   x={centSvgX}
-                                  y={centSvgY + 7}
+                                  y={centSvgY - (isSinglePlot ? 5 : 2)}
                                   textAnchor="middle"
-                                  fontSize="9"
-                                  fill="#475569"
+                                  fontWeight="bold"
+                                  fontSize={isSinglePlot ? "12" : "9.5"}
+                                  fill="#0f172a"
+                                  style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
                                 >
-                                  {parcel.ownerName}
+                                  {parcel.plotNumber}
                                 </text>
-                              )}
-                              <text
-                                x={centSvgX}
-                                y={centSvgY + 20}
-                                textAnchor="middle"
-                                fontWeight="bold"
-                                fontSize="9"
-                                fill="#059669"
-                                fontFamily="monospace"
-                              >
-                                {comp.areaSquareMeters.toFixed(2)} Sq.m ({comp.areaHectares.toFixed(4)} Ha)
-                              </text>
+                                {parcel.ownerName && isSinglePlot && (
+                                  <text
+                                    x={centSvgX}
+                                    y={centSvgY + 7}
+                                    textAnchor="middle"
+                                    fontSize="8.5"
+                                    fill="#475569"
+                                    style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                  >
+                                    {parcel.ownerName}
+                                  </text>
+                                )}
+                                <text
+                                  x={centSvgX}
+                                  y={centSvgY + (isSinglePlot ? 19 : 9)}
+                                  textAnchor="middle"
+                                  fontWeight="bold"
+                                  fontSize={isSinglePlot ? "8.5" : "7"}
+                                  fill="#059669"
+                                  fontFamily="monospace"
+                                  style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                >
+                                  {comp.areaSquareMeters.toFixed(2)} m² ({comp.areaHectares.toFixed(4)} Ha)
+                                </text>
 
-                              {/* Leg Bearings & Distances */}
-                              {comp.legs.map((leg, lidx) => {
-                                const x1 = toSvgX(leg.fromPoint.easting);
-                                const y1 = toSvgY(leg.fromPoint.northing);
-                                const x2 = toSvgX(leg.toPoint.easting);
-                                const y2 = toSvgY(leg.toPoint.northing);
+                                {/* Leg Bearings & Distances (Deduplicated Unique Edges) */}
+                                {comp.legs.map((leg, lidx) => {
+                                  const edgeKey = [leg.fromPoint.id, leg.toPoint.id].sort().join('__');
+                                  if (renderedEdges.has(edgeKey)) return null;
+                                  renderedEdges.add(edgeKey);
 
-                                const midX = (x1 + x2) / 2;
-                                const midY = (y1 + y2) / 2;
+                                  const x1 = toSvgX(leg.fromPoint.easting);
+                                  const y1 = toSvgY(leg.fromPoint.northing);
+                                  const x2 = toSvgX(leg.toPoint.easting);
+                                  const y2 = toSvgY(leg.toPoint.northing);
 
-                                const angleRad = Math.atan2(y2 - y1, x2 - x1);
-                                let textRot = angleRad * (180 / Math.PI);
-                                if (textRot > 90 || textRot < -90) {
-                                  textRot += 180;
-                                }
+                                  const midX = (x1 + x2) / 2;
+                                  const midY = (y1 + y2) / 2;
 
-                                const perpAngle = angleRad + Math.PI / 2;
-                                const offsetDist = 11;
-                                const textX = midX + Math.cos(perpAngle) * offsetDist;
-                                const textY = midY + Math.sin(perpAngle) * offsetDist;
+                                  const angleRad = Math.atan2(y2 - y1, x2 - x1);
+                                  let textRot = angleRad * (180 / Math.PI);
+                                  if (textRot > 90 || textRot < -90) {
+                                    textRot += 180;
+                                  }
 
-                                return (
-                                  <g key={lidx} transform={`translate(${textX}, ${textY}) rotate(${textRot})`}>
-                                    <text
-                                      y={0}
-                                      textAnchor="middle"
-                                      fontSize="7.5"
-                                      fill="#1e293b"
-                                      fontWeight="600"
-                                      fontFamily="monospace"
-                                    >
-                                      {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)
-                                    </text>
-                                  </g>
-                                );
-                              })}
-                            </g>
-                          );
-                        })}
+                                  const perpAngle = angleRad + Math.PI / 2;
+                                  let normX = Math.cos(perpAngle);
+                                  let normY = Math.sin(perpAngle);
+                                  const toCentX = midX - centSvgX;
+                                  const toCentY = midY - centSvgY;
+                                  if (normX * toCentX + normY * toCentY < 0) {
+                                    normX = -normX;
+                                    normY = -normY;
+                                  }
+
+                                  const offsetDist = 11;
+                                  const textX = midX + normX * offsetDist;
+                                  const textY = midY + normY * offsetDist;
+
+                                  return (
+                                    <g key={lidx} transform={`translate(${textX}, ${textY}) rotate(${textRot})`}>
+                                      <text
+                                        y={0}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        fontSize="7"
+                                        fill="#0f172a"
+                                        fontWeight="600"
+                                        fontFamily="monospace"
+                                        style={{
+                                          paintOrder: 'stroke fill',
+                                          stroke: '#ffffff',
+                                          strokeWidth: '3.5px',
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round'
+                                        }}
+                                      >
+                                        {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+                              </g>
+                            );
+                          });
+                        })()}
 
                         {/* 3. Inward Setback Line Preview */}
                         {showSetbacks && setbackResult && (
@@ -611,6 +638,71 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         {targetPoints.map(pt => {
                           const bx = toSvgX(pt.easting);
                           const by = toSvgY(pt.northing);
+
+                          let offX = 6;
+                          let offY = -3;
+                          let textAnchor: 'start' | 'middle' | 'end' = 'start';
+
+                          for (const parcel of targetParcels) {
+                            const idx = parcel.pointIds.indexOf(pt.id);
+                            if (idx !== -1 && parcel.pointIds.length >= 3) {
+                              const comp = computeParcel(parcel, points);
+                              if (comp && comp.vertices.length >= 3) {
+                                const vCentX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
+                                const vCentY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
+
+                                const n = parcel.pointIds.length;
+                                const prevId = parcel.pointIds[(idx - 1 + n) % n];
+                                const nextId = parcel.pointIds[(idx + 1) % n];
+                                const prevPt = points.find(p => p.id === prevId);
+                                const nextPt = points.find(p => p.id === nextId);
+
+                                if (prevPt && nextPt) {
+                                  const px = toSvgX(prevPt.easting);
+                                  const py = toSvgY(prevPt.northing);
+                                  const nx = toSvgX(nextPt.easting);
+                                  const ny = toSvgY(nextPt.northing);
+
+                                  const v1x = bx - px;
+                                  const v1y = by - py;
+                                  const v2x = nx - bx;
+                                  const v2y = ny - by;
+                                  const l1 = Math.hypot(v1x, v1y) || 1;
+                                  const l2 = Math.hypot(v2x, v2y) || 1;
+
+                                  const u1x = v1x / l1;
+                                  const u1y = v1y / l1;
+                                  const u2x = v2x / l2;
+                                  const u2y = v2y / l2;
+
+                                  let normX = -(u1y + u2y);
+                                  let normY = (u1x + u2x);
+                                  let normL = Math.hypot(normX, normY);
+
+                                  if (normL < 0.01) {
+                                    normX = bx - vCentX;
+                                    normY = by - vCentY;
+                                    normL = Math.hypot(normX, normY) || 1;
+                                  }
+
+                                  normX /= normL;
+                                  normY /= normL;
+
+                                  if (normX * (bx - vCentX) + normY * (by - vCentY) < 0) {
+                                    normX = -normX;
+                                    normY = -normY;
+                                  }
+
+                                  const dist = 9;
+                                  offX = normX * dist;
+                                  offY = normY * dist + (normY < -0.2 ? -2 : normY > 0.2 ? 6 : 2);
+                                  textAnchor = normX < -0.3 ? 'end' : normX > 0.3 ? 'start' : 'middle';
+                                  break;
+                                }
+                              }
+                            }
+                          }
+
                           return (
                             <g key={pt.id} className="svg-beacon-group">
                               {pt.isControl ? (
@@ -621,25 +713,33 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                   strokeWidth="1"
                                 />
                               ) : (
-                              <>
-                                <circle cx={bx} cy={by} r="3.5" fill="#dc2626" stroke="#ffffff" strokeWidth="0.8" />
-                                <line x1={bx - 3.5} y1={by} x2={bx + 3.5} y2={by} stroke="#ffffff" strokeWidth="0.6" />
-                                <line x1={bx} y1={by - 3.5} x2={bx} y2={by + 3.5} stroke="#ffffff" strokeWidth="0.6" />
-                              </>
-                            )}
-                            <text
-                              x={bx + 6}
-                              y={by - 3}
-                              fontSize="9"
-                              fontWeight="bold"
-                              fill="#0f172a"
-                            >
-                              {pt.id}
-                            </text>
-                          </g>
-                        );
-                      })}
-                    </svg>
+                                <>
+                                  <circle cx={bx} cy={by} r="3.2" fill="#dc2626" stroke="#ffffff" strokeWidth="0.8" />
+                                  <line x1={bx - 3.2} y1={by} x2={bx + 3.2} y2={by} stroke="#ffffff" strokeWidth="0.6" />
+                                  <line x1={bx} y1={by - 3.2} x2={bx} y2={by + 3.2} stroke="#ffffff" strokeWidth="0.6" />
+                                </>
+                              )}
+                              <text
+                                x={bx + offX}
+                                y={by + offY}
+                                textAnchor={textAnchor}
+                                fontSize="8"
+                                fontWeight="bold"
+                                fill="#0f172a"
+                                style={{
+                                  paintOrder: 'stroke fill',
+                                  stroke: '#ffffff',
+                                  strokeWidth: '3.5px',
+                                  strokeLinecap: 'round',
+                                  strokeLinejoin: 'round'
+                                }}
+                              >
+                                {pt.id}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
 
                     {/* North Arrow */}
                     <div className="tdp-north-arrow">
@@ -714,11 +814,29 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         <div className="survey-date">DATE: {project.date}</div>
 
                         {currentUser?.digitalSealUrl || activeOrg?.officialSealUrl ? (
-                          <div className="tdp-seal-stamp-container" style={{ position: 'absolute', right: '12px', bottom: '12px' }}>
+                          <div
+                            className="tdp-seal-stamp-container"
+                            style={{
+                              position: 'absolute',
+                              right: '6px',
+                              bottom: '6px',
+                              width: '75px',
+                              height: '52px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden'
+                            }}
+                          >
                             <img
                               src={currentUser?.digitalSealUrl || activeOrg?.officialSealUrl}
                               alt="Official Seal"
-                              style={{ width: '60px', height: '60px', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}
+                              style={{
+                                maxWidth: '100%',
+                                maxHeight: '100%',
+                                objectFit: 'contain',
+                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.12))'
+                              }}
                             />
                           </div>
                         ) : (
