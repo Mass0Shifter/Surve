@@ -4,6 +4,9 @@ SurvPack30/
 *.dwl
 *.dwl2
 
+# Ignore Legacy VB6 Folder
+SurvPack300/
+
 # Node & Build artifacts
 node_modules/
 dist/

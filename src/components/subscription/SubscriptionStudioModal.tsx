@@ -182,10 +182,10 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
           </div>
 
           {/* Navigation Tabs */}
-          <div className="studio-tabs-bar" style={{ marginBottom: '16px' }}>
+          <div className="traverse-tabs-bar" style={{ marginBottom: '16px', background: 'transparent' }}>
             <button
               type="button"
-              className={`studio-tab-btn ${activeTab === 'plans' ? 'active' : ''}`}
+              className={`traverse-tab-btn ${activeTab === 'plans' ? 'active' : ''}`}
               onClick={() => setActiveTab('plans')}
             >
               <Sparkles size={13} />
@@ -193,7 +193,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
             </button>
             <button
               type="button"
-              className={`studio-tab-btn ${activeTab === 'checkout' ? 'active' : ''}`}
+              className={`traverse-tab-btn ${activeTab === 'checkout' ? 'active' : ''}`}
               onClick={() => setActiveTab('checkout')}
             >
               <CreditCard size={13} />
@@ -201,7 +201,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
             </button>
             <button
               type="button"
-              className={`studio-tab-btn ${activeTab === 'offline' ? 'active' : ''}`}
+              className={`traverse-tab-btn ${activeTab === 'offline' ? 'active' : ''}`}
               onClick={() => setActiveTab('offline')}
             >
               <Key size={13} />
@@ -210,7 +210,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
             </button>
             <button
               type="button"
-              className={`studio-tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+              className={`traverse-tab-btn ${activeTab === 'history' ? 'active' : ''}`}
               onClick={() => setActiveTab('history')}
             >
               <Receipt size={13} />
@@ -218,9 +218,11 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
             </button>
           </div>
 
-          {/* TAB 1: PLANS COMPARISON GRID */}
-          {activeTab === 'plans' && (
-            <div className="subscription-plans-view">
+          {/* Modal Scrollable Body */}
+          <div className="subscription-modal-body">
+            {/* TAB 1: PLANS COMPARISON GRID */}
+            {activeTab === 'plans' && (
+              <div className="subscription-plans-view">
               {/* Controls Bar: Cycle & Currency */}
               <div className="subscription-controls-bar">
                 {/* Frequency Pill Switcher */}
@@ -660,6 +662,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
     </ErrorBoundary>

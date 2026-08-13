@@ -28,6 +28,8 @@ import { UserProfileModal } from './components/auth/UserProfileModal';
 import { OrganizationStudioModal } from './components/organization/OrganizationStudioModal';
 import { ProjectLibraryModal } from './components/library/ProjectLibraryModal';
 import { SubscriptionStudioModal } from './components/subscription/SubscriptionStudioModal';
+import { UpgradePromptModal } from './components/subscription/UpgradePromptModal';
+import { FeatureId, hasFeatureAccess } from './engine/subscription/featureGating';
 import { UserProfile } from './engine/auth/authTypes';
 import { Organization } from './engine/organization/orgTypes';
 import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/storage/nsurvBundle';
@@ -139,6 +141,7 @@ export const App: React.FC = () => {
   const [isCsvImporterOpen, setIsCsvImporterOpen] = useState<boolean>(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState<boolean>(false);
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
+  const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
   const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
 
   // User Authentication & Profile States
@@ -146,6 +149,15 @@ export const App: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [isOrgStudioOpen, setIsOrgStudioOpen] = useState<boolean>(false);
+
+  // Feature Access Interceptor Helper
+  const checkFeatureOrRun = useCallback((featureId: FeatureId, action: () => void) => {
+    if (hasFeatureAccess(currentUser, featureId)) {
+      action();
+    } else {
+      setUpgradePromptFeature(featureId);
+    }
+  }, [currentUser]);
 
   // Organization & Workspace State
   const [organizations, setOrganizations] = useState<Organization[]>(() => 
@@ -730,17 +742,17 @@ export const App: React.FC = () => {
           onLoadSample={handleLoadSample}
           onOpenCogo={() => setIsCogoOpen(true)}
           onOpenRenumber={() => setIsRenumberOpen(true)}
-          onOpenTdp={() => setIsTdpOpen(true)}
-          onOpenTraverse={() => setIsTraverseOpen(true)}
-          onOpenLeveling={() => setIsLevelingOpen(true)}
-          onOpenTacheometry={() => setIsTachOpen(true)}
-          onOpenSetout={() => setIsSetoutOpen(true)}
-          onOpenDatumTransform={() => setIsDatumTransformOpen(true)}
-          onOpenAlignment={() => setIsAlignmentOpen(true)}
-          onOpenVerticalAlignment={() => setIsVerticalOpen(true)}
-          onOpenSubdivision={() => setIsSubdivisionOpen(true)}
-          onOpenDxf={() => setIsDxfOpen(true)}
-          onOpenResection={() => setIsResectionOpen(true)}
+          onOpenTdp={() => checkFeatureOrRun('TDP_PRINT_STUDIO', () => setIsTdpOpen(true))}
+          onOpenTraverse={() => checkFeatureOrRun('TRAVERSE_BALANCING', () => setIsTraverseOpen(true))}
+          onOpenLeveling={() => checkFeatureOrRun('LEVELING_STUDIO', () => setIsLevelingOpen(true))}
+          onOpenTacheometry={() => checkFeatureOrRun('TACHEOMETRY_DTM', () => setIsTachOpen(true))}
+          onOpenSetout={() => checkFeatureOrRun('SETOUT_STAKING', () => setIsSetoutOpen(true))}
+          onOpenDatumTransform={() => checkFeatureOrRun('DATUM_TRANSFORM', () => setIsDatumTransformOpen(true))}
+          onOpenAlignment={() => checkFeatureOrRun('ALIGNMENT_STUDIO', () => setIsAlignmentOpen(true))}
+          onOpenVerticalAlignment={() => checkFeatureOrRun('VERTICAL_ALIGNMENT', () => setIsVerticalOpen(true))}
+          onOpenSubdivision={() => checkFeatureOrRun('SUBDIVISION_STUDIO', () => setIsSubdivisionOpen(true))}
+          onOpenDxf={() => checkFeatureOrRun('DXF_STUDIO', () => setIsDxfOpen(true))}
+          onOpenResection={() => checkFeatureOrRun('RESECTION_STUDIO', () => setIsResectionOpen(true))}
           onOpenCsvImporter={() => setIsCsvImporterOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
@@ -755,6 +767,7 @@ export const App: React.FC = () => {
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
           onOpenSubscription={() => setIsSubscriptionOpen(true)}
+          onRequestUpgrade={(fId) => setUpgradePromptFeature(fId)}
           onLogout={logout}
           isLeftVisible={isLeftVisible}
           isRightVisible={isRightVisible}
@@ -1178,6 +1191,14 @@ export const App: React.FC = () => {
         onSubscriptionUpdated={(updated) => {
           setCurrentUser(updated);
         }}
+      />
+
+      {/* Feature Gating Upgrade Prompt Modal */}
+      <UpgradePromptModal
+        isOpen={!!upgradePromptFeature}
+        featureId={upgradePromptFeature}
+        onClose={() => setUpgradePromptFeature(null)}
+        onOpenSubscription={() => setIsSubscriptionOpen(true)}
       />
     </div>
     </ErrorBoundary>

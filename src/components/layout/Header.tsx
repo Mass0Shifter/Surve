@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ProjectMetadata, CoordinatePoint, Parcel, NigerianGridBelt } from '../../engine/types';
 import { UserProfile } from '../../engine/auth/authTypes';
 import { Organization } from '../../engine/organization/orgTypes';
+import { FeatureId } from '../../engine/subscription/featureGating';
 import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
@@ -49,6 +50,7 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onOpenProfile: () => void;
   onOpenSubscription: () => void;
+  onRequestUpgrade?: (featureId: FeatureId) => void;
   onLogout: () => void;
 
   isLeftVisible: boolean;
@@ -98,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   onOpenProfile,
   onOpenSubscription,
+  onRequestUpgrade,
   onLogout,
   isLeftVisible,
   isRightVisible,
@@ -186,6 +189,8 @@ export const Header: React.FC<HeaderProps> = ({
           onSelectBelt={(belt) => onUpdateProject({ ...project, gridBelt: belt })}
           autoSaveEnabled={autoSaveEnabled}
           onToggleAutoSave={onToggleAutoSave}
+          currentUser={currentUser}
+          onRequestUpgrade={onRequestUpgrade}
         />
       </div>
 

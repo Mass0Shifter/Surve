@@ -22,9 +22,12 @@ import {
   Target,
   Save,
   Printer,
-  Calculator
+  Calculator,
+  Lock
 } from 'lucide-react';
 import { NigerianGridBelt } from '../../engine/types';
+import { UserProfile } from '../../engine/auth/authTypes';
+import { FeatureId, hasFeatureAccess, getFeatureDefinition } from '../../engine/subscription/featureGating';
 
 interface MenuBarProps {
   onNewProject: () => void;
@@ -68,6 +71,8 @@ interface MenuBarProps {
   onSelectBelt: (belt: NigerianGridBelt) => void;
   autoSaveEnabled: boolean;
   onToggleAutoSave: () => void;
+  currentUser?: UserProfile | null;
+  onRequestUpgrade?: (featureId: FeatureId) => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'tools' | 'settings' | null;
@@ -109,7 +114,9 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   gridBelt,
   onSelectBelt,
   autoSaveEnabled,
-  onToggleAutoSave
+  onToggleAutoSave,
+  currentUser,
+  onRequestUpgrade
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
@@ -133,6 +140,41 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   const handleAction = (action: () => void) => {
     action();
     setOpenMenu(null);
+  };
+
+  const checkAccessAndRun = (featureId: FeatureId, action: () => void) => {
+    if (hasFeatureAccess(currentUser, featureId)) {
+      handleAction(action);
+    } else if (onRequestUpgrade) {
+      setOpenMenu(null);
+      onRequestUpgrade(featureId);
+    } else {
+      handleAction(action);
+    }
+  };
+
+  const renderTierBadge = (featureId: FeatureId) => {
+    if (hasFeatureAccess(currentUser, featureId)) return null;
+    const def = getFeatureDefinition(featureId);
+    return (
+      <span
+        style={{
+          marginLeft: 'auto',
+          fontSize: '9px',
+          fontWeight: 700,
+          padding: '1px 5px',
+          borderRadius: '3px',
+          background: def.minTier === 'ENTERPRISE' ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.18)',
+          color: def.minTier === 'ENTERPRISE' ? '#fbbf24' : '#34d399',
+          border: def.minTier === 'ENTERPRISE' ? '1px solid rgba(245,158,11,0.35)' : '1px solid rgba(16,185,129,0.35)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '3px'
+        }}
+      >
+        <Lock size={9} /> {def.minTier === 'ENTERPRISE' ? 'ENTERPRISE' : 'PRO'}
+      </span>
+    );
   };
 
   return (
@@ -355,74 +397,84 @@ export const MenuBar: React.FC<MenuBarProps> = ({
 
             <div className="menu-dropdown-divider" />
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenTraverse)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('TRAVERSE_BALANCING', onOpenTraverse)}>
               <div className="menu-item-left">
                 <Compass size={14} className="text-cyan" />
                 <span>Traverse Reduction & Loop Balancing Studio</span>
               </div>
+              {renderTierBadge('TRAVERSE_BALANCING')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenLeveling)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('LEVELING_STUDIO', onOpenLeveling)}>
               <div className="menu-item-left">
                 <Ruler size={14} className="text-emerald" />
                 <span>Spirit Leveling Studio (HPC &amp; Rise/Fall)</span>
               </div>
+              {renderTierBadge('LEVELING_STUDIO')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenTacheometry)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('TACHEOMETRY_DTM', onOpenTacheometry)}>
               <div className="menu-item-left">
                 <Compass size={14} className="text-amber" />
                 <span>Stadia &amp; Total Station Tacheometry Studio</span>
               </div>
+              {renderTierBadge('TACHEOMETRY_DTM')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenSetout)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('SETOUT_STAKING', onOpenSetout)}>
               <div className="menu-item-left">
                 <Target size={14} className="text-amber" />
                 <span>Setout / Setting-Out Studio</span>
               </div>
+              {renderTierBadge('SETOUT_STAKING')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenDatumTransform)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('DATUM_TRANSFORM', onOpenDatumTransform)}>
               <div className="menu-item-left">
                 <Globe size={14} className="text-cyan" />
                 <span>Datum Transform (Minna ↔ WGS84)</span>
               </div>
+              {renderTierBadge('DATUM_TRANSFORM')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenAlignment)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('ALIGNMENT_STUDIO', onOpenAlignment)}>
               <div className="menu-item-left">
                 <Compass size={14} className="text-magenta" style={{ color: '#ec4899' }} />
                 <span>Horizontal Alignment &amp; Earthworks Studio</span>
               </div>
+              {renderTierBadge('ALIGNMENT_STUDIO')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenVerticalAlignment)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('VERTICAL_ALIGNMENT', onOpenVerticalAlignment)}>
               <div className="menu-item-left">
                 <Compass size={14} className="text-emerald" />
                 <span>Road Vertical Curve Profile Studio</span>
               </div>
+              {renderTierBadge('VERTICAL_ALIGNMENT')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenSubdivision)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('SUBDIVISION_STUDIO', onOpenSubdivision)}>
               <div className="menu-item-left">
                 <Layers size={14} className="text-emerald" />
                 <span>Area Sub-Division &amp; Land Splitting Studio</span>
               </div>
+              {renderTierBadge('SUBDIVISION_STUDIO')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenDxf)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('DXF_STUDIO', onOpenDxf)}>
               <div className="menu-item-left">
                 <FileCode size={14} className="text-cyan" />
                 <span>AutoCAD DXF Import &amp; Export Studio</span>
               </div>
+              {renderTierBadge('DXF_STUDIO')}
             </div>
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenResection)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('RESECTION_STUDIO', onOpenResection)}>
               <div className="menu-item-left">
                 <Target size={14} className="text-amber" />
                 <span>Resection &amp; COGO Intersections Studio</span>
               </div>
+              {renderTierBadge('RESECTION_STUDIO')}
             </div>
 
             <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCsvImporter)}>
@@ -434,11 +486,12 @@ export const MenuBar: React.FC<MenuBarProps> = ({
 
             <div className="menu-dropdown-divider" />
 
-            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenTdp)}>
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('TDP_PRINT_STUDIO', onOpenTdp)}>
               <div className="menu-item-left">
                 <FileText size={14} className="text-emerald" />
                 <span>Official Title Deed Plan (TDP) Print Studio</span>
               </div>
+              {renderTierBadge('TDP_PRINT_STUDIO')}
             </div>
           </div>
         )}

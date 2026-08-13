@@ -2342,7 +2342,8 @@ body {
   flex-direction: column;
 }
 
-.traverse-tabs-bar {
+.traverse-tabs-bar,
+.studio-tabs-bar {
   display: flex;
   gap: 8px;
   padding: 0 16px;
@@ -2350,7 +2351,8 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
-.traverse-tab-btn {
+.traverse-tab-btn,
+.studio-tab-btn {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2365,11 +2367,13 @@ body {
   transition: all 0.15s ease;
 }
 
-.traverse-tab-btn:hover {
+.traverse-tab-btn:hover,
+.studio-tab-btn:hover {
   color: var(--text-main);
 }
 
-.traverse-tab-btn.active {
+.traverse-tab-btn.active,
+.studio-tab-btn.active {
   color: var(--emerald);
   border-bottom-color: var(--emerald);
 }
@@ -2460,7 +2464,7 @@ body {
   font-size: 11px;
 }
 
-.fieldbook-table-container, .reduction-table-container, .table-wrapper {
+.fieldbook-table-container, .reduction-table-container, .table-wrapper, .invoices-table-container {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -2481,13 +2485,13 @@ body {
   color: var(--text-main);
 }
 
-.fieldbook-table, .reduction-table, .traverse-table, .survey-studio-table, .studio-table {
+.fieldbook-table, .reduction-table, .traverse-table, .survey-studio-table, .studio-table, .invoices-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
 }
 
-.fieldbook-table th, .reduction-table th, .traverse-table th, .survey-studio-table th, .studio-table th {
+.fieldbook-table th, .reduction-table th, .traverse-table th, .survey-studio-table th, .studio-table th, .invoices-table th {
   background: rgba(30, 41, 59, 0.9);
   color: var(--text-muted);
   font-weight: 600;
@@ -2497,13 +2501,13 @@ body {
   white-space: nowrap;
 }
 
-.fieldbook-table td, .reduction-table td, .traverse-table td, .survey-studio-table td, .studio-table td {
+.fieldbook-table td, .reduction-table td, .traverse-table td, .survey-studio-table td, .studio-table td, .invoices-table td {
   padding: 8px 12px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.08);
   white-space: nowrap;
 }
 
-.fieldbook-table tr:hover, .reduction-table tr:hover, .traverse-table tr:hover, .survey-studio-table tr:hover, .studio-table tr:hover {
+.fieldbook-table tr:hover, .reduction-table tr:hover, .traverse-table tr:hover, .survey-studio-table tr:hover, .studio-table tr:hover, .invoices-table tr:hover {
   background: rgba(16, 185, 129, 0.04);
 }
 
@@ -2774,6 +2778,29 @@ body {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+}
+
+.subscription-modal-box {
+  width: 1140px !important;
+  max-width: 95vw !important;
+  height: 88vh !important;
+  max-height: 88vh !important;
+  background: #090d16 !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(245, 158, 11, 0.08) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.subscription-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 28px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .auth-modal-header {
@@ -3884,18 +3911,25 @@ input.auth-input.no-icon,
 }
 
 /* Pricing 3-Column Grid */
+.subscription-plans-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 24px;
+}
+
 .pricing-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 24px;
 }
 
 .pricing-card {
-  background: rgba(30, 41, 59, 0.4);
+  background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 12px;
-  padding: 20px;
+  padding: 22px 18px 24px;
   display: flex;
   flex-direction: column;
   position: relative;
