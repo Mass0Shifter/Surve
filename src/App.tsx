@@ -34,6 +34,7 @@ import { FeatureId, hasFeatureAccess } from './engine/subscription/featureGating
 import { UserProfile } from './engine/auth/authTypes';
 import { Organization } from './engine/organization/orgTypes';
 import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/storage/nsurvBundle';
+import { saveActiveSessionState, loadActiveSessionState } from './engine/storage/projectDatabase';
 import { getCurrentUser, logout, updateUserProfile } from './engine/auth/authEngine';
 import { getOrganizationsForUser, getActiveOrganization } from './engine/organization/orgEngine';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -146,6 +147,7 @@ export const App: React.FC = () => {
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
   const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
   const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
+  const [currentLoadedProjectId, setCurrentLoadedProjectId] = useState<string | null>('proj_seed_abuja_001');
 
   // User Authentication & Profile States
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
@@ -169,6 +171,22 @@ export const App: React.FC = () => {
   const [activeOrg, setActiveOrg] = useState<Organization | null>(() => 
     currentUser ? getActiveOrganization(currentUser) : null
   );
+
+  // Restore Active Session from High-Capacity IndexedDB on mount
+  useEffect(() => {
+    let isMounted = true;
+    loadActiveSessionState().then(session => {
+      if (isMounted && session && session.points && session.points.length > 0) {
+        setProject(session.project);
+        setPoints(session.points);
+        setParcels(session.parcels);
+        if (session.currentLoadedProjectId) {
+          setCurrentLoadedProjectId(session.currentLoadedProjectId);
+        }
+      }
+    });
+    return () => { isMounted = false; };
+  }, []);
 
   const refreshUserData = useCallback((user: UserProfile | null) => {
     if (user) {
@@ -292,22 +310,21 @@ export const App: React.FC = () => {
     document.body.style.userSelect = 'none';
   };
 
-  // LocalStorage Auto-Save Effect
+  // High-Capacity Asynchronous IndexedDB Auto-Save Effect (with 400ms debounce)
   useEffect(() => {
     if (autoSaveEnabled) {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ project, points, parcels }));
+      const timer = setTimeout(() => {
+        saveActiveSessionState({ project, points, parcels, currentLoadedProjectId });
         localStorage.setItem(AUTOSAVE_KEY, 'true');
         const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setLastSavedTime(now);
-      } catch (err) {
-        console.warn('Auto-save failed:', err);
-      }
+      }, 400);
+      return () => clearTimeout(timer);
     } else {
       localStorage.setItem(AUTOSAVE_KEY, 'false');
       setLastSavedTime(null);
     }
-  }, [project, points, parcels, autoSaveEnabled]);
+  }, [project, points, parcels, currentLoadedProjectId, autoSaveEnabled]);
 
   const handleToggleAutoSave = () => {
     setAutoSaveEnabled(prev => !prev);
@@ -583,6 +600,7 @@ export const App: React.FC = () => {
 
   const handleLoadSample = () => {
     recordSnapshot(`Reset to Demo Benchmark`);
+    setCurrentLoadedProjectId('proj_seed_abuja_001');
     setProject(SAMPLE_PROJECT_METADATA);
     setPoints(SAMPLE_COORDINATES);
     setParcels(SAMPLE_PARCELS);
@@ -629,6 +647,7 @@ export const App: React.FC = () => {
       return;
     }
     recordSnapshot('Create New Project');
+    setCurrentLoadedProjectId(null);
     setProject({
       title: 'UNTITLED SURVEY PLAN',
       location: 'NIGERIA',
@@ -679,8 +698,9 @@ export const App: React.FC = () => {
     alert(`Leveling Synchronization: Updated 3D Elevations (Z) for ${matchCount} matching coordinate beacons in the workspace!`);
   };
 
-  const handleLoadBundle = (bundle: NSurveyBundle) => {
+  const handleLoadBundle = (bundle: NSurveyBundle, projectId?: string) => {
     recordSnapshot(`Load Project ${bundle.project.title}`);
+    setCurrentLoadedProjectId(projectId || null);
     setProject(bundle.project);
     setPoints(bundle.points);
     setParcels(bundle.parcels);
@@ -872,6 +892,7 @@ export const App: React.FC = () => {
             <ParcelInspector
               parcels={parcels}
               points={points}
+              project={project}
               selectedParcelId={selectedParcelId}
               onSelectParcel={setSelectedParcelId}
               onAddParcel={handleAddParcel}
@@ -1201,6 +1222,7 @@ export const App: React.FC = () => {
         currentProject={project}
         currentPoints={points}
         currentParcels={parcels}
+        currentProjectId={currentLoadedProjectId}
         currentUser={currentUser}
         activeOrg={activeOrg}
         onLoadProject={handleLoadBundle}

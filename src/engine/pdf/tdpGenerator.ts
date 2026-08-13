@@ -7,9 +7,10 @@ import { determineCadastralSheets } from '../cadastral/sheetIndex';
 export interface TdpRenderOptions {
   pageSize: 'a4' | 'a3' | 'legal';
   orientation: 'portrait' | 'landscape';
-  planType: 'single_plot' | 'layout';
+  planType: 'single_plot' | 'selected_plots' | 'layout';
   scaleRatio?: number; // e.g. 500, 1000, 2000 (if undefined, auto-fits)
   selectedParcelId?: string;
+  selectedParcelIds?: string[];
   showCoordinateTable: boolean;
   showSealBox: boolean;
   showGridCrosses: boolean;
@@ -50,13 +51,24 @@ export function generateTitleDeedPlanPDF(
   const selectedParcel = parcels.find(p => p.id === options.selectedParcelId) || parcels[0] || null;
   const isSinglePlot = options.planType === 'single_plot' && selectedParcel !== null;
 
-  // Relevant parcels & points to render
-  const targetParcels = isSinglePlot ? [selectedParcel] : parcels;
+  // Relevant parcels to render
+  let targetParcels: Parcel[] = [];
+  if (isSinglePlot && selectedParcel) {
+    targetParcels = [selectedParcel];
+  } else if (options.planType === 'selected_plots' && options.selectedParcelIds && options.selectedParcelIds.length > 0) {
+    const idSet = new Set(options.selectedParcelIds);
+    targetParcels = parcels.filter(p => idSet.has(p.id));
+    if (targetParcels.length === 0 && selectedParcel) targetParcels = [selectedParcel];
+  } else {
+    targetParcels = parcels;
+  }
 
   let targetPoints: CoordinatePoint[] = [];
-  if (isSinglePlot && selectedParcel) {
+  if (options.planType !== 'layout' && targetParcels.length > 0) {
     const pointMap = new Map(points.map(p => [p.id, p]));
-    targetPoints = selectedParcel.pointIds.map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
+    const ptIdSet = new Set<string>();
+    targetParcels.forEach(p => p.pointIds.forEach(id => ptIdSet.add(id)));
+    targetPoints = Array.from(ptIdSet).map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
   } else {
     targetPoints = points;
   }
@@ -94,21 +106,7 @@ export function generateTitleDeedPlanPDF(
   doc.setDrawColor(203, 213, 225);
   doc.line(outerX + 3, headerY + 16, outerX + outerW - 3, headerY + 16);
 
-  // 4. Cadastral Sheet Index Determination
-  const centPoint = targetPoints[0] || points[0] || { easting: 294312, northing: 992100 };
-  const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
-  const primarySheet = sheetIndices.find(s => s.scale === (project.scale || 1000)) || sheetIndices[0];
-
-  // Draw Sheet Info in Top Right
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(`SCALE 1:${project.scale || 1000}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
-  doc.text(`JOB NO: ${project.code}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
-
-  // 5. Drawing Area Dimensions & Coordinate Mapping
+  // 4. Drawing Area Dimensions & Scale Ratio Determination
   const bottomPanelHeight = options.showCoordinateTable || options.showSealBox ? 55 : 30;
   const drawAreaX = outerX + 6;
   const drawAreaY = headerY + 20;
@@ -121,14 +119,29 @@ export function generateTitleDeedPlanPDF(
   const centN = extents.centerY;
 
   const autoScale = Math.min((drawAreaW - 20) / Math.max(10, extents.width), (drawAreaH - 20) / Math.max(10, extents.height));
-  const effectiveScale = (options.scaleRatio && options.scaleRatio > 0) ? options.scaleRatio : (project.scale || 1000);
-  const mapScale = (options.scaleRatio && options.scaleRatio > 0) ? (1000 / options.scaleRatio) : autoScale;
+  const autoFitRatio = Math.round(1000 / (autoScale > 0 ? autoScale : 1));
+  const effectiveScale = (options.scaleRatio && options.scaleRatio > 0) ? options.scaleRatio : autoFitRatio;
+  const mapScale = (1000 / effectiveScale);
 
   const centX = drawAreaX + drawAreaW / 2;
   const centY = drawAreaY + drawAreaH / 2;
 
   const toMapX = (easting: number) => centX + (easting - centE) * mapScale;
   const toMapY = (northing: number) => centY - (northing - centN) * mapScale;
+
+  // 5. Cadastral Sheet Index Determination
+  const centPoint = targetPoints[0] || points[0] || { easting: 294312, northing: 992100 };
+  const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
+  const primarySheet = sheetIndices.find(s => s.scale === effectiveScale) || sheetIndices[0];
+
+  // Draw Sheet Info in Top Right
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.text(`SCALE 1:${effectiveScale}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
+  doc.text(`JOB NO: ${project.code}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
 
   // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
@@ -204,7 +217,7 @@ export function generateTitleDeedPlanPDF(
     doc.text(`AREA: ${comp.areaSquareMeters.toFixed(2)} Sq.m (${comp.areaHectares.toFixed(4)} Ha)`, centX, centY + 6.5, { align: 'center' });
 
     // Leg Bearings & Distances
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setTextColor(30, 41, 59);
 
     for (const leg of comp.legs) {
@@ -214,12 +227,18 @@ export function generateTitleDeedPlanPDF(
       const midX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
 
-      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-      const offX = -Math.sin(angle) * 3.5;
-      const offY = Math.cos(angle) * 3.5;
+      const angleRad = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      let angleDeg = angleRad * (180 / Math.PI);
+      if (angleDeg > 90 || angleDeg < -90) {
+        angleDeg += 180;
+      }
+
+      const perpAngle = angleRad + Math.PI / 2;
+      const offX = Math.cos(perpAngle) * 3.2;
+      const offY = Math.sin(perpAngle) * 3.2;
 
       const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
-      doc.text(legText, midX + offX, midY + offY, { align: 'center' });
+      doc.text(legText, midX + offX, midY + offY, { align: 'center', angle: -angleDeg });
     }
   }
 
@@ -268,7 +287,7 @@ export function generateTitleDeedPlanPDF(
   // 10. Metric Bar Scale
   const sbX = drawAreaX + 6;
   const sbY = drawAreaY + drawAreaH - 8;
-  const scaleBarMeters = isSinglePlot ? 20 : (project.scale && project.scale <= 500 ? 20 : 50);
+  const scaleBarMeters = isSinglePlot ? 20 : (effectiveScale <= 500 ? 20 : 50);
   const scaleBarMm = scaleBarMeters * mapScale;
 
   if (scaleBarMm > 15 && scaleBarMm < drawAreaW * 0.4) {
@@ -283,7 +302,7 @@ export function generateTitleDeedPlanPDF(
     doc.text('0', sbX, sbY - 1.5);
     doc.text(`${scaleBarMeters / 2}m`, sbX + scaleBarMm / 2, sbY - 1.5, { align: 'center' });
     doc.text(`${scaleBarMeters} METRES`, sbX + scaleBarMm, sbY - 1.5, { align: 'right' });
-    doc.text(`SCALE 1:${project.scale || 1000}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
+    doc.text(`SCALE 1:${effectiveScale}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
   }
 
   // 11. Bottom Footer: Coordinate Schedule Table & Surveyor Seal Box

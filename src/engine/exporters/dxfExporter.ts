@@ -2,6 +2,18 @@ import { CoordinatePoint, Parcel, ProjectMetadata } from '../types';
 import { computeParcel } from '../cogo';
 
 /**
+ * Sanitizes strings for strict AutoCAD DXF R12/2000 ASCII compatibility.
+ */
+function sanitizeDxfText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\\/g, '/')
+    .replace(/[^\x20-\x7E]/g, '') // Keep printable ASCII
+    .trim();
+}
+
+/**
  * Generates an industry-standard ASCII DXF (Release 12/2000 format)
  * readable by all versions of AutoCAD, Civil 3D, QGIS, ArcGIS, and LibreCAD.
  */
@@ -14,7 +26,7 @@ export function generateDXF(
 
   // DXF HEADER
   lines.push('0', 'SECTION', '2', 'HEADER');
-  lines.push('999', `NSurvey CAD Export - ${project.code}: ${project.title}`);
+  lines.push('999', `NSurvey CAD Export - ${sanitizeDxfText(project.code)}: ${sanitizeDxfText(project.title)}`);
   lines.push('9', '$ACADVER', '1', 'AC1009'); // AutoCAD R12 compatible DXF
   lines.push('9', '$INSUNITS', '70', '6'); // 6 = Meters
   lines.push('0', 'ENDSEC');
@@ -53,7 +65,7 @@ export function generateDXF(
     lines.push('20', (pt.northing + 0.5).toFixed(4));
     lines.push('30', '0.0');
     lines.push('40', '1.0'); // Text Height
-    lines.push('1', pt.id);
+    lines.push('1', sanitizeDxfText(pt.id));
   }
 
   // 2. Write Parcels as Polyline Entities
@@ -88,7 +100,7 @@ export function generateDXF(
     lines.push('20', centN.toFixed(4));
     lines.push('30', '0.0');
     lines.push('40', '1.8');
-    lines.push('1', parcel.plotNumber);
+    lines.push('1', sanitizeDxfText(parcel.plotNumber));
 
     lines.push('0', 'TEXT');
     lines.push('8', 'ANNOTATIONS');
@@ -103,4 +115,25 @@ export function generateDXF(
   lines.push('0', 'EOF');
 
   return lines.join('\r\n');
+}
+
+/**
+ * Generates an AutoCAD DXF for a specific parcel or custom subset of parcels.
+ */
+export function generateParcelsDXF(
+  project: ProjectMetadata,
+  points: CoordinatePoint[],
+  targetParcels: Parcel[]
+): string {
+  const pointMap = new Map(points.map(p => [p.id, p]));
+  const ptIdSet = new Set<string>();
+  targetParcels.forEach(p => p.pointIds.forEach(id => ptIdSet.add(id)));
+  const relevantPoints = Array.from(ptIdSet).map(id => pointMap.get(id)).filter(Boolean) as CoordinatePoint[];
+
+  const titleSuffix = targetParcels.length === 1 ? targetParcels[0].plotNumber : `${targetParcels.length}_PLOTS`;
+  return generateDXF(
+    { ...project, title: `${project.title || 'CAD'} - ${titleSuffix}` },
+    relevantPoints,
+    targetParcels
+  );
 }

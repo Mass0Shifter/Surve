@@ -126,6 +126,10 @@ export function computeTraverseAdjustment(
   const distances = stations.map(s => s.distance);
   const totalPerimeter = distances.reduce((sum, d) => sum + d, 0);
 
+  if (totalPerimeter <= 0 || isNaN(totalPerimeter) || !isFinite(totalPerimeter)) {
+    throw new Error('Traverse Calculation Error: Total perimeter distance must be greater than 0.000m.');
+  }
+
   const rawDeltaE: number[] = [];
   const rawDeltaN: number[] = [];
 

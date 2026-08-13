@@ -6,6 +6,7 @@ export interface CoordinatePoint {
   code?: string;
   description?: string;
   isControl?: boolean;
+  hidden?: boolean;
 }
 
 export interface DMSAngle {
@@ -32,6 +33,7 @@ export interface Parcel {
   blockNumber?: string;
   pointIds: string[]; // Order of vertices
   color?: string;
+  hidden?: boolean;
 }
 
 export interface ParcelComputationResult {

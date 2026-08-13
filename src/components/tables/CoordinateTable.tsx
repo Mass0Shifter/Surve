@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CoordinatePoint } from '../../engine/types';
-import { Plus, Trash2, Edit2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 import { parseCoordinatesText } from '../../engine/importer/parser';
 
@@ -392,6 +392,18 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
                     <td className="mono-cell">{pt.elevation !== undefined ? pt.elevation.toFixed(2) : '-'}</td>
                     <td className="action-cell">
                       <button
+                        type="button"
+                        className={`action-btn-sm ${pt.hidden ? 'text-muted' : 'text-emerald'}`}
+                        title={pt.hidden ? `Show beacon ${pt.id} on CAD canvas` : `Hide beacon ${pt.id} on CAD canvas`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdatePoint(pt.id, { ...pt, hidden: !pt.hidden });
+                        }}
+                      >
+                        {pt.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                      <button
+                        type="button"
                         className="edit-icon-btn"
                         title={`Edit beacon ${pt.id}`}
                         onClick={(e) => {
@@ -402,6 +414,7 @@ export const CoordinateTable: React.FC<CoordinateTableProps> = ({
                         <Edit2 size={12} />
                       </button>
                       <button
+                        type="button"
                         className="delete-icon-btn"
                         title={`Delete beacon ${pt.id}`}
                         onClick={(e) => {

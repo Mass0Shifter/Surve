@@ -27,11 +27,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const [planType, setPlanType] = useState<'single_plot' | 'layout'>('single_plot');
+  const [planType, setPlanType] = useState<'single_plot' | 'selected_plots' | 'layout'>('single_plot');
   const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [selectedParcelId, setSelectedParcelId] = useState<string>(parcels[0]?.id || '');
+  const [selectedParcelIds, setSelectedParcelIds] = useState<string[]>(() => parcels.slice(0, 2).map(p => p.id));
   const [scaleRatio, setScaleRatio] = useState<number>(project.scale || 1000);
+  const [isCustomScale, setIsCustomScale] = useState<boolean>(false);
+  const [customScaleInput, setCustomScaleInput] = useState<string>('750');
   const [showCoordinateTable, setShowCoordinateTable] = useState<boolean>(true);
   const [showSealBox, setShowSealBox] = useState<boolean>(true);
   const [showGridCrosses, setShowGridCrosses] = useState<boolean>(true);
@@ -47,12 +50,23 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const isSinglePlot = planType === 'single_plot' && selectedParcel !== null;
 
   // Filter relevant target points and parcels
-  const targetParcels = isSinglePlot ? [selectedParcel] : parcels;
+  let targetParcels: Parcel[] = [];
+  if (isSinglePlot && selectedParcel) {
+    targetParcels = [selectedParcel];
+  } else if (planType === 'selected_plots' && selectedParcelIds.length > 0) {
+    const idSet = new Set(selectedParcelIds);
+    targetParcels = parcels.filter(p => idSet.has(p.id));
+    if (targetParcels.length === 0 && selectedParcel) targetParcels = [selectedParcel];
+  } else {
+    targetParcels = parcels;
+  }
 
   let targetPoints: CoordinatePoint[] = [];
-  if (isSinglePlot && selectedParcel) {
+  if (planType !== 'layout' && targetParcels.length > 0) {
     const pointMap = new Map(points.map(p => [p.id, p]));
-    targetPoints = selectedParcel.pointIds.map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
+    const ptIdSet = new Set<string>();
+    targetParcels.forEach(p => p.pointIds.forEach(id => ptIdSet.add(id)));
+    targetPoints = Array.from(ptIdSet).map(pid => pointMap.get(pid)).filter(Boolean) as CoordinatePoint[];
   } else {
     targetPoints = points;
   }
@@ -76,9 +90,10 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const centN = extents.centerY;
 
   // Base mm conversion: A4 printable map width ~ 170mm mapped to 500 SVG units => ~2.94 units/mm
+  const activeScale = isCustomScale ? (parseInt(customScaleInput) || 1000) : scaleRatio;
   const autoFitScale = Math.min((svgWidth - 90) / Math.max(10, extents.width), (svgHeight - 90) / Math.max(10, extents.height));
-  const effectiveScaleRatio = scaleRatio === 0 ? Math.round(1000 / (autoFitScale / 2.94)) : scaleRatio;
-  const pixelsPerMeter = scaleRatio === 0 ? autoFitScale : (1000 / scaleRatio) * 2.94;
+  const effectiveScaleRatio = activeScale === 0 ? Math.round(1000 / (autoFitScale / 2.94)) : activeScale;
+  const pixelsPerMeter = activeScale === 0 ? autoFitScale : (1000 / activeScale) * 2.94;
 
   const toSvgX = (easting: number) => svgWidth / 2 + (easting - centE) * pixelsPerMeter;
   const toSvgY = (northing: number) => svgHeight / 2 - (northing - centN) * pixelsPerMeter;
@@ -101,6 +116,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       planType,
       scaleRatio: effectiveScaleRatio,
       selectedParcelId,
+      selectedParcelIds,
       showCoordinateTable,
       showSealBox,
       showGridCrosses,
@@ -113,7 +129,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     };
 
     const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
-    const fileName = `${project.code || 'TDP'}_${isSinglePlot ? (selectedParcel?.plotNumber || 'PLOT') : 'LAYOUT'}.pdf`;
+    const fileName = `${project.code || 'TDP'}_${planType === 'single_plot' ? (selectedParcel?.plotNumber || 'PLOT') : planType === 'selected_plots' ? 'SELECTED_PLOTS' : 'LAYOUT'}.pdf`;
     doc.save(fileName);
   };
 
@@ -124,6 +140,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       planType,
       scaleRatio: effectiveScaleRatio,
       selectedParcelId,
+      selectedParcelIds,
       showCoordinateTable,
       showSealBox,
       showGridCrosses,
@@ -177,6 +194,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               <label>Plan Deliverable Type</label>
               <select value={planType} onChange={(e) => setPlanType(e.target.value as any)}>
                 <option value="single_plot">Single-Plot Title Deed Plan (C of O)</option>
+                <option value="selected_plots">Custom Multi-Plot Plan (Selected Parcels)</option>
                 <option value="layout">Estate Layout Master Plan (All Plots)</option>
               </select>
             </div>
@@ -192,6 +210,60 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {/* Multi-Parcel Custom Checklist */}
+            {planType === 'selected_plots' && (
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ margin: 0 }}>Select Included Parcels ({selectedParcelIds.length}/{parcels.length})</label>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      style={{ fontSize: '9px', padding: '2px 6px' }}
+                      onClick={() => setSelectedParcelIds(parcels.map(p => p.id))}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      style={{ fontSize: '9px', padding: '2px 6px' }}
+                      onClick={() => setSelectedParcelIds([])}
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+                <div className="multi-parcel-picker-box" style={{ maxHeight: '120px', overflowY: 'auto', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.1)', padding: '6px' }}>
+                  {parcels.map(p => {
+                    const isChecked = selectedParcelIds.includes(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className="checkbox-label"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', fontSize: '11px', cursor: 'pointer', borderRadius: '4px', background: isChecked ? 'rgba(16, 185, 129, 0.08)' : 'transparent' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedParcelIds([...selectedParcelIds, p.id]);
+                            } else {
+                              setSelectedParcelIds(selectedParcelIds.filter(id => id !== p.id));
+                            }
+                          }}
+                        />
+                        <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f8fafc' : '#94a3b8' }}>
+                          {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -217,14 +289,49 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             {/* Scale Ratio Selector */}
             <div className="form-group">
               <label>Drawing Scale Ratio (1:N)</label>
-              <select value={scaleRatio} onChange={(e) => setScaleRatio(parseInt(e.target.value) || 0)}>
+              <select
+                value={isCustomScale ? 'custom' : scaleRatio}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setIsCustomScale(true);
+                    const val = parseInt(customScaleInput);
+                    if (!isNaN(val) && val >= 10) setScaleRatio(val);
+                  } else {
+                    setIsCustomScale(false);
+                    setScaleRatio(parseInt(e.target.value) || 0);
+                  }
+                }}
+              >
                 <option value={0}>Auto-Fit (Optimal Scale)</option>
                 <option value={250}>1:250 (Detailed Site Plan - 4x Large)</option>
                 <option value={500}>1:500 (Abuja FCDA Standard - 2x Large)</option>
                 <option value={1000}>1:1,000 (Standard Cadastral)</option>
                 <option value={2000}>1:2,000 (Town Layout - 0.5x)</option>
                 <option value={5000}>1:5,000 (District Regional Sheet)</option>
+                <option value="custom">Custom Ratio (1:N)...</option>
               </select>
+
+              {isCustomScale && (
+                <div className="custom-scale-input-box" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>1 :</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={100000}
+                    step={10}
+                    value={customScaleInput}
+                    onChange={(e) => {
+                      setCustomScaleInput(e.target.value);
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val) && val >= 10) {
+                        setScaleRatio(val);
+                      }
+                    }}
+                    placeholder="e.g. 750"
+                    style={{ flex: 1, fontSize: '11px', padding: '4px 8px', height: '28px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Cadastral Sheet Index Card */}
@@ -459,20 +566,25 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 const midX = (x1 + x2) / 2;
                                 const midY = (y1 + y2) / 2;
 
-                                const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-                                let textRot = angle;
+                                const angleRad = Math.atan2(y2 - y1, x2 - x1);
+                                let textRot = angleRad * (180 / Math.PI);
                                 if (textRot > 90 || textRot < -90) {
                                   textRot += 180;
                                 }
 
+                                const perpAngle = angleRad + Math.PI / 2;
+                                const offsetDist = 11;
+                                const textX = midX + Math.cos(perpAngle) * offsetDist;
+                                const textY = midY + Math.sin(perpAngle) * offsetDist;
+
                                 return (
-                                  <g key={lidx} transform={`translate(${midX}, ${midY}) rotate(${textRot})`}>
+                                  <g key={lidx} transform={`translate(${textX}, ${textY}) rotate(${textRot})`}>
                                     <text
-                                      y={-5}
+                                      y={0}
                                       textAnchor="middle"
-                                      fontSize="8"
+                                      fontSize="7.5"
                                       fill="#1e293b"
-                                      fontWeight="500"
+                                      fontWeight="600"
                                       fontFamily="monospace"
                                     >
                                       {leg.bearing.formatted} ({leg.distance.toFixed(2)}m)

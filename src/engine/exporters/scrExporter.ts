@@ -97,3 +97,24 @@ export function generateAutoCADScript(
 
   return lines.join('\r\n');
 }
+
+/**
+ * Generates an AutoCAD Script (.SCR) for an individual parcel or custom subset of parcels.
+ */
+export function generateParcelsSCR(
+  project: ProjectMetadata,
+  points: CoordinatePoint[],
+  targetParcels: Parcel[]
+): string {
+  const pointMap = new Map(points.map(p => [p.id, p]));
+  const ptIdSet = new Set<string>();
+  targetParcels.forEach(p => p.pointIds.forEach(id => ptIdSet.add(id)));
+  const relevantPoints = Array.from(ptIdSet).map(id => pointMap.get(id)).filter(Boolean) as CoordinatePoint[];
+
+  const titleSuffix = targetParcels.length === 1 ? targetParcels[0].plotNumber : `${targetParcels.length}_PLOTS`;
+  return generateAutoCADScript(
+    { ...project, title: `${project.title || 'CAD'} - ${titleSuffix}` },
+    relevantPoints,
+    targetParcels
+  );
+}

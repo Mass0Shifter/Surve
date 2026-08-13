@@ -142,6 +142,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   // Find nearest beacon for snapping (within 12px)
   const findSnapBeacon = useCallback((screenX: number, screenY: number) => {
     for (const p of points) {
+      if (p.hidden) continue;
       const scr = worldToScreen(p.easting, p.northing);
       if (Math.hypot(scr.x - screenX, scr.y - screenY) <= 12) {
         return p;
@@ -216,6 +217,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
 
     // 2. Draw Parcels
     for (const parcel of parcels) {
+      if (parcel.hidden) continue;
       const comp = computeParcel(parcel, points);
       if (!comp || comp.vertices.length < 3) continue;
 
@@ -319,6 +321,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     // 3. Draw Beacons
     if (layers.beacons) {
       for (const pt of points) {
+        if (pt.hidden) continue;
         const scr = worldToScreen(pt.easting, pt.northing);
         const isSelected = pt.id === selectedPointId;
         const isControl = pt.isControl;

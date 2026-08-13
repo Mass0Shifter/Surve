@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StoredProject,
   listProjects,
@@ -6,7 +6,8 @@ import {
   cloneProjectInLibrary,
   saveProjectToLibrary,
   batchSaveProjectsToLibrary,
-  exportProjectLibraryPack
+  exportProjectLibraryPack,
+  transferProjectScope
 } from '../../engine/storage/projectDatabase';
 import {
   NSurveyBundle,
@@ -45,9 +46,10 @@ interface ProjectLibraryModalProps {
   currentProject: ProjectMetadata;
   currentPoints: CoordinatePoint[];
   currentParcels: Parcel[];
+  currentProjectId?: string | null;
   currentUser: UserProfile | null;
   activeOrg: Organization | null;
-  onLoadProject: (bundle: NSurveyBundle) => void;
+  onLoadProject: (bundle: NSurveyBundle, projectId?: string) => void;
   onNewProject: () => void;
 }
 
@@ -57,12 +59,13 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   currentProject,
   currentPoints,
   currentParcels,
+  currentProjectId,
   currentUser,
   activeOrg,
   onLoadProject,
   onNewProject
 }) => {
-  const [projects, setProjects] = useState<StoredProject[]>([]);
+  const [allProjects, setAllProjects] = useState<StoredProject[]>([]);
   const [scopeTab, setScopeTab] = useState<'all' | 'personal' | 'organization'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -75,13 +78,8 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   const refreshList = async () => {
     setLoading(true);
     try {
-      const list = await listProjects({
-        userId: currentUser?.id,
-        organizationId: activeOrg?.id,
-        search: searchQuery,
-        scopeTab
-      });
-      setProjects(list);
+      const list = await listProjects();
+      setAllProjects(list);
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -93,7 +91,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     if (isOpen) {
       refreshList();
     }
-  }, [isOpen, scopeTab, searchQuery, currentUser, activeOrg]);
+  }, [isOpen, currentUser, activeOrg]);
 
   useEffect(() => {
     const handleLibraryChanged = () => {
@@ -103,7 +101,37 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     };
     window.addEventListener('nsurvey_library_changed', handleLibraryChanged);
     return () => window.removeEventListener('nsurvey_library_changed', handleLibraryChanged);
-  }, [isOpen, scopeTab, searchQuery, currentUser, activeOrg]);
+  }, [isOpen]);
+
+  const allCount = allProjects.length;
+  const personalCount = allProjects.filter(
+    p => !p.organizationId && (!currentUser?.id || p.ownerUserId === currentUser.id || p.ownerUserId === 'guest' || !p.ownerUserId)
+  ).length;
+  const orgCount = activeOrg ? allProjects.filter(p => p.organizationId === activeOrg.id).length : 0;
+
+  const projects = useMemo(() => {
+    let list = allProjects;
+    if (scopeTab === 'personal') {
+      list = list.filter(
+        p => !p.organizationId && (!currentUser?.id || p.ownerUserId === currentUser.id || p.ownerUserId === 'guest' || !p.ownerUserId)
+      );
+    } else if (scopeTab === 'organization' && activeOrg) {
+      list = list.filter(p => p.organizationId === activeOrg.id);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        p =>
+          p.title.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q) ||
+          p.clientName.toLowerCase().includes(q) ||
+          p.location.toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [allProjects, scopeTab, searchQuery, currentUser, activeOrg]);
 
   if (!isOpen) return null;
 
@@ -113,6 +141,10 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     setLoading(true);
 
     try {
+      const isPersonalSave = scopeTab === 'personal';
+      const targetOrgId = isPersonalSave ? undefined : activeOrg?.id;
+      const targetOrgName = isPersonalSave ? undefined : activeOrg?.name;
+
       const bundle: NSurveyBundle = {
         format: 'NSURVEY_PROJECT_BUNDLE',
         version: '1.0.0',
@@ -121,8 +153,8 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
         scope: {
           ownerUserId: currentUser?.id || 'guest',
           ownerName: currentUser ? `${currentUser.title || ''} ${currentUser.fullName}`.trim() : 'Guest Surveyor',
-          organizationId: activeOrg?.id,
-          organizationName: activeOrg?.name
+          organizationId: targetOrgId,
+          organizationName: targetOrgName
         },
         project: currentProject,
         points: currentPoints,
@@ -132,11 +164,12 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
       const saved = await saveProjectToLibrary(
         bundle,
         currentUser?.id || 'guest',
-        activeOrg?.id,
-        activeOrg?.name
+        targetOrgId,
+        targetOrgName,
+        currentProjectId
       );
 
-      setSuccessMsg(`Project "${saved.title}" (${saved.code}) saved to library!`);
+      setSuccessMsg(`Project "${saved.title}" (${saved.code}) saved to ${targetOrgName ? `${targetOrgName} (Team)` : 'Personal Workspace'}!`);
       refreshList();
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -220,7 +253,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
         return;
       }
     }
-    onLoadProject(p.bundle);
+    onLoadProject(p.bundle, p.id);
     onClose();
   };
 
@@ -300,10 +333,20 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                 className="btn-primary-sm"
                 onClick={handleSaveCurrentWorkspace}
                 disabled={loading}
-                title="Save current workspace state as a project in library"
+                title={scopeTab === 'personal' ? 'Save to Personal Workspace' : activeOrg ? `Save to ${activeOrg.name} (Team)` : 'Save to Library'}
               >
                 <Save size={13} />
-                <span>{loading ? 'Saving...' : 'Save Workspace'}</span>
+                <span>
+                  {loading
+                    ? 'Saving...'
+                    : scopeTab === 'personal'
+                    ? 'Save to Personal'
+                    : scopeTab === 'organization'
+                    ? 'Save to Team'
+                    : activeOrg
+                    ? 'Save to Team'
+                    : 'Save Workspace'}
+                </span>
               </button>
 
               <button
@@ -372,14 +415,14 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
               className={`auth-tab-btn ${scopeTab === 'all' ? 'active' : ''}`}
               onClick={() => setScopeTab('all')}
             >
-              All Projects ({projects.length})
+              All Projects ({allCount})
             </button>
             <button
               className={`auth-tab-btn ${scopeTab === 'personal' ? 'active' : ''}`}
               onClick={() => setScopeTab('personal')}
             >
               <User size={13} style={{ display: 'inline', marginRight: '6px' }} />
-              Personal Scope
+              Personal Scope ({personalCount})
             </button>
             {activeOrg && (
               <button
@@ -387,7 +430,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                 onClick={() => setScopeTab('organization')}
               >
                 <Building2 size={13} style={{ display: 'inline', marginRight: '6px' }} />
-                {activeOrg.name} (Team)
+                {activeOrg.name} (Team) ({orgCount})
               </button>
             )}
           </div>
@@ -510,6 +553,31 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                           >
                             <Download size={13} />
                           </button>
+                          {activeOrg && (
+                            <button
+                              type="button"
+                              className="lib-action-btn"
+                              title={p.organizationId ? 'Move to Personal Workspace' : `Publish to ${activeOrg.name} (Team)`}
+                              onClick={async () => {
+                                try {
+                                  if (p.organizationId) {
+                                    if (!confirm(`Move "${p.title}" to your Personal Workspace?`)) return;
+                                    await transferProjectScope(p.id, null);
+                                    setSuccessMsg(`Moved "${p.title}" to Personal Workspace.`);
+                                  } else {
+                                    if (!confirm(`Publish "${p.title}" to ${activeOrg.name} (Team)?`)) return;
+                                    await transferProjectScope(p.id, activeOrg.id, activeOrg.name);
+                                    setSuccessMsg(`Published "${p.title}" to ${activeOrg.name} team repository.`);
+                                  }
+                                  refreshList();
+                                } catch (err: any) {
+                                  setErrorMsg(err.message);
+                                }
+                              }}
+                            >
+                              {p.organizationId ? <User size={13} className="text-cyan" /> : <Building2 size={13} className="text-emerald" />}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="lib-action-btn"

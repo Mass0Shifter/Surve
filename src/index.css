@@ -4839,6 +4839,74 @@ input.auth-input.no-icon,
   color: #ffffff;
 }
 
+/* Cadastral Parcels Search, Sort & Visibility Controls */
+.parcel-filter-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.4);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.parcel-tab-btn.hidden-plot {
+  opacity: 0.6;
+  border-left-style: dashed;
+}
+
+.parcel-eye-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.parcel-eye-btn:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.action-btn-sm {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.action-btn-sm:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.multi-parcel-picker-box {
+  max-height: 140px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multi-parcel-picker-box::-webkit-scrollbar {
+  width: 4px;
+}
+
+.multi-parcel-picker-box::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+}
+
+
 
 
 

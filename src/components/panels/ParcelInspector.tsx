@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
-import { CoordinatePoint, Parcel } from '../../engine/types';
+import React, { useState, useMemo } from 'react';
+import { CoordinatePoint, Parcel, ProjectMetadata, NigerianGridBelt } from '../../engine/types';
 import { computeParcel } from '../../engine/cogo';
-import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, Edit2, User, Hash, AlertCircle } from 'lucide-react';
+import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, Edit2, User, Hash, AlertCircle, Search, Eye, EyeOff, FileText, Code2, FileSpreadsheet } from 'lucide-react';
 import { exportParcelScheduleToCSV, downloadFile } from '../../engine/exporters/csvExporter';
+import { generateParcelsDXF } from '../../engine/exporters/dxfExporter';
+import { generateParcelsSCR } from '../../engine/exporters/scrExporter';
 
 interface ParcelInspectorProps {
   parcels: Parcel[];
   points: CoordinatePoint[];
+  project?: ProjectMetadata;
   selectedParcelId: string | null;
   onSelectParcel: (id: string | null) => void;
   onAddParcel: (parcel: Parcel) => boolean;
@@ -17,12 +20,98 @@ interface ParcelInspectorProps {
 export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   parcels,
   points,
+  project,
   selectedParcelId,
   onSelectParcel,
   onAddParcel,
   onUpdateParcel,
   onDeleteParcel
 }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'plot_asc' | 'plot_desc' | 'area_desc' | 'area_asc' | 'beacons_desc'>('plot_asc');
+  const [beaconFilter, setBeaconFilter] = useState('');
+
+  // CAD Export Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'dxf' | 'scr' | 'csv'>('dxf');
+  const [exportScope, setExportScope] = useState<'single' | 'selected' | 'all'>('single');
+  const [exportParcelIds, setExportParcelIds] = useState<string[]>(() => parcels.map(p => p.id));
+
+  const handleExecuteExport = () => {
+    const defaultProject: ProjectMetadata = project || {
+      title: 'CADASTRAL_SURVEY',
+      code: 'JOB-2026',
+      clientName: 'CLIENT',
+      location: 'NIGERIA',
+      surveyFirm: 'SURVEY_FIRM',
+      surveyorName: 'SURVEYOR',
+      surveyorNumber: 'SURCON/REG/2026',
+      address: 'SURVEY_ADDRESS',
+      phone: '+2348000000000',
+      date: new Date().toISOString().split('T')[0],
+      gridBelt: NigerianGridBelt.MID_BELT,
+      scale: 1000
+    };
+
+    let targetParcelsToExport: Parcel[] = [];
+    if (exportScope === 'single' && selectedParcel) {
+      targetParcelsToExport = [selectedParcel];
+    } else if (exportScope === 'selected' && exportParcelIds.length > 0) {
+      const set = new Set(exportParcelIds);
+      targetParcelsToExport = parcels.filter(p => set.has(p.id));
+    } else {
+      targetParcelsToExport = parcels;
+    }
+
+    if (targetParcelsToExport.length === 0) {
+      alert('Please select at least one parcel to export.');
+      return;
+    }
+
+    const baseName = targetParcelsToExport.length === 1
+      ? targetParcelsToExport[0].plotNumber.replace(/\s+/g, '_')
+      : `${targetParcelsToExport.length}_PARCELS`;
+
+    if (exportFormat === 'dxf') {
+      const dxf = generateParcelsDXF(defaultProject, points, targetParcelsToExport);
+      downloadFile(dxf, `${baseName}.dxf`, 'application/dxf');
+    } else if (exportFormat === 'scr') {
+      const scr = generateParcelsSCR(defaultProject, points, targetParcelsToExport);
+      downloadFile(scr, `${baseName}.scr`, 'text/plain');
+    } else {
+      const csv = exportParcelScheduleToCSV(targetParcelsToExport, points);
+      downloadFile(csv, `${baseName}_schedule.csv`, 'text/csv');
+    }
+
+    setShowExportModal(false);
+  };
+
+  const handleSingleParcelQuickExport = (p: Parcel, fmt: 'dxf' | 'scr') => {
+    const defaultProject: ProjectMetadata = project || {
+      title: 'CADASTRAL_SURVEY',
+      code: 'JOB-2026',
+      clientName: 'CLIENT',
+      location: 'NIGERIA',
+      surveyFirm: 'SURVEY_FIRM',
+      surveyorName: 'SURVEYOR',
+      surveyorNumber: 'SURCON/REG/2026',
+      address: 'SURVEY_ADDRESS',
+      phone: '+2348000000000',
+      date: new Date().toISOString().split('T')[0],
+      gridBelt: NigerianGridBelt.MID_BELT,
+      scale: 1000
+    };
+
+    const baseName = p.plotNumber.replace(/\s+/g, '_');
+    if (fmt === 'dxf') {
+      const dxf = generateParcelsDXF(defaultProject, points, [p]);
+      downloadFile(dxf, `${baseName}.dxf`, 'application/dxf');
+    } else {
+      const scr = generateParcelsSCR(defaultProject, points, [p]);
+      downloadFile(scr, `${baseName}.scr`, 'text/plain');
+    }
+  };
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [newPlotNo, setNewPlotNo] = useState('');
   const [newOwner, setNewOwner] = useState('');
@@ -38,7 +127,33 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   const [editBeaconIds, setEditBeaconIds] = useState<string[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
+  const filteredAndSortedParcels = useMemo(() => {
+    let list = parcels.filter(p => {
+      const q = searchQuery.toLowerCase().trim();
+      if (!q) return true;
+      return (
+        p.plotNumber.toLowerCase().includes(q) ||
+        (p.ownerName && p.ownerName.toLowerCase().includes(q)) ||
+        (p.blockNumber && p.blockNumber.toLowerCase().includes(q))
+      );
+    });
+
+    list = [...list].sort((a, b) => {
+      if (sortBy === 'plot_asc') return a.plotNumber.localeCompare(b.plotNumber, undefined, { numeric: true });
+      if (sortBy === 'plot_desc') return b.plotNumber.localeCompare(a.plotNumber, undefined, { numeric: true });
+      if (sortBy === 'area_desc' || sortBy === 'area_asc') {
+        const aArea = computeParcel(a, points)?.areaSquareMeters || 0;
+        const bArea = computeParcel(b, points)?.areaSquareMeters || 0;
+        return sortBy === 'area_desc' ? bArea - aArea : aArea - bArea;
+      }
+      if (sortBy === 'beacons_desc') return b.pointIds.length - a.pointIds.length;
+      return 0;
+    });
+
+    return list;
+  }, [parcels, points, searchQuery, sortBy]);
+
+  const selectedParcel = parcels.find(p => p.id === selectedParcelId) || filteredAndSortedParcels[0] || parcels[0] || null;
   const computation = selectedParcel ? computeParcel(selectedParcel, points) : null;
 
   const handlePlotNoChange = (val: string) => {
@@ -200,22 +315,37 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
         </div>
         <div className="panel-actions">
           <button
+            type="button"
             className="icon-btn"
-            title="Export Parcel Schedule (.CSV)"
+            title={parcels.some(p => p.hidden) ? "Show All Plots on CAD" : "Hide All Plots on CAD"}
+            onClick={() => {
+              const allHidden = parcels.every(p => p.hidden);
+              parcels.forEach(p => onUpdateParcel({ ...p, hidden: !allHidden }));
+            }}
+          >
+            {parcels.every(p => p.hidden) ? <EyeOff size={14} className="text-muted" /> : <Eye size={14} className="text-emerald" />}
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Export Parcels to CAD (DXF, SCR, CSV)"
             onClick={() => {
               if (parcels.length === 0) {
                 alert('No parcels defined to export.');
                 return;
               }
-              downloadFile(exportParcelScheduleToCSV(parcels, points), 'parcel_schedule.csv', 'text/csv');
+              setExportParcelIds(parcels.map(p => p.id));
+              setShowExportModal(true);
             }}
           >
             <Download size={14} />
           </button>
           <button
+            type="button"
             className="btn-primary-sm"
             onClick={() => {
               setShowAddModal(true);
+              setBeaconFilter('');
               setModalError(null);
             }}
           >
@@ -225,22 +355,68 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
         </div>
       </div>
 
+      {/* Parcel Filter & Sort Controls */}
+      <div className="parcel-filter-bar" style={{ padding: '8px 12px', display: 'flex', gap: '6px', background: 'rgba(15, 23, 42, 0.4)', borderBottom: '1px solid rgba(148, 163, 184, 0.08)' }}>
+        <div className="input-with-icon" style={{ flex: 1, position: 'relative' }}>
+          <Search size={12} className="text-muted" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            type="text"
+            placeholder="Search plots..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: '100%', fontSize: '11px', padding: '4px 8px 4px 24px', height: '26px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '4px', color: '#f8fafc' }}
+          />
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          style={{ fontSize: '10px', height: '26px', padding: '0 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '4px', color: '#94a3b8' }}
+          title="Sort parcels list"
+        >
+          <option value="plot_asc">Plot # (A-Z)</option>
+          <option value="plot_desc">Plot # (Z-A)</option>
+          <option value="area_desc">Area (Largest)</option>
+          <option value="area_asc">Area (Smallest)</option>
+          <option value="beacons_desc">Beacons Count</option>
+        </select>
+      </div>
+
       {/* Parcel Selector Tabs */}
       <div className="parcel-tabs">
-        {parcels.map(p => {
-          const isSelected = p.id === (selectedParcel?.id || null);
-          return (
-            <button
-              key={p.id}
-              className={`parcel-tab-btn ${isSelected ? 'active' : ''}`}
-              style={{ borderLeftColor: p.color || '#10b981' }}
-              onClick={() => onSelectParcel(p.id)}
-            >
-              <div className="tab-plot-title">{p.plotNumber}</div>
-              {p.ownerName && <div className="tab-owner-sub">{p.ownerName}</div>}
-            </button>
-          );
-        })}
+        {filteredAndSortedParcels.length === 0 ? (
+          <div style={{ padding: '16px 12px', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
+            No plots match search.
+          </div>
+        ) : (
+          filteredAndSortedParcels.map(p => {
+            const isSelected = p.id === (selectedParcel?.id || null);
+            return (
+              <div
+                key={p.id}
+                className={`parcel-tab-btn ${isSelected ? 'active' : ''} ${p.hidden ? 'hidden-plot' : ''}`}
+                style={{ borderLeftColor: p.color || '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '8px' }}
+                onClick={() => onSelectParcel(p.id)}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="tab-plot-title" style={{ opacity: p.hidden ? 0.5 : 1 }}>{p.plotNumber}</div>
+                  {p.ownerName && <div className="tab-owner-sub" style={{ opacity: p.hidden ? 0.5 : 1 }}>{p.ownerName}</div>}
+                </div>
+                <button
+                  type="button"
+                  className="parcel-eye-btn"
+                  title={p.hidden ? `Show ${p.plotNumber} on CAD canvas` : `Hide ${p.plotNumber} on CAD canvas`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateParcel({ ...p, hidden: !p.hidden });
+                  }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', opacity: p.hidden ? 0.4 : 0.8 }}
+                >
+                  {p.hidden ? <EyeOff size={12} className="text-muted" /> : <Eye size={12} className="text-emerald" />}
+                </button>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Parcel Metrics Summary */}
@@ -262,7 +438,25 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </div>
               )}
             </div>
-            <div className="card-header-actions">
+            <div className="card-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                style={{ fontSize: '10px', padding: '3px 6px', height: '24px' }}
+                title={`Quick Export DXF for ${selectedParcel.plotNumber}`}
+                onClick={() => handleSingleParcelQuickExport(selectedParcel, 'dxf')}
+              >
+                DXF
+              </button>
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                style={{ fontSize: '10px', padding: '3px 6px', height: '24px' }}
+                title={`Quick Export AutoCAD Script (.SCR) for ${selectedParcel.plotNumber}`}
+                onClick={() => handleSingleParcelQuickExport(selectedParcel, 'scr')}
+              >
+                SCR
+              </button>
               <button
                 className="edit-icon-btn"
                 title={`Edit ${selectedParcel.plotNumber}`}
@@ -385,28 +579,69 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </div>
 
                 <div className="form-group">
-                  <label>Select Boundary Corner Beacons (in clockwise order, min 3) *</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ margin: 0 }}>Select Boundary Corner Beacons (min 3) *</label>
+                    <span className="hint-text">{selectedBeaconIds.length} Selected</span>
+                  </div>
+
+                  <div className="beacon-search-box" style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                    <div className="input-with-icon" style={{ flex: 1, position: 'relative' }}>
+                      <Search size={12} className="text-muted" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }} />
+                      <input
+                        type="text"
+                        placeholder="Search/Filter beacons (e.g. PB10, SC)..."
+                        value={beaconFilter}
+                        onChange={(e) => setBeaconFilter(e.target.value)}
+                        style={{ width: '100%', fontSize: '11px', padding: '5px 8px 5px 24px', height: '28px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '4px', color: '#f8fafc' }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      style={{ fontSize: '10px', padding: '4px 8px' }}
+                      onClick={() => {
+                        const filtered = points.filter(p => !beaconFilter || p.id.toLowerCase().includes(beaconFilter.toLowerCase()) || (p.code && p.code.toLowerCase().includes(beaconFilter.toLowerCase())));
+                        const idsToAdd = filtered.map(p => p.id).filter(id => !selectedBeaconIds.includes(id));
+                        setSelectedBeaconIds([...selectedBeaconIds, ...idsToAdd]);
+                      }}
+                    >
+                      Select Filtered
+                    </button>
+                    {selectedBeaconIds.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-secondary-sm"
+                        style={{ fontSize: '10px', padding: '4px 8px' }}
+                        onClick={() => setSelectedBeaconIds([])}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
                   {points.length === 0 ? (
                     <div className="hint-text text-amber">No beacons available. Add coordinates first.</div>
                   ) : (
                     <div className="beacon-pick-list">
-                      {points.map(pt => {
-                        const isPicked = selectedBeaconIds.includes(pt.id);
-                        const orderIdx = selectedBeaconIds.indexOf(pt.id);
-                        return (
-                          <div
-                            key={pt.id}
-                            className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
-                            onClick={() => toggleBeaconSelection(pt.id)}
-                          >
-                            {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
-                            <span>{pt.id}</span>
-                          </div>
-                        );
-                      })}
+                      {points
+                        .filter(p => !beaconFilter || p.id.toLowerCase().includes(beaconFilter.toLowerCase()) || (p.code && p.code.toLowerCase().includes(beaconFilter.toLowerCase())))
+                        .map(pt => {
+                          const isPicked = selectedBeaconIds.includes(pt.id);
+                          const orderIdx = selectedBeaconIds.indexOf(pt.id);
+                          return (
+                            <div
+                              key={pt.id}
+                              className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
+                              onClick={() => toggleBeaconSelection(pt.id)}
+                            >
+                              {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
+                              <span>{pt.id}</span>
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
-                  <div className="hint-text">
+                  <div className="hint-text" style={{ marginTop: '6px' }}>
                     Selected Order: {selectedBeaconIds.length > 0 ? selectedBeaconIds.join(' → ') : 'None'}
                   </div>
                 </div>
@@ -476,24 +711,65 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </div>
 
                 <div className="form-group">
-                  <label>Corner Beacons Selection & Sequence (min 3) *</label>
-                  <div className="beacon-pick-list">
-                    {points.map(pt => {
-                      const isPicked = editBeaconIds.includes(pt.id);
-                      const orderIdx = editBeaconIds.indexOf(pt.id);
-                      return (
-                        <div
-                          key={pt.id}
-                          className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
-                          onClick={() => toggleEditBeaconSelection(pt.id)}
-                        >
-                          {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
-                          <span>{pt.id}</span>
-                        </div>
-                      );
-                    })}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ margin: 0 }}>Corner Beacons Selection &amp; Sequence (min 3) *</label>
+                    <span className="hint-text">{editBeaconIds.length} Selected</span>
                   </div>
-                  <div className="hint-text">
+
+                  <div className="beacon-search-box" style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                    <div className="input-with-icon" style={{ flex: 1, position: 'relative' }}>
+                      <Search size={12} className="text-muted" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }} />
+                      <input
+                        type="text"
+                        placeholder="Search/Filter beacons..."
+                        value={beaconFilter}
+                        onChange={(e) => setBeaconFilter(e.target.value)}
+                        style={{ width: '100%', fontSize: '11px', padding: '5px 8px 5px 24px', height: '28px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '4px', color: '#f8fafc' }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      style={{ fontSize: '10px', padding: '4px 8px' }}
+                      onClick={() => {
+                        const filtered = points.filter(p => !beaconFilter || p.id.toLowerCase().includes(beaconFilter.toLowerCase()) || (p.code && p.code.toLowerCase().includes(beaconFilter.toLowerCase())));
+                        const idsToAdd = filtered.map(p => p.id).filter(id => !editBeaconIds.includes(id));
+                        setEditBeaconIds([...editBeaconIds, ...idsToAdd]);
+                      }}
+                    >
+                      Select Filtered
+                    </button>
+                    {editBeaconIds.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-secondary-sm"
+                        style={{ fontSize: '10px', padding: '4px 8px' }}
+                        onClick={() => setEditBeaconIds([])}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="beacon-pick-list">
+                    {points
+                      .filter(p => !beaconFilter || p.id.toLowerCase().includes(beaconFilter.toLowerCase()) || (p.code && p.code.toLowerCase().includes(beaconFilter.toLowerCase())))
+                      .map(pt => {
+                        const isPicked = editBeaconIds.includes(pt.id);
+                        const orderIdx = editBeaconIds.indexOf(pt.id);
+                        return (
+                          <div
+                            key={pt.id}
+                            className={`beacon-pick-chip ${isPicked ? 'picked' : ''}`}
+                            onClick={() => toggleEditBeaconSelection(pt.id)}
+                          >
+                            {isPicked && <span className="chip-badge">{orderIdx + 1}</span>}
+                            <span>{pt.id}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <div className="hint-text" style={{ marginTop: '6px' }}>
                     Current Sequence: {editBeaconIds.length > 0 ? editBeaconIds.join(' → ') : 'None'}
                   </div>
                 </div>
@@ -512,6 +788,160 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Parcel CAD Export Dialog Modal */}
+      {showExportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <Download size={16} className="text-emerald" />
+                <span>Export Cadastral Parcels</span>
+              </div>
+              <button className="icon-btn" onClick={() => setShowExportModal(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 1. Format Selection */}
+              <div className="form-group">
+                <label style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc', marginBottom: '6px', display: 'block' }}>
+                  Export Format
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={`parcel-tab-btn ${exportFormat === 'dxf' ? 'active' : ''}`}
+                    onClick={() => setExportFormat('dxf')}
+                    style={{ textAlign: 'center', padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Code2 size={16} className="text-cyan" />
+                    <span style={{ fontSize: '11px', fontWeight: 600 }}>AutoCAD (.DXF)</span>
+                    <span style={{ fontSize: '9px', color: '#94a3b8' }}>Vector CAD</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`parcel-tab-btn ${exportFormat === 'scr' ? 'active' : ''}`}
+                    onClick={() => setExportFormat('scr')}
+                    style={{ textAlign: 'center', padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+                  >
+                    <FileText size={16} className="text-emerald" />
+                    <span style={{ fontSize: '11px', fontWeight: 600 }}>Script (.SCR)</span>
+                    <span style={{ fontSize: '9px', color: '#94a3b8' }}>SurvPack Script</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`parcel-tab-btn ${exportFormat === 'csv' ? 'active' : ''}`}
+                    onClick={() => setExportFormat('csv')}
+                    style={{ textAlign: 'center', padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+                  >
+                    <FileSpreadsheet size={16} className="text-amber" />
+                    <span style={{ fontSize: '11px', fontWeight: 600 }}>Schedule (.CSV)</span>
+                    <span style={{ fontSize: '9px', color: '#94a3b8' }}>Excel / Sheet</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Scope Selection */}
+              <div className="form-group">
+                <label style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc', marginBottom: '6px', display: 'block' }}>
+                  Export Scope
+                </label>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <button
+                    type="button"
+                    className={`btn-secondary-sm ${exportScope === 'single' ? 'active text-emerald' : ''}`}
+                    style={{ flex: 1, fontSize: '10px' }}
+                    onClick={() => setExportScope('single')}
+                  >
+                    Focused Plot ({selectedParcel?.plotNumber || 'None'})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondary-sm ${exportScope === 'selected' ? 'active text-emerald' : ''}`}
+                    style={{ flex: 1, fontSize: '10px' }}
+                    onClick={() => setExportScope('selected')}
+                  >
+                    Selected Plots ({exportParcelIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondary-sm ${exportScope === 'all' ? 'active text-emerald' : ''}`}
+                    style={{ flex: 1, fontSize: '10px' }}
+                    onClick={() => setExportScope('all')}
+                  >
+                    All Plots ({parcels.length})
+                  </button>
+                </div>
+
+                {/* Multi-Parcel Checklist */}
+                {exportScope === 'selected' && (
+                  <div className="multi-parcel-picker-box" style={{ maxHeight: '130px', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 4px 6px', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>Pick plots to include:</span>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary-sm"
+                          style={{ fontSize: '9px', padding: '1px 5px' }}
+                          onClick={() => setExportParcelIds(parcels.map(p => p.id))}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary-sm"
+                          style={{ fontSize: '9px', padding: '1px 5px' }}
+                          onClick={() => setExportParcelIds([])}
+                        >
+                          None
+                        </button>
+                      </div>
+                    </div>
+                    {parcels.map(p => {
+                      const isChecked = exportParcelIds.includes(p.id);
+                      return (
+                        <label
+                          key={p.id}
+                          className="checkbox-label"
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', fontSize: '11px', cursor: 'pointer', borderRadius: '4px', background: isChecked ? 'rgba(16, 185, 129, 0.08)' : 'transparent' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setExportParcelIds([...exportParcelIds, p.id]);
+                              } else {
+                                setExportParcelIds(exportParcelIds.filter(id => id !== p.id));
+                              }
+                            }}
+                          />
+                          <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f8fafc' : '#94a3b8' }}>
+                            {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn-secondary" onClick={() => setShowExportModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleExecuteExport}
+                disabled={exportScope === 'selected' && exportParcelIds.length === 0}
+              >
+                <Download size={13} />
+                <span>Download {exportFormat.toUpperCase()}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -91,13 +91,25 @@ export function computeTienstraResection(
   const gammaObs = ((paired[0].obsDeg - paired[1].obsDeg + 360) % 360) * (Math.PI / 180);
 
   // Tienstra's weights: K = 1 / (cot(ControlAngle) - cot(ObservedAngle))
-  const cot = (rad: number) => 1 / Math.tan(rad);
+  const cot = (rad: number) => {
+    const s = Math.sin(rad);
+    if (Math.abs(s) < 1e-9) return 1e9;
+    return Math.cos(rad) / s;
+  };
 
-  const k1 = 1 / (cot(angleA) - cot(alphaObs));
-  const k2 = 1 / (cot(angleB) - cot(betaObs));
-  const k3 = 1 / (cot(angleC) - cot(gammaObs));
+  const d1 = cot(angleA) - cot(alphaObs);
+  const d2 = cot(angleB) - cot(betaObs);
+  const d3 = cot(angleC) - cot(gammaObs);
+
+  const k1 = Math.abs(d1) < 1e-9 ? 1e9 : 1 / d1;
+  const k2 = Math.abs(d2) < 1e-9 ? 1e9 : 1 / d2;
+  const k3 = Math.abs(d3) < 1e-9 ? 1e9 : 1 / d3;
 
   const sumK = k1 + k2 + k3;
+
+  if (Math.abs(sumK) < 1e-6 || isNaN(sumK) || !isFinite(sumK)) {
+    throw new Error('Resection Singularity: The instrument station lies on the circumscribed Danger Circle or control points are collinear.');
+  }
 
   const stnE = (k1 * A_pt.easting + k2 * B_pt.easting + k3 * C_pt.easting) / sumK;
   const stnN = (k1 * A_pt.northing + k2 * B_pt.northing + k3 * C_pt.northing) / sumK;
