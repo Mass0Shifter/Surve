@@ -128,3 +128,124 @@ export function downloadNSurvBundle(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MULTI-PROJECT PACK ARCHIVE SCHEMA (.nsurvpack)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface NSurveyProjectPack {
+  format: 'NSURVEY_PROJECT_PACK';
+  version: string;
+  exportedAt: number;
+  app: string;
+  packTitle: string;
+  organizationId?: string;
+  organizationName?: string;
+  exportedBy?: string;
+  projectsCount: number;
+  projects: NSurveyBundle[];
+}
+
+/**
+ * Serializes an array of NSurveyBundle objects into an .nsurvpack JSON string.
+ */
+export function serializeProjectPack(
+  projects: NSurveyBundle[],
+  options?: {
+    packTitle?: string;
+    organizationId?: string;
+    organizationName?: string;
+    exportedBy?: string;
+  }
+): string {
+  const pack: NSurveyProjectPack = {
+    format: 'NSURVEY_PROJECT_PACK',
+    version: NSURV_BUNDLE_VERSION,
+    exportedAt: Date.now(),
+    app: 'NSurvey PRO Geomatics Suite',
+    packTitle: options?.packTitle || `NSurvey Project Pack (${projects.length} Jobs)`,
+    organizationId: options?.organizationId,
+    organizationName: options?.organizationName,
+    exportedBy: options?.exportedBy,
+    projectsCount: projects.length,
+    projects
+  };
+
+  return JSON.stringify(pack, null, 2);
+}
+
+/**
+ * Parses and validates an .nsurvpack or single .nsurv file into an array of NSurveyBundle objects.
+ */
+export function parseProjectPack(rawContent: string): {
+  packTitle: string;
+  projects: NSurveyBundle[];
+  organizationName?: string;
+} {
+  try {
+    const parsed = JSON.parse(rawContent);
+
+    // If single .nsurv project bundle
+    if (parsed.format === 'NSURVEY_PROJECT_BUNDLE') {
+      const single = parseNSurvBundle(rawContent);
+      return {
+        packTitle: single.project.title || single.project.code,
+        projects: [single],
+        organizationName: single.scope?.organizationName
+      };
+    }
+
+    // If multi-project pack
+    if (parsed.format === 'NSURVEY_PROJECT_PACK' && Array.isArray(parsed.projects)) {
+      const bundles: NSurveyBundle[] = parsed.projects.map((p: any) =>
+        parseNSurvBundle(typeof p === 'string' ? p : JSON.stringify(p))
+      );
+      return {
+        packTitle: parsed.packTitle || `Project Pack (${bundles.length} Jobs)`,
+        projects: bundles,
+        organizationName: parsed.organizationName
+      };
+    }
+
+    // Fallback: If it's a raw array of projects
+    if (Array.isArray(parsed)) {
+      const bundles: NSurveyBundle[] = parsed.map((p: any) =>
+        parseNSurvBundle(typeof p === 'string' ? p : JSON.stringify(p))
+      );
+      return {
+        packTitle: `Imported Pack (${bundles.length} Jobs)`,
+        projects: bundles
+      };
+    }
+
+    throw new Error('Unrecognized archive format. Expected .nsurv or .nsurvpack.');
+  } catch (err: any) {
+    throw new Error(`Failed to unpack project pack archive: ${err.message}`);
+  }
+}
+
+/**
+ * Downloads multiple projects as an .nsurvpack file.
+ */
+export function downloadProjectPack(
+  projects: NSurveyBundle[],
+  options?: {
+    packTitle?: string;
+    filename?: string;
+    organizationId?: string;
+    organizationName?: string;
+    exportedBy?: string;
+  }
+): void {
+  const json = serializeProjectPack(projects, options);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const filename = options?.filename || `${options?.packTitle?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'NSURVEY_PROJECT_PACK'}.nsurvpack`;
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

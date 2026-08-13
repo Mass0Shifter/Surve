@@ -1,13 +1,17 @@
 /**
- * Local Project Library Repository (IndexedDB & LocalStorage Hybrid)
+ * Local Project Library Repository (Native IndexedDB with LocalStorage Fallback)
+ * Provides high-capacity, robust client-side storage for survey projects (hundreds of megabytes/gigabytes).
  * Manages scoped storage for Personal and Organization Team survey projects.
  */
 
-import { NSurveyBundle } from './nsurvBundle';
+import { NSurveyBundle, downloadProjectPack } from './nsurvBundle';
 import { NigerianGridBelt } from '../types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from '../sampleData';
 
-const LIBRARY_STORAGE_KEY = 'nsurvey_project_library_v1';
+const DB_NAME = 'NSurvey_Geomatics_DB';
+const DB_VERSION = 1;
+const STORE_NAME = 'projects';
+const LEGACY_STORAGE_KEY = 'nsurvey_project_library_v1';
 
 export interface StoredProject {
   id: string;
@@ -28,7 +32,7 @@ export interface StoredProject {
   updatedAt: number;
 }
 
-// Default seed projects for demonstration
+// Default seed projects
 const SEED_LIBRARY_PROJECTS: StoredProject[] = [
   {
     id: 'proj_seed_abuja_001',
@@ -118,25 +122,93 @@ const SEED_LIBRARY_PROJECTS: StoredProject[] = [
   }
 ];
 
-function getStoredProjects(): StoredProject[] {
-  try {
-    const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(SEED_LIBRARY_PROJECTS));
-      return SEED_LIBRARY_PROJECTS;
+/**
+ * Opens and initializes the IndexedDB database instance.
+ */
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB is not supported in this environment.'));
+      return;
     }
-    return JSON.parse(raw);
-  } catch {
-    return SEED_LIBRARY_PROJECTS;
+
+    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('code', 'code', { unique: false });
+        store.createIndex('ownerUserId', 'ownerUserId', { unique: false });
+        store.createIndex('organizationId', 'organizationId', { unique: false });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+    };
+
+    request.onsuccess = (event) => {
+      resolve((event.target as IDBOpenDBRequest).result);
+    };
+
+    request.onerror = (event) => {
+      reject((event.target as IDBOpenDBRequest).error);
+    };
+  });
+}
+
+let isMigrated = false;
+
+/**
+ * Performs one-time migration from localStorage / seeds to IndexedDB.
+ */
+async function ensureInitialized(): Promise<void> {
+  if (isMigrated) return;
+  try {
+    const db = await openDatabase();
+    const count = await new Promise<number>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+
+    if (count === 0) {
+      // Migrate from localStorage if present, else seed
+      let initialProjects = SEED_LIBRARY_PROJECTS;
+      try {
+        const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            initialProjects = parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Could not read legacy localStorage projects:', e);
+      }
+
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      for (const p of initialProjects) {
+        store.put(p);
+      }
+      await new Promise((resolve) => {
+        tx.oncomplete = resolve;
+      });
+    }
+
+    isMigrated = true;
+  } catch (err) {
+    console.error('Error initializing NSurvey IndexedDB:', err);
   }
 }
 
-function saveProjects(projects: StoredProject[]): void {
-  try {
-    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(projects));
+/**
+ * Dispatches a reactive update event across the application.
+ */
+function notifyLibraryChanged(): void {
+  if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('nsurvey_library_changed'));
-  } catch (err) {
-    console.error('Failed to save project library database', err);
   }
 }
 
@@ -148,32 +220,58 @@ export async function listProjects(filter?: {
   search?: string;
   scopeTab?: 'all' | 'personal' | 'organization';
 }): Promise<StoredProject[]> {
-  const projects = getStoredProjects();
-  let filtered = projects;
+  await ensureInitialized();
+  try {
+    const db = await openDatabase();
+    const allProjects: StoredProject[] = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
 
-  if (filter?.scopeTab === 'personal' && filter?.userId) {
-    filtered = filtered.filter(p => !p.organizationId && p.ownerUserId === filter.userId);
-  } else if (filter?.scopeTab === 'organization' && filter?.organizationId) {
-    filtered = filtered.filter(p => p.organizationId === filter.organizationId);
+    let filtered = allProjects;
+
+    if (filter?.scopeTab === 'personal' && filter?.userId) {
+      filtered = filtered.filter(p => !p.organizationId && p.ownerUserId === filter.userId);
+    } else if (filter?.scopeTab === 'organization' && filter?.organizationId) {
+      filtered = filtered.filter(p => p.organizationId === filter.organizationId);
+    }
+
+    if (filter?.search) {
+      const q = filter.search.toLowerCase();
+      filtered = filtered.filter(
+        p =>
+          p.title.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q) ||
+          p.clientName.toLowerCase().includes(q) ||
+          p.location.toLowerCase().includes(q)
+      );
+    }
+
+    return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch (err) {
+    console.error('Failed to list projects from IndexedDB:', err);
+    return [];
   }
-
-  if (filter?.search) {
-    const q = filter.search.toLowerCase();
-    filtered = filtered.filter(
-      p =>
-        p.title.toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
-        p.clientName.toLowerCase().includes(q) ||
-        p.location.toLowerCase().includes(q)
-    );
-  }
-
-  return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function getProjectFromLibrary(projectId: string): Promise<StoredProject | null> {
-  const projects = getStoredProjects();
-  return projects.find(p => p.id === projectId) || null;
+  await ensureInitialized();
+  try {
+    const db = await openDatabase();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(projectId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error(`Failed to get project "${projectId}" from IndexedDB:`, err);
+    return null;
+  }
 }
 
 // ─── Mutation Operations ──────────────────────────────────────────────────────
@@ -184,38 +282,40 @@ export async function saveProjectToLibrary(
   organizationId?: string,
   organizationName?: string
 ): Promise<StoredProject> {
-  const projects = getStoredProjects();
-  const existingIdx = projects.findIndex(p => p.code === bundle.project.code && p.ownerUserId === ownerUserId);
+  await ensureInitialized();
+  const db = await openDatabase();
 
+  const code = bundle.project.code || `JOB-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
   const pointsCount = bundle.points.length;
   const parcelsCount = bundle.parcels.length;
   const gridBelt = bundle.project.gridBelt || NigerianGridBelt.MID_BELT;
 
-  if (existingIdx !== -1) {
-    // Update existing project
-    const existing = projects[existingIdx];
-    existing.title = bundle.project.title;
-    existing.clientName = bundle.project.clientName || 'UNKNOWN CLIENT';
-    existing.location = bundle.project.location || 'NIGERIA';
-    existing.surveyFirm = bundle.project.surveyFirm || '';
-    existing.surveyorName = bundle.project.surveyorName || '';
-    existing.organizationId = organizationId || existing.organizationId;
-    existing.organizationName = organizationName || existing.organizationName;
-    existing.pointsCount = pointsCount;
-    existing.parcelsCount = parcelsCount;
-    existing.gridBelt = gridBelt;
-    existing.bundle = bundle;
-    existing.updatedAt = Date.now();
+  const existingProjects = await listProjects();
+  const existing = existingProjects.find(p => p.code === code && p.ownerUserId === ownerUserId);
 
-    projects[existingIdx] = existing;
-    saveProjects(projects);
-    return existing;
+  let projectToSave: StoredProject;
+
+  if (existing) {
+    projectToSave = {
+      ...existing,
+      title: bundle.project.title,
+      clientName: bundle.project.clientName || 'UNKNOWN CLIENT',
+      location: bundle.project.location || 'NIGERIA',
+      surveyFirm: bundle.project.surveyFirm || '',
+      surveyorName: bundle.project.surveyorName || '',
+      organizationId: organizationId || existing.organizationId,
+      organizationName: organizationName || existing.organizationName,
+      pointsCount,
+      parcelsCount,
+      gridBelt,
+      bundle,
+      updatedAt: Date.now()
+    };
   } else {
-    // Create new project entry
-    const newProject: StoredProject = {
+    projectToSave = {
       id: `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       title: bundle.project.title || 'UNTITLED SURVEY PLAN',
-      code: bundle.project.code || `JOB-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+      code,
       clientName: bundle.project.clientName || 'NEW CLIENT',
       location: bundle.project.location || 'NIGERIA',
       surveyFirm: bundle.project.surveyFirm || '',
@@ -230,21 +330,38 @@ export async function saveProjectToLibrary(
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
-
-    projects.unshift(newProject);
-    saveProjects(projects);
-    return newProject;
   }
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.put(projectToSave);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  notifyLibraryChanged();
+  return projectToSave;
 }
 
 export async function deleteProjectFromLibrary(projectId: string): Promise<boolean> {
-  const projects = getStoredProjects();
-  const filtered = projects.filter(p => p.id !== projectId);
-  if (filtered.length !== projects.length) {
-    saveProjects(filtered);
+  await ensureInitialized();
+  try {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.delete(projectId);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+
+    notifyLibraryChanged();
     return true;
+  } catch (err) {
+    console.error(`Failed to delete project "${projectId}":`, err);
+    return false;
   }
-  return false;
 }
 
 export async function cloneProjectInLibrary(
@@ -265,4 +382,123 @@ export async function cloneProjectInLibrary(
     source.organizationId,
     source.organizationName
   );
+}
+
+/**
+ * Batch saves multiple NSurveyBundle objects into IndexedDB in a single transaction.
+ */
+export async function batchSaveProjectsToLibrary(
+  bundles: NSurveyBundle[],
+  ownerUserId: string,
+  organizationId?: string,
+  organizationName?: string
+): Promise<StoredProject[]> {
+  await ensureInitialized();
+  const db = await openDatabase();
+  const existingProjects = await listProjects();
+  const existingMap = new Map<string, StoredProject>();
+  for (const ep of existingProjects) {
+    existingMap.set(`${ep.code}_${ep.ownerUserId}`, ep);
+  }
+
+  const savedList: StoredProject[] = [];
+
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+
+  for (const bundle of bundles) {
+    const code = bundle.project.code || `JOB-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+    const key = `${code}_${ownerUserId}`;
+    const existing = existingMap.get(key);
+
+    const pointsCount = bundle.points.length;
+    const parcelsCount = bundle.parcels.length;
+    const gridBelt = bundle.project.gridBelt || NigerianGridBelt.MID_BELT;
+
+    let projectToSave: StoredProject;
+
+    if (existing) {
+      projectToSave = {
+        ...existing,
+        title: bundle.project.title,
+        clientName: bundle.project.clientName || 'UNKNOWN CLIENT',
+        location: bundle.project.location || 'NIGERIA',
+        surveyFirm: bundle.project.surveyFirm || '',
+        surveyorName: bundle.project.surveyorName || '',
+        organizationId: organizationId || existing.organizationId,
+        organizationName: organizationName || existing.organizationName,
+        pointsCount,
+        parcelsCount,
+        gridBelt,
+        bundle,
+        updatedAt: Date.now()
+      };
+    } else {
+      projectToSave = {
+        id: `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${Math.floor(Math.random() * 1000)}`,
+        title: bundle.project.title || 'UNTITLED SURVEY PLAN',
+        code,
+        clientName: bundle.project.clientName || 'NEW CLIENT',
+        location: bundle.project.location || 'NIGERIA',
+        surveyFirm: bundle.project.surveyFirm || '',
+        surveyorName: bundle.project.surveyorName || '',
+        ownerUserId,
+        organizationId,
+        organizationName,
+        pointsCount,
+        parcelsCount,
+        gridBelt,
+        bundle,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    }
+
+    store.put(projectToSave);
+    savedList.push(projectToSave);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(new Error('Transaction aborted'));
+  });
+
+  notifyLibraryChanged();
+  return savedList;
+}
+
+/**
+ * Exports all stored projects matching a scope into an .nsurvpack multi-project file.
+ */
+export async function exportProjectLibraryPack(options?: {
+  scopeTab?: 'all' | 'personal' | 'organization';
+  userId?: string;
+  organizationId?: string;
+  organizationName?: string;
+}): Promise<void> {
+  const projects = await listProjects({
+    userId: options?.userId,
+    organizationId: options?.organizationId,
+    scopeTab: options?.scopeTab
+  });
+
+  if (projects.length === 0) {
+    alert('No projects available in the selected scope to export.');
+    return;
+  }
+
+  const bundles: NSurveyBundle[] = projects.map(p => p.bundle);
+  const scopeTitle = options?.scopeTab === 'organization' && options?.organizationName
+    ? `${options.organizationName} Firm Repository`
+    : options?.scopeTab === 'personal'
+    ? 'Personal Project Repository'
+    : 'Full Survey Library';
+
+  downloadProjectPack(bundles, {
+    packTitle: scopeTitle,
+    filename: `NSURVEY_${scopeTitle.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.nsurvpack`,
+    organizationId: options?.organizationId,
+    organizationName: options?.organizationName
+  });
 }

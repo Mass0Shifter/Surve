@@ -23,7 +23,8 @@ import {
   Save,
   Printer,
   Calculator,
-  Lock
+  Lock,
+  FolderArchive
 } from 'lucide-react';
 import { NigerianGridBelt } from '../../engine/types';
 import { UserProfile } from '../../engine/auth/authTypes';
@@ -73,6 +74,7 @@ interface MenuBarProps {
   onToggleAutoSave: () => void;
   currentUser?: UserProfile | null;
   onRequestUpgrade?: (featureId: FeatureId) => void;
+  onOpenSurvpackImporter?: () => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'tools' | 'settings' | null;
@@ -116,7 +118,8 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   autoSaveEnabled,
   onToggleAutoSave,
   currentUser,
-  onRequestUpgrade
+  onRequestUpgrade,
+  onOpenSurvpackImporter
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
@@ -236,6 +239,16 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               </div>
               <span className="menu-shortcut">Ctrl+I</span>
             </div>
+
+            {onOpenSurvpackImporter && (
+              <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('LEGACY_BATCH_IMPORT', onOpenSurvpackImporter)}>
+                <div className="menu-item-left">
+                  <FolderArchive size={14} className="text-cyan" />
+                  <span>Import SurvPack 3.0 Project Archive...</span>
+                </div>
+                {renderTierBadge('LEGACY_BATCH_IMPORT')}
+              </div>
+            )}
 
             <div className="menu-dropdown-item" onClick={() => handleAction(onLoadDemo)}>
               <div className="menu-item-left">

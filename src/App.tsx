@@ -23,6 +23,7 @@ import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStud
 import { DxfStudioModal } from './components/dxf/DxfStudioModal';
 import { ResectionStudioModal } from './components/resection/ResectionStudioModal';
 import { CsvImporterModal } from './components/importer/CsvImporterModal';
+import { SurvPackMigrationModal } from './components/importer/SurvPackMigrationModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { UserProfileModal } from './components/auth/UserProfileModal';
 import { OrganizationStudioModal } from './components/organization/OrganizationStudioModal';
@@ -139,6 +140,7 @@ export const App: React.FC = () => {
   const [isDxfOpen, setIsDxfOpen] = useState<boolean>(false);
   const [isResectionOpen, setIsResectionOpen] = useState<boolean>(false);
   const [isCsvImporterOpen, setIsCsvImporterOpen] = useState<boolean>(false);
+  const [isSurvpackOpen, setIsSurvpackOpen] = useState<boolean>(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState<boolean>(false);
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
   const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
@@ -754,6 +756,7 @@ export const App: React.FC = () => {
           onOpenDxf={() => checkFeatureOrRun('DXF_STUDIO', () => setIsDxfOpen(true))}
           onOpenResection={() => checkFeatureOrRun('RESECTION_STUDIO', () => setIsResectionOpen(true))}
           onOpenCsvImporter={() => setIsCsvImporterOpen(true)}
+          onOpenSurvpackImporter={() => checkFeatureOrRun('LEGACY_BATCH_IMPORT', () => setIsSurvpackOpen(true))}
           onUndo={handleUndo}
           onRedo={handleRedo}
           canUndo={undoStack.length > 0}
@@ -1139,6 +1142,23 @@ export const App: React.FC = () => {
             }
           }
           setPoints(merged);
+        }}
+      />
+
+      {/* Phase 5: SurvPack 3.0 Legacy Project Batch Importer Modal */}
+      <SurvPackMigrationModal
+        isOpen={isSurvpackOpen}
+        onClose={() => setIsSurvpackOpen(false)}
+        currentUser={currentUser}
+        activeOrg={activeOrg}
+        onOpenProjectLibrary={() => setIsLibraryOpen(true)}
+        onMigrateToWorkspace={(migrated) => {
+          recordSnapshot(`Migrate SurvPack 3.0 Project ${migrated.code}`);
+          setProject(migrated.metadata);
+          setPoints(migrated.points);
+          setParcels(migrated.parcels);
+          setSelectedPointId(null);
+          setSelectedParcelId(null);
         }}
       />
 

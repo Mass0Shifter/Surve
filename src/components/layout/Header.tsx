@@ -36,6 +36,7 @@ interface HeaderProps {
   onOpenDxf: () => void;
   onOpenResection: () => void;
   onOpenCsvImporter: () => void;
+  onOpenSurvpackImporter?: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -84,6 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDxf,
   onOpenResection,
   onOpenCsvImporter,
+  onOpenSurvpackImporter,
   onUndo,
   onRedo,
   canUndo,
@@ -191,6 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
           onToggleAutoSave={onToggleAutoSave}
           currentUser={currentUser}
           onRequestUpgrade={onRequestUpgrade}
+          onOpenSurvpackImporter={onOpenSurvpackImporter}
         />
       </div>
 

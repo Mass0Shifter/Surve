@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StoredProject, listProjects, deleteProjectFromLibrary, cloneProjectInLibrary, saveProjectToLibrary } from '../../engine/storage/projectDatabase';
-import { NSurveyBundle, parseNSurvBundle, downloadNSurvBundle } from '../../engine/storage/nsurvBundle';
+import {
+  StoredProject,
+  listProjects,
+  deleteProjectFromLibrary,
+  cloneProjectInLibrary,
+  saveProjectToLibrary,
+  batchSaveProjectsToLibrary,
+  exportProjectLibraryPack
+} from '../../engine/storage/projectDatabase';
+import {
+  NSurveyBundle,
+  parseNSurvBundle,
+  downloadNSurvBundle,
+  parseProjectPack
+} from '../../engine/storage/nsurvBundle';
 import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
 import { UserProfile } from '../../engine/auth/authTypes';
 import { Organization } from '../../engine/organization/orgTypes';
@@ -21,7 +34,8 @@ import {
   Calendar,
   Compass,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Archive
 } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
@@ -56,6 +70,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const packInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshList = async () => {
     setLoading(true);
@@ -78,6 +93,16 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     if (isOpen) {
       refreshList();
     }
+  }, [isOpen, scopeTab, searchQuery, currentUser, activeOrg]);
+
+  useEffect(() => {
+    const handleLibraryChanged = () => {
+      if (isOpen) {
+        refreshList();
+      }
+    };
+    window.addEventListener('nsurvey_library_changed', handleLibraryChanged);
+    return () => window.removeEventListener('nsurvey_library_changed', handleLibraryChanged);
   }, [isOpen, scopeTab, searchQuery, currentUser, activeOrg]);
 
   if (!isOpen) return null;
@@ -148,6 +173,47 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     e.target.value = '';
   };
 
+  const handleImportPackFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const raw = ev.target?.result as string;
+        const { packTitle, projects: unpackedBundles } = parseProjectPack(raw);
+
+        const saved = await batchSaveProjectsToLibrary(
+          unpackedBundles,
+          currentUser?.id || 'guest',
+          activeOrg?.id,
+          activeOrg?.name
+        );
+
+        setSuccessMsg(`Successfully imported ${saved.length} projects from "${packTitle}"!`);
+        refreshList();
+      } catch (err: any) {
+        setErrorMsg(`Failed to import project pack: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleExportLibraryPack = async () => {
+    try {
+      await exportProjectLibraryPack({
+        scopeTab,
+        userId: currentUser?.id,
+        organizationId: activeOrg?.id,
+        organizationName: activeOrg?.name
+      });
+      setSuccessMsg('Project Pack exported successfully!');
+    } catch (err: any) {
+      setErrorMsg(`Export failed: ${err.message}`);
+    }
+  };
+
   const handleOpenProjectInWorkspace = (p: StoredProject) => {
     if (currentPoints.length > 0) {
       if (!confirm(`Switch workspace to "${p.title}"? Any unsaved changes in current workspace should be saved first.`)) {
@@ -207,7 +273,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                 </span>
               </div>
               <p className="auth-subtitle">
-                Manage, backup, clone, and collaborate on your personal and organizational survey job files (.nsurv).
+                Manage, backup, export multi-project packs (.nsurvpack), and collaborate across survey teams.
               </p>
             </div>
             <button className="icon-btn auth-close-btn" onClick={onClose}>✕</button>
@@ -228,7 +294,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="library-actions-group">
+            <div className="library-actions-group" style={{ flexWrap: 'wrap', gap: '8px' }}>
               <button
                 type="button"
                 className="btn-primary-sm"
@@ -238,6 +304,34 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
               >
                 <Save size={13} />
                 <span>{loading ? 'Saving...' : 'Save Workspace'}</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                onClick={handleExportLibraryPack}
+                disabled={projects.length === 0}
+                title="Export all projects in this view as a single portable .nsurvpack archive"
+              >
+                <Download size={13} />
+                <span>Export Pack (.nsurvpack)</span>
+              </button>
+
+              <input
+                type="file"
+                ref={packInputRef}
+                onChange={handleImportPackFile}
+                accept=".nsurvpack,.nsurv,.json"
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                onClick={() => packInputRef.current?.click()}
+                title="Import multi-project pack (.nsurvpack) or single .nsurv file"
+              >
+                <Archive size={13} />
+                <span>Import Pack...</span>
               </button>
 
               <input
@@ -251,7 +345,7 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                 type="button"
                 className="btn-secondary-sm"
                 onClick={() => fileInputRef.current?.click()}
-                title="Import native .nsurv survey bundle"
+                title="Import single native .nsurv survey bundle"
               >
                 <Upload size={13} />
                 <span>Import .nsurv</span>
@@ -278,150 +372,176 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
               className={`auth-tab-btn ${scopeTab === 'all' ? 'active' : ''}`}
               onClick={() => setScopeTab('all')}
             >
-              All Projects
+              All Projects ({projects.length})
             </button>
             <button
               className={`auth-tab-btn ${scopeTab === 'personal' ? 'active' : ''}`}
               onClick={() => setScopeTab('personal')}
             >
-              <User size={12} style={{ display: 'inline', marginRight: '4px' }} />
-              Personal Projects
+              <User size={13} style={{ display: 'inline', marginRight: '6px' }} />
+              Personal Scope
             </button>
             {activeOrg && (
               <button
                 className={`auth-tab-btn ${scopeTab === 'organization' ? 'active' : ''}`}
                 onClick={() => setScopeTab('organization')}
               >
-                <Building2 size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                {activeOrg.name}
+                <Building2 size={13} style={{ display: 'inline', marginRight: '6px' }} />
+                {activeOrg.name} (Team)
               </button>
             )}
           </div>
 
-          {/* Alerts */}
-          {errorMsg && (
-            <div className="form-error-banner" style={{ margin: '10px 20px 0' }}>
-              <AlertCircle size={14} />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+          {/* Notifications */}
           {successMsg && (
-            <div className="form-warning-banner" style={{ margin: '10px 20px 0', background: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}>
+            <div className="auth-alert success" style={{ margin: '0 24px 12px' }}>
               <CheckCircle2 size={14} />
               <span>{successMsg}</span>
             </div>
           )}
+          {errorMsg && (
+            <div className="auth-alert error" style={{ margin: '0 24px 12px' }}>
+              <AlertCircle size={14} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
-          {/* Project List / Grid */}
-          <div className="library-projects-grid">
-            {projects.length === 0 ? (
+          {/* Projects Grid / List */}
+          <div className="library-grid-container">
+            {loading ? (
               <div className="library-empty-state">
-                <FolderKanban size={42} className="text-muted" />
-                <h4>No Survey Projects Found</h4>
+                <p>Loading projects...</p>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="library-empty-state">
+                <FolderKanban size={48} className="text-muted" style={{ opacity: 0.4 }} />
+                <h3>No Survey Projects Found</h3>
                 <p>
                   {searchQuery
-                    ? `No projects matching "${searchQuery}".`
-                    : 'Your library is empty. Save the active workspace or import an .nsurv file to get started.'}
+                    ? `No projects matched "${searchQuery}". Try a different search term.`
+                    : 'Save your active CAD workspace or import .nsurv and .nsurvpack bundles to start building your firm repository.'}
                 </p>
                 <button
                   type="button"
                   className="btn-primary-sm"
+                  style={{ marginTop: '12px' }}
                   onClick={handleSaveCurrentWorkspace}
-                  style={{ marginTop: '8px' }}
                 >
-                  <Save size={13} /> <span>Save Active Workspace to Library</span>
+                  <Save size={13} />
+                  <span>Save Current Workspace as First Project</span>
                 </button>
               </div>
             ) : (
-              projects.map((p) => (
-                <div key={p.id} className="project-card">
-                  {/* Card Header */}
-                  <div className="project-card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="proj-code-badge">{p.code}</span>
-                      {p.organizationId ? (
-                        <span className="role-badge role-admin" title={`Organization Team Project: ${p.organizationName}`}>
-                          <Building2 size={10} style={{ marginRight: '3px' }} /> TEAM
+              <div className="library-cards-grid">
+                {projects.map((p) => {
+                  const isOrg = !!p.organizationId;
+                  const dateStr = new Date(p.updatedAt).toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  });
+
+                  return (
+                    <div key={p.id} className="library-project-card">
+                      {/* Card Header */}
+                      <div className="lib-card-header">
+                        <div>
+                          <span className="lib-card-code">{p.code}</span>
+                          <h3 className="lib-card-title">{p.title}</h3>
+                        </div>
+                        {isOrg ? (
+                          <span className="lib-badge org" title={`Shared with ${p.organizationName}`}>
+                            <Building2 size={11} />
+                            <span>Team</span>
+                          </span>
+                        ) : (
+                          <span className="lib-badge personal" title="Private personal project">
+                            <User size={11} />
+                            <span>Personal</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Card Metadata */}
+                      <div className="lib-card-meta">
+                        <div className="lib-meta-item">
+                          <User size={12} className="text-muted" />
+                          <span>Client: <strong>{p.clientName}</strong></span>
+                        </div>
+                        <div className="lib-meta-item">
+                          <MapPin size={12} className="text-muted" />
+                          <span>{p.location}</span>
+                        </div>
+                        <div className="lib-meta-item">
+                          <Compass size={12} className="text-muted" />
+                          <span>
+                            {p.gridBelt === 4.5
+                              ? 'Minna West Belt'
+                              : p.gridBelt === 8.5
+                              ? 'Minna Mid Belt'
+                              : 'Minna East Belt'}
+                          </span>
+                        </div>
+                        <div className="lib-meta-item">
+                          <Calendar size={12} className="text-muted" />
+                          <span>Updated {dateStr}</span>
+                        </div>
+                      </div>
+
+                      {/* Stats Pills */}
+                      <div className="lib-stats-bar">
+                        <span className="lib-stat-pill">
+                          <Layers size={11} />
+                          <span>{p.pointsCount} Beacons</span>
                         </span>
-                      ) : (
-                        <span className="role-badge role-surveyor" title="Personal Surveyor Project">
-                          <User size={10} style={{ marginRight: '3px' }} /> PERSONAL
+                        <span className="lib-stat-pill">
+                          <span>{p.parcelsCount} Plots</span>
                         </span>
-                      )}
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="lib-card-footer">
+                        <div className="lib-card-footer-left">
+                          <button
+                            type="button"
+                            className="lib-action-btn"
+                            title="Export standalone .nsurv file"
+                            onClick={() => handleExportNSurv(p)}
+                          >
+                            <Download size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="lib-action-btn"
+                            title="Clone/Duplicate this project"
+                            onClick={() => handleCloneProject(p)}
+                          >
+                            <Copy size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="lib-action-btn danger"
+                            title="Delete this project from library"
+                            onClick={() => handleDeleteProject(p)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-primary-sm"
+                          onClick={() => handleOpenProjectInWorkspace(p)}
+                          style={{ padding: '6px 12px', fontSize: '11px' }}
+                        >
+                          <ExternalLink size={12} />
+                          <span>Open in CAD</span>
+                        </button>
+                      </div>
                     </div>
-                    <span className="datum-belt-badge" style={{ fontSize: '9px' }}>
-                      {p.gridBelt === 8.5 ? 'Mid Belt' : p.gridBelt === 4.5 ? 'West Belt' : 'East Belt'}
-                    </span>
-                  </div>
-
-                  {/* Card Title & Info */}
-                  <div className="project-card-body">
-                    <h4 className="project-card-title" title={p.title}>{p.title}</h4>
-                    <div className="project-card-meta">
-                      <span className="project-meta-item">
-                        <strong>Client:</strong> {p.clientName}
-                      </span>
-                      <span className="project-meta-item">
-                        <MapPin size={11} className="text-dim" /> {p.location}
-                      </span>
-                    </div>
-
-                    {/* Stats Badges */}
-                    <div className="project-stats-row">
-                      <span className="stat-chip">
-                        <Compass size={11} className="text-cyan" /> {p.pointsCount} Beacons
-                      </span>
-                      <span className="stat-chip">
-                        <Layers size={11} className="text-emerald" /> {p.parcelsCount} Parcels
-                      </span>
-                      <span className="stat-chip date-chip">
-                        <Calendar size={11} className="text-dim" /> {new Date(p.updatedAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Card Actions */}
-                  <div className="project-card-actions">
-                    <button
-                      type="button"
-                      className="btn-primary-sm"
-                      style={{ flex: 1, justifyContent: 'center' }}
-                      onClick={() => handleOpenProjectInWorkspace(p)}
-                      title="Load this project into CAD canvas"
-                    >
-                      <ExternalLink size={12} />
-                      <span>Open in CAD</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Download native .nsurv bundle to disk"
-                      onClick={() => handleExportNSurv(p)}
-                    >
-                      <Download size={13} className="text-cyan" />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Clone / Duplicate project"
-                      onClick={() => handleCloneProject(p)}
-                    >
-                      <Copy size={13} />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Delete project from library"
-                      onClick={() => handleDeleteProject(p)}
-                    >
-                      <Trash2 size={13} className="text-rose" />
-                    </button>
-                  </div>
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
