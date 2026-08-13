@@ -14,6 +14,11 @@ export interface TdpRenderOptions {
   showSealBox: boolean;
   showGridCrosses: boolean;
   showAdjoiningLabels: boolean;
+  surveyorSealUrl?: string;
+  surveyorSignatureUrl?: string;
+  firmSealUrl?: string;
+  surconNumber?: string;
+  surveyorTitle?: string;
 }
 
 /**
@@ -325,35 +330,66 @@ export function generateTitleDeedPlanPDF(
   }
 
   if (options.showSealBox) {
-    const sealX = outerX + outerW * 0.58;
-    const sealY = footerY + 3;
-    const sealW = outerW * 0.40;
+    const sealX = outerX + outerW * 0.55;
+    const sealY = footerY + 2;
+    const sealW = outerW * 0.43;
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
     doc.setTextColor(15, 23, 42);
-    doc.text("SURVEYOR'S CERTIFICATE", sealX, sealY + 2);
+    doc.text("SURVEYOR'S CERTIFICATION", sealX, sealY + 2);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
+    doc.setFontSize(5);
     doc.setTextColor(71, 85, 105);
-    const certText = `I hereby certify that this plan was surveyed by me on the ground in accordance with Survey Regulations.`;
-    doc.text(certText, sealX, sealY + 5.5, { maxWidth: sealW - 4 });
+    const certText = `I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with Survey Regulations.`;
+    doc.text(certText, sealX, sealY + 5.5, { maxWidth: sealW - 22 });
+
+    const survTitle = options.surveyorTitle ? `${options.surveyorTitle} ` : '';
+    const survName = `${survTitle}${project.surveyorName}`.toUpperCase();
+    const surconNum = options.surconNumber || project.surveyorNumber || 'SURCON REG.';
+
+    // Embed Signature Image if uploaded
+    if (options.surveyorSignatureUrl) {
+      try {
+        doc.addImage(options.surveyorSignatureUrl, 'PNG', sealX, sealY + 8.5, 24, 7);
+      } catch (e) {
+        console.warn('Failed to embed signature image in PDF', e);
+      }
+    }
 
     doc.setFontSize(6);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(`SURVEYOR: ${project.surveyorName.toUpperCase()}`, sealX, sealY + 12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`FIRM: ${project.surveyFirm.toUpperCase()}`, sealX, sealY + 15);
-    doc.text(`DATE: ${project.date}`, sealX, sealY + 18);
+    doc.text(survName, sealX, sealY + 16.5);
 
-    // Seal Box
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(sealX + sealW - 24, sealY + 8, 22, 20);
-    doc.setFontSize(5.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text('SURCON\nOFFICIAL SEAL', sealX + sealW - 13, sealY + 17, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.2);
+    doc.setTextColor(51, 65, 85);
+    doc.text(surconNum, sealX, sealY + 19);
+    doc.text(`FIRM: ${project.surveyFirm.toUpperCase()}`, sealX, sealY + 21.5);
+    doc.text(`DATE: ${project.date}`, sealX, sealY + 24);
+
+    // Embed Official Seal Stamp Image (Surveyor Seal or Firm Seal)
+    const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
+    if (sealStampUrl) {
+      try {
+        doc.addImage(sealStampUrl, 'PNG', sealX + sealW - 21, sealY + 4, 20, 20);
+      } catch (e) {
+        console.warn('Failed to embed seal stamp image in PDF', e);
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(sealX + sealW - 21, sealY + 4, 20, 20);
+        doc.setFontSize(5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('SURCON\nSEAL', sealX + sealW - 11, sealY + 13, { align: 'center' });
+      }
+    } else {
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(sealX + sealW - 21, sealY + 4, 20, 20);
+      doc.setFontSize(5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('SURCON\nOFFICIAL SEAL', sealX + sealW - 11, sealY + 13, { align: 'center' });
+    }
   }
 
   return doc;

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CoordinatePoint } from '../../engine/types';
 import { Plus, Trash2, Edit2, Search, Upload, Download, ShieldCheck, MapPin, AlertCircle, AlertTriangle } from 'lucide-react';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
-import { parseCoordinatesText } from '../../engine/importers/parser';
+import { parseCoordinatesText } from '../../engine/importer/parser';
 
 interface CoordinateTableProps {
   points: CoordinatePoint[];

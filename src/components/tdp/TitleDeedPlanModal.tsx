@@ -4,12 +4,16 @@ import { generateTitleDeedPlanPDF, TdpRenderOptions } from '../../engine/pdf/tdp
 import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
 import { computeParcel, computeExtents } from '../../engine/cogo';
+import { UserProfile } from '../../engine/auth/authTypes';
+import { Organization } from '../../engine/organization/orgTypes';
 import { FileText, Download, Printer, Settings2, ShieldCheck, Grid, Layers, Compass, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
   project: ProjectMetadata;
   points: CoordinatePoint[];
   parcels: Parcel[];
+  currentUser?: UserProfile | null;
+  activeOrg?: Organization | null;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -18,6 +22,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   project,
   points,
   parcels,
+  currentUser,
+  activeOrg,
   isOpen,
   onClose
 }) => {
@@ -98,7 +104,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       showCoordinateTable,
       showSealBox,
       showGridCrosses,
-      showAdjoiningLabels: true
+      showAdjoiningLabels: true,
+      surveyorSealUrl: currentUser?.digitalSealUrl,
+      surveyorSignatureUrl: currentUser?.signatureUrl,
+      firmSealUrl: activeOrg?.officialSealUrl,
+      surconNumber: currentUser?.surconNumber || project.surveyorNumber,
+      surveyorTitle: currentUser?.title
     };
 
     const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
@@ -116,7 +127,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       showCoordinateTable,
       showSealBox,
       showGridCrosses,
-      showAdjoiningLabels: true
+      showAdjoiningLabels: true,
+      surveyorSealUrl: currentUser?.digitalSealUrl,
+      surveyorSignatureUrl: currentUser?.signatureUrl,
+      firmSealUrl: activeOrg?.officialSealUrl,
+      surconNumber: currentUser?.surconNumber || project.surveyorNumber,
+      surveyorTitle: currentUser?.title
     };
 
     // Generate crisp vector PDF and trigger clean print window
@@ -566,16 +582,39 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                       <div className="tdp-seal-block">
                         <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
                         <div className="cert-body">
-                          I hereby certify that this plan was surveyed by me on the ground in accordance with the Survey Regulations.
+                          I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with the Survey Regulations.
                         </div>
-                        <div className="surveyor-name">SURV. {project.surveyorName.toUpperCase()}</div>
-                        <div className="survey-firm">{project.surveyFirm.toUpperCase()}</div>
+
+                        {currentUser?.signatureUrl && (
+                          <div className="tdp-sig-container" style={{ margin: '4px 0 2px' }}>
+                            <img src={currentUser.signatureUrl} alt="Signature" style={{ height: '24px', maxWidth: '120px', objectFit: 'contain' }} />
+                          </div>
+                        )}
+
+                        <div className="surveyor-name">
+                          {currentUser?.title ? `${currentUser.title} ` : 'SURV. '}
+                          {(currentUser?.fullName || project.surveyorName).toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', margin: '1px 0' }}>
+                          {currentUser?.surconNumber || project.surveyorNumber || 'SURCON REG.'}
+                        </div>
+                        <div className="survey-firm">{(activeOrg?.name || project.surveyFirm).toUpperCase()}</div>
                         <div className="survey-date">DATE: {project.date}</div>
 
-                        <div className="surcon-seal-box">
-                          <ShieldCheck size={18} className="text-muted" />
-                          <span>SURCON SEAL</span>
-                        </div>
+                        {currentUser?.digitalSealUrl || activeOrg?.officialSealUrl ? (
+                          <div className="tdp-seal-stamp-container" style={{ position: 'absolute', right: '12px', bottom: '12px' }}>
+                            <img
+                              src={currentUser?.digitalSealUrl || activeOrg?.officialSealUrl}
+                              alt="Official Seal"
+                              style={{ width: '60px', height: '60px', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="surcon-seal-box">
+                            <ShieldCheck size={18} className="text-muted" />
+                            <span>SURCON SEAL</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

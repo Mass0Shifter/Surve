@@ -21,13 +21,16 @@ import {
   Globe,
   Target,
   Save,
-  Printer
+  Printer,
+  Calculator
 } from 'lucide-react';
 import { NigerianGridBelt } from '../../engine/types';
 
 interface MenuBarProps {
   onNewProject: () => void;
-  onImportCoordinates: () => void;
+  onOpenProjectLibrary?: () => void;
+  onExportNSurv?: () => void;
+  onImportNSurv?: () => void;
   onLoadDemo: () => void;
   onExportSCR: () => void;
   onExportDXF: () => void;
@@ -71,7 +74,9 @@ type MenuKey = 'file' | 'edit' | 'view' | 'tools' | 'settings' | null;
 
 export const MenuBar: React.FC<MenuBarProps> = ({
   onNewProject,
-  onImportCoordinates: _onImportCoordinates,
+  onOpenProjectLibrary,
+  onExportNSurv,
+  onImportNSurv,
   onLoadDemo,
   onExportSCR,
   onExportDXF,
@@ -100,7 +105,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenDxf,
   onOpenResection,
   onOpenCsvImporter,
-  onOpenCogo: _onOpenCogo,
+  onOpenCogo,
   gridBelt,
   onSelectBelt,
   autoSaveEnabled,
@@ -146,14 +151,45 @@ export const MenuBar: React.FC<MenuBarProps> = ({
             <div className="menu-dropdown-item" onClick={() => handleAction(onNewProject)}>
               <div className="menu-item-left">
                 <Plus size={14} className="text-muted" />
-                <span>New Project</span>
+                <span>New Blank Project</span>
               </div>
               <span className="menu-shortcut">Ctrl+N</span>
             </div>
 
+            {onOpenProjectLibrary && (
+              <div className="menu-dropdown-item" onClick={() => handleAction(onOpenProjectLibrary)}>
+                <div className="menu-item-left">
+                  <Save size={14} className="text-emerald" />
+                  <span>Project Library &amp; Repositories...</span>
+                </div>
+                <span className="menu-shortcut">Ctrl+O</span>
+              </div>
+            )}
+
+            {onExportNSurv && (
+              <div className="menu-dropdown-item" onClick={() => handleAction(onExportNSurv)}>
+                <div className="menu-item-left">
+                  <Download size={14} className="text-cyan" />
+                  <span>Export Native .nsurv Bundle...</span>
+                </div>
+                <span className="menu-shortcut">Ctrl+S</span>
+              </div>
+            )}
+
+            {onImportNSurv && (
+              <div className="menu-dropdown-item" onClick={() => handleAction(onImportNSurv)}>
+                <div className="menu-item-left">
+                  <Upload size={14} className="text-cyan" />
+                  <span>Import Native .nsurv Bundle...</span>
+                </div>
+              </div>
+            )}
+
+            <div className="menu-dropdown-divider" />
+
             <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCsvImporter)}>
               <div className="menu-item-left">
-                <Upload size={14} className="text-cyan" />
+                <Upload size={14} className="text-muted" />
                 <span>Universal Field CSV Importer...</span>
               </div>
               <span className="menu-shortcut">Ctrl+I</span>
@@ -310,6 +346,15 @@ export const MenuBar: React.FC<MenuBarProps> = ({
 
         {openMenu === 'tools' && (
           <div className="menu-dropdown-popup">
+            <div className="menu-dropdown-item" onClick={() => handleAction(onOpenCogo)}>
+              <div className="menu-item-left">
+                <Calculator size={14} className="text-emerald" />
+                <span>COGO Coordinate Geometry &amp; Inversing Studio</span>
+              </div>
+            </div>
+
+            <div className="menu-dropdown-divider" />
+
             <div className="menu-dropdown-item" onClick={() => handleAction(onOpenTraverse)}>
               <div className="menu-item-left">
                 <Compass size={14} className="text-cyan" />

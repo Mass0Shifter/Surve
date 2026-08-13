@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { ProjectMetadata, CoordinatePoint, Parcel, NigerianGridBelt } from '../../engine/types';
+import { UserProfile } from '../../engine/auth/authTypes';
+import { Organization } from '../../engine/organization/orgTypes';
 import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 import { MenuBar } from './MenuBar';
-import { Compass, Settings, Save, FileText, Globe } from 'lucide-react';
+import { Compass, Settings, Save, FileText, Globe, User, LogOut, Crown, ChevronDown, Building2, Plus, FolderKanban } from 'lucide-react';
 
 interface HeaderProps {
   project: ProjectMetadata;
@@ -15,7 +17,9 @@ interface HeaderProps {
   onToggleAutoSave: () => void;
   onUpdateProject: (proj: ProjectMetadata) => void;
   onNewProject: () => void;
-  onImportCoordinates: () => void;
+  onOpenProjectLibrary?: () => void;
+  onExportNSurv?: () => void;
+  onImportNSurv?: () => void;
   onLoadSample: () => void;
   onOpenCogo: () => void;
   onOpenRenumber: () => void;
@@ -37,6 +41,16 @@ interface HeaderProps {
   canRedo: boolean;
   onOpenHistory: () => void;
 
+  currentUser: UserProfile | null;
+  organizations: Organization[];
+  activeOrg: Organization | null;
+  onSelectOrg: (orgId: string | null) => void;
+  onOpenOrgStudio: () => void;
+  onOpenAuth: () => void;
+  onOpenProfile: () => void;
+  onOpenSubscription: () => void;
+  onLogout: () => void;
+
   isLeftVisible: boolean;
   isRightVisible: boolean;
   onToggleLeft: () => void;
@@ -53,7 +67,6 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAutoSave,
   onUpdateProject,
   onNewProject,
-  onImportCoordinates,
   onLoadSample,
   onOpenCogo,
   onOpenRenumber,
@@ -74,6 +87,18 @@ export const Header: React.FC<HeaderProps> = ({
   canUndo,
   canRedo,
   onOpenHistory,
+  currentUser,
+  organizations,
+  activeOrg,
+  onSelectOrg,
+  onOpenOrgStudio,
+  onOpenProjectLibrary,
+  onExportNSurv,
+  onImportNSurv,
+  onOpenAuth,
+  onOpenProfile,
+  onOpenSubscription,
+  onLogout,
   isLeftVisible,
   isRightVisible,
   onToggleLeft,
@@ -81,6 +106,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMaximize
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showWorkspaceDropdown, setShowWorkspaceDropdown] = useState(false);
 
   const handleExportSCR = () => {
     if (points.length === 0) {
@@ -102,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const handleExportCSV = () => {
     if (points.length === 0) {
-      alert('Cannot export Coordinate Book: No survey coordinates exist.');
+      alert('Cannot export CSV: No survey coordinates exist.');
       return;
     }
     const csv = exportCoordinatesToCSV(points);
@@ -123,7 +150,9 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Traditional Desktop CAD Application Menu Bar */}
         <MenuBar
           onNewProject={onNewProject}
-          onImportCoordinates={onImportCoordinates}
+          onOpenProjectLibrary={onOpenProjectLibrary}
+          onExportNSurv={onExportNSurv}
+          onImportNSurv={onImportNSurv}
           onLoadDemo={onLoadSample}
           onExportSCR={handleExportSCR}
           onExportDXF={handleExportDXF}
@@ -161,6 +190,74 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="header-right">
+        {/* Workspace Switcher (Personal vs Organization) */}
+        {currentUser && (
+          <div style={{ position: 'relative' }}>
+            <button
+              className="workspace-switcher-btn"
+              onClick={() => setShowWorkspaceDropdown(!showWorkspaceDropdown)}
+              title="Switch between Personal Workspace and Organization Projects"
+            >
+              {activeOrg ? <Building2 size={13} className="text-cyan" /> : <User size={13} className="text-emerald" />}
+              <span style={{ maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {activeOrg ? activeOrg.name : 'Personal Workspace'}
+              </span>
+              <ChevronDown size={11} className="text-muted" />
+            </button>
+
+            {showWorkspaceDropdown && (
+              <div className="workspace-dropdown-menu" onClick={() => setShowWorkspaceDropdown(false)}>
+                <div className="user-dropdown-header">
+                  <div className="user-dropdown-name">Select Workspace Repository</div>
+                </div>
+
+                <div
+                  className={`menu-dropdown-item ${!activeOrg ? 'active' : ''}`}
+                  onClick={() => onSelectOrg(null)}
+                >
+                  <div className="menu-item-left">
+                    <User size={13} className="text-emerald" />
+                    <span>Personal Workspace</span>
+                  </div>
+                </div>
+
+                {organizations.map(org => (
+                  <div
+                    key={org.id}
+                    className={`menu-dropdown-item ${activeOrg?.id === org.id ? 'active' : ''}`}
+                    onClick={() => onSelectOrg(org.id)}
+                  >
+                    <div className="menu-item-left">
+                      <Building2 size={13} className="text-cyan" />
+                      <span style={{ maxWidth: '170px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {org.name}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="menu-dropdown-divider" />
+
+                {onOpenProjectLibrary && (
+                  <div className="menu-dropdown-item" onClick={onOpenProjectLibrary}>
+                    <div className="menu-item-left">
+                      <FolderKanban size={13} className="text-emerald" />
+                      <span>Project Library...</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="menu-dropdown-item" onClick={onOpenOrgStudio}>
+                  <div className="menu-item-left">
+                    <Plus size={13} className="text-cyan" />
+                    <span>Manage Organizations...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Project Info Pill */}
         <div
           className="project-info-bar"
@@ -195,6 +292,19 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Quick Access Highlights */}
+        {onOpenProjectLibrary && (
+          <button
+            id="btn-open-project-library"
+            className="btn-traverse-highlight"
+            style={{ color: '#6ee7b7', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.12)' }}
+            title="Open Project Library & Repositories (.nsurv)"
+            onClick={onOpenProjectLibrary}
+          >
+            <FolderKanban size={13} className="text-emerald" />
+            <span>Library</span>
+          </button>
+        )}
+
         <button
           id="btn-open-traverse-modal"
           className="btn-traverse-highlight"
@@ -213,6 +323,79 @@ export const Header: React.FC<HeaderProps> = ({
           <FileText size={13} />
           <span>TDP Studio</span>
         </button>
+
+        {/* User Account / Profile Button */}
+        {currentUser ? (
+          <div style={{ position: 'relative' }}>
+            <button
+              className="header-user-btn"
+              onClick={() => setShowUserDropdown(!showUserDropdown)}
+              title={`${currentUser.title || ''} ${currentUser.fullName} (${currentUser.subscriptionTier})`}
+            >
+              <div className="user-avatar-circle">
+                {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'S'}
+                <span className={`user-avatar-dot ${currentUser.subscriptionTier === 'COMMUNITY' ? 'free' : 'pro'}`} />
+              </div>
+              <span className="user-name-text">
+                {currentUser.title ? `${currentUser.title} ` : ''}{currentUser.fullName.split(' ')[0]}
+              </span>
+              <ChevronDown size={12} className="text-muted" />
+            </button>
+
+            {showUserDropdown && (
+              <div className="user-dropdown-menu" onClick={() => setShowUserDropdown(false)}>
+                <div className="user-dropdown-header">
+                  <div className="user-dropdown-name">{currentUser.title || ''} {currentUser.fullName}</div>
+                  <div className="user-dropdown-email">{currentUser.email}</div>
+                  {currentUser.surconNumber && (
+                    <div style={{ fontSize: '9px', color: '#10b981', marginTop: '2px', fontWeight: 600 }}>
+                      {currentUser.surconNumber}
+                    </div>
+                  )}
+                </div>
+
+                <div className="menu-dropdown-item" onClick={onOpenProfile}>
+                  <div className="menu-item-left">
+                    <User size={13} className="text-emerald" />
+                    <span>My Profile &amp; Seal</span>
+                  </div>
+                </div>
+
+                <div className="menu-dropdown-item" onClick={onOpenOrgStudio}>
+                  <div className="menu-item-left">
+                    <Building2 size={13} className="text-cyan" />
+                    <span>My Organization &amp; Team</span>
+                  </div>
+                </div>
+
+                <div className="menu-dropdown-item" onClick={onOpenSubscription}>
+                  <div className="menu-item-left">
+                    <Crown size={13} className="text-amber" />
+                    <span>Subscription ({currentUser.subscriptionTier})</span>
+                  </div>
+                </div>
+
+                <div className="menu-dropdown-divider" />
+
+                <div className="menu-dropdown-item" onClick={onLogout}>
+                  <div className="menu-item-left">
+                    <LogOut size={13} className="text-danger" style={{ color: '#ef4444' }} />
+                    <span style={{ color: '#fca5a5' }}>Sign Out</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            className="header-login-btn"
+            onClick={onOpenAuth}
+            title="Sign in or register your surveyor account"
+          >
+            <User size={13} />
+            <span>Sign In</span>
+          </button>
+        )}
       </div>
 
       {/* Project Metadata Modal */}

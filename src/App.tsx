@@ -23,6 +23,16 @@ import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStud
 import { DxfStudioModal } from './components/dxf/DxfStudioModal';
 import { ResectionStudioModal } from './components/resection/ResectionStudioModal';
 import { CsvImporterModal } from './components/importer/CsvImporterModal';
+import { AuthModal } from './components/auth/AuthModal';
+import { UserProfileModal } from './components/auth/UserProfileModal';
+import { OrganizationStudioModal } from './components/organization/OrganizationStudioModal';
+import { ProjectLibraryModal } from './components/library/ProjectLibraryModal';
+import { SubscriptionStudioModal } from './components/subscription/SubscriptionStudioModal';
+import { UserProfile } from './engine/auth/authTypes';
+import { Organization } from './engine/organization/orgTypes';
+import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/storage/nsurvBundle';
+import { getCurrentUser, logout, updateUserProfile } from './engine/auth/authEngine';
+import { getOrganizationsForUser, getActiveOrganization } from './engine/organization/orgEngine';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
@@ -127,6 +137,69 @@ export const App: React.FC = () => {
   const [isDxfOpen, setIsDxfOpen] = useState<boolean>(false);
   const [isResectionOpen, setIsResectionOpen] = useState<boolean>(false);
   const [isCsvImporterOpen, setIsCsvImporterOpen] = useState<boolean>(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState<boolean>(false);
+  const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
+  const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
+
+  // User Authentication & Profile States
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+  const [isOrgStudioOpen, setIsOrgStudioOpen] = useState<boolean>(false);
+
+  // Organization & Workspace State
+  const [organizations, setOrganizations] = useState<Organization[]>(() => 
+    currentUser ? getOrganizationsForUser(currentUser.id) : []
+  );
+  const [activeOrg, setActiveOrg] = useState<Organization | null>(() => 
+    currentUser ? getActiveOrganization(currentUser) : null
+  );
+
+  const refreshUserData = useCallback((user: UserProfile | null) => {
+    if (user) {
+      const userOrgs = getOrganizationsForUser(user.id);
+      setOrganizations(userOrgs);
+      const active = getActiveOrganization(user) || userOrgs[0] || null;
+      setActiveOrg(active);
+    } else {
+      setOrganizations([]);
+      setActiveOrg(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleAuthChanged = (e: any) => {
+      const user = e.detail;
+      setCurrentUser(user);
+      refreshUserData(user);
+    };
+
+    const handleOrgsChanged = () => {
+      const user = getCurrentUser();
+      refreshUserData(user);
+    };
+
+    window.addEventListener('nsurvey_auth_changed', handleAuthChanged);
+    window.addEventListener('nsurvey_orgs_changed', handleOrgsChanged);
+
+    return () => {
+      window.removeEventListener('nsurvey_auth_changed', handleAuthChanged);
+      window.removeEventListener('nsurvey_orgs_changed', handleOrgsChanged);
+    };
+  }, [refreshUserData]);
+
+  const handleSelectOrg = async (orgId: string | null) => {
+    if (!currentUser) return;
+    try {
+      const updated = await updateUserProfile({ activeOrganizationId: orgId || undefined });
+      setCurrentUser(updated);
+      const selectedOrg = orgId ? getOrganizationsForUser(currentUser.id).find(o => o.id === orgId) || null : null;
+      setActiveOrg(selectedOrg);
+    } catch (err) {
+      console.error('Failed to switch active organization', err);
+    }
+  };
+
   const [setoutOverlay, setSetoutOverlay] = useState<SetoutOverlay | null>(null);
   const [alignmentOverlay, setAlignmentOverlay] = useState<AlignmentOverlay | null>(null);
 
@@ -591,9 +664,46 @@ export const App: React.FC = () => {
     alert(`Leveling Synchronization: Updated 3D Elevations (Z) for ${matchCount} matching coordinate beacons in the workspace!`);
   };
 
+  const handleLoadBundle = (bundle: NSurveyBundle) => {
+    recordSnapshot(`Load Project ${bundle.project.title}`);
+    setProject(bundle.project);
+    setPoints(bundle.points);
+    setParcels(bundle.parcels);
+    if (bundle.layers) {
+      setLayers(bundle.layers);
+    }
+    setSelectedPointId(bundle.points[0]?.id || null);
+    setSelectedParcelId(bundle.parcels[0]?.id || null);
+    setSetoutOverlay(null);
+    setAlignmentOverlay(null);
+  };
+
   return (
     <ErrorBoundary fallbackTitle="NSurvey Workspace Recovery">
       <div className="app-container">
+        {/* Hidden File Input for Native .nsurv Imports */}
+        <input
+          type="file"
+          ref={nativeNSurvInputRef}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              try {
+                const bundle = parseNSurvBundle(ev.target?.result as string);
+                handleLoadBundle(bundle);
+              } catch (err: any) {
+                alert(err.message);
+              }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+          }}
+          accept=".nsurv,application/json"
+          style={{ display: 'none' }}
+        />
+
         {/* 1. Header with Native Desktop CAD MenuBar */}
         <Header
           project={project}
@@ -607,11 +717,16 @@ export const App: React.FC = () => {
             setProject(newProj);
           }}
           onNewProject={handleNewProject}
-          onImportCoordinates={() => {
-            setIsLeftVisible(true);
-            const input = document.getElementById('csv-file-input');
-            if (input) input.click();
-          }}
+          onOpenProjectLibrary={() => setIsLibraryOpen(true)}
+          onExportNSurv={() => downloadNSurvBundle(project, points, parcels, {
+            scope: {
+              ownerUserId: currentUser?.id,
+              organizationId: activeOrg?.id,
+              organizationName: activeOrg?.name
+            },
+            layers
+          })}
+          onImportNSurv={() => nativeNSurvInputRef.current?.click()}
           onLoadSample={handleLoadSample}
           onOpenCogo={() => setIsCogoOpen(true)}
           onOpenRenumber={() => setIsRenumberOpen(true)}
@@ -632,6 +747,15 @@ export const App: React.FC = () => {
           canUndo={undoStack.length > 0}
           canRedo={redoStack.length > 0}
           onOpenHistory={() => setIsHistoryOpen(true)}
+          currentUser={currentUser}
+          organizations={organizations}
+          activeOrg={activeOrg}
+          onSelectOrg={handleSelectOrg}
+          onOpenOrgStudio={() => setIsOrgStudioOpen(true)}
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenProfile={() => setIsProfileOpen(true)}
+          onOpenSubscription={() => setIsSubscriptionOpen(true)}
+          onLogout={logout}
           isLeftVisible={isLeftVisible}
           isRightVisible={isRightVisible}
           onToggleLeft={() => setIsLeftVisible(v => !v)}
@@ -796,6 +920,8 @@ export const App: React.FC = () => {
         project={project}
         points={points}
         parcels={parcels}
+        currentUser={currentUser}
+        activeOrg={activeOrg}
         isOpen={isTdpOpen}
         onClose={() => setIsTdpOpen(false)}
       />
@@ -1000,6 +1126,57 @@ export const App: React.FC = () => {
             }
           }
           setPoints(merged);
+        }}
+      />
+
+      {/* User Authentication Modal (Sign In / Register / Password Reset) */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={(user) => {
+          setCurrentUser(user);
+        }}
+      />
+
+      {/* Surveyor Profile & Digital Seal Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        currentUser={currentUser}
+        onProfileUpdated={(updated) => {
+          setCurrentUser(updated);
+        }}
+        onOpenSubscription={() => setIsSubscriptionOpen(true)}
+      />
+
+      {/* Organization & Team Studio Modal */}
+      <OrganizationStudioModal
+        isOpen={isOrgStudioOpen}
+        onClose={() => setIsOrgStudioOpen(false)}
+        currentUser={currentUser}
+        onOpenSubscription={() => setIsSubscriptionOpen(true)}
+      />
+
+      {/* Project Library & Repositories (.nsurv) Modal */}
+      <ProjectLibraryModal
+        isOpen={isLibraryOpen}
+        onClose={() => setIsLibraryOpen(false)}
+        currentProject={project}
+        currentPoints={points}
+        currentParcels={parcels}
+        currentUser={currentUser}
+        activeOrg={activeOrg}
+        onLoadProject={handleLoadBundle}
+        onNewProject={handleNewProject}
+      />
+
+      {/* Subscription & Payment Gateway Studio Modal */}
+      <SubscriptionStudioModal
+        isOpen={isSubscriptionOpen}
+        onClose={() => setIsSubscriptionOpen(false)}
+        currentUser={currentUser}
+        onSubscriptionUpdated={(updated) => {
+          setCurrentUser(updated);
         }}
       />
     </div>
