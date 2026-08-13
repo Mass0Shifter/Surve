@@ -37,6 +37,7 @@ import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/s
 import { getCurrentUser, logout, updateUserProfile } from './engine/auth/authEngine';
 import { getOrganizationsForUser, getActiveOrganization } from './engine/organization/orgEngine';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { DesktopTitleBar } from './components/desktop/DesktopTitleBar';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
@@ -717,6 +718,9 @@ export const App: React.FC = () => {
           accept=".nsurv,application/json"
           style={{ display: 'none' }}
         />
+
+        {/* 0. Desktop Window Frame TitleBar (Auto-activates in Desktop Mode) */}
+        <DesktopTitleBar project={project} />
 
         {/* 1. Header with Native Desktop CAD MenuBar */}
         <Header

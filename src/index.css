@@ -4741,6 +4741,105 @@ input.auth-input.no-icon,
   color: #38bdf8;
 }
 
+/* ==========================================================================
+   Desktop Window TitleBar & Native Window Controls
+   ========================================================================== */
+
+.desktop-titlebar {
+  height: 32px;
+  background: #080c18;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0 12px;
+  user-select: none;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+
+.desktop-titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-app-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desktop-app-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.3px;
+}
+
+.desktop-app-edition {
+  font-size: 9px;
+  font-weight: 600;
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.desktop-titlebar-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  overflow: hidden;
+}
+
+.desktop-project-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.desktop-project-name {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-titlebar-right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-window-btn {
+  width: 44px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.desktop-window-btn:hover {
+  background: rgba(148, 163, 184, 0.15);
+  color: #f8fafc;
+}
+
+.desktop-window-btn.close:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+
 
 
 
