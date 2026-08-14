@@ -4,6 +4,135 @@ import { computeParcel, computeExtents } from '../cogo';
 import { getDatumBeltName } from '../datums';
 import { determineCadastralSheets } from '../cadastral/sheetIndex';
 
+export interface TdpStyleConfig {
+  // Typography (pt)
+  titleFontSize: number;
+  bearingFontSize: number;
+  beaconFontSize: number;
+  areaFontSize: number;
+
+  // Boundary Linework
+  boundaryColor: string; // Hex color e.g. '#10b981'
+  boundaryLineWidth: number; // mm in PDF
+  boundaryLineStyle: 'solid' | 'dashed' | 'dashdot';
+
+  // Plot Fill / Shading
+  fillColor: string; // Hex color
+  fillOpacity: number; // 0 to 0.4
+  hatchPattern: 'none' | 'tint' | 'diagonal' | 'cross';
+
+  // Beacon Markers
+  beaconColor: string; // Hex color e.g. '#dc2626'
+  controlColor: string; // Hex color e.g. '#f59e0b'
+  beaconSize: number; // radius mm
+
+  // Theme Preset
+  themePreset?: 'federal_standard' | 'state_lands' | 'executive_deed' | 'cad_blueprint' | 'custom';
+}
+
+export interface TdpAdjoiningConfig {
+  showAdjoining: boolean;
+  adjoiningParcelIds: string[];
+  renderMode: 'dashed_full' | 'stub_extension';
+  stubDepthMeters: number; // 3m to 15m (default 8m)
+  showRoadCorridor: boolean;
+  roadCorridorLabel: string; // e.g. "12.00m ACCESS ROAD"
+  roadCorridorWidth: number; // e.g. 12m
+  /** Indices of boundary legs that face a road. Multi-select: [0] = frontage, [0,2] = corner plot, etc. */
+  roadFrontageLegIndices: number[];
+}
+
+export const DEFAULT_TDP_STYLE: TdpStyleConfig = {
+  titleFontSize: 10,
+  bearingFontSize: 5.5,
+  beaconFontSize: 6.0,
+  areaFontSize: 7.5,
+  boundaryColor: '#10b981',
+  boundaryLineWidth: 0.6,
+  boundaryLineStyle: 'solid',
+  fillColor: '#10b981',
+  fillOpacity: 0.04,
+  hatchPattern: 'tint',
+  beaconColor: '#dc2626',
+  controlColor: '#f59e0b',
+  beaconSize: 1.4,
+  themePreset: 'federal_standard'
+};
+
+export const TDP_THEME_PRESETS: Record<string, TdpStyleConfig> = {
+  federal_standard: {
+    ...DEFAULT_TDP_STYLE,
+    themePreset: 'federal_standard'
+  },
+  state_lands: {
+    titleFontSize: 11,
+    bearingFontSize: 6.0,
+    beaconFontSize: 6.5,
+    areaFontSize: 8.0,
+    boundaryColor: '#1e3a8a',
+    boundaryLineWidth: 0.7,
+    boundaryLineStyle: 'solid',
+    fillColor: '#3b82f6',
+    fillOpacity: 0.08,
+    hatchPattern: 'diagonal',
+    beaconColor: '#dc2626',
+    controlColor: '#f59e0b',
+    beaconSize: 1.5,
+    themePreset: 'state_lands'
+  },
+  executive_deed: {
+    titleFontSize: 12,
+    bearingFontSize: 6.0,
+    beaconFontSize: 6.5,
+    areaFontSize: 8.5,
+    boundaryColor: '#0f172a',
+    boundaryLineWidth: 0.8,
+    boundaryLineStyle: 'solid',
+    fillColor: '#d97706',
+    fillOpacity: 0.06,
+    hatchPattern: 'tint',
+    beaconColor: '#0f172a',
+    controlColor: '#d97706',
+    beaconSize: 1.6,
+    themePreset: 'executive_deed'
+  },
+  cad_blueprint: {
+    titleFontSize: 10,
+    bearingFontSize: 5.5,
+    beaconFontSize: 6.0,
+    areaFontSize: 7.5,
+    boundaryColor: '#0284c7',
+    boundaryLineWidth: 0.7,
+    boundaryLineStyle: 'solid',
+    fillColor: '#0ea5e9',
+    fillOpacity: 0.12,
+    hatchPattern: 'cross',
+    beaconColor: '#ef4444',
+    controlColor: '#f59e0b',
+    beaconSize: 1.4,
+    themePreset: 'cad_blueprint'
+  }
+};
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = (hex || '#10b981').replace('#', '').trim();
+  if (clean.length === 3) {
+    return {
+      r: parseInt(clean[0] + clean[0], 16) || 16,
+      g: parseInt(clean[1] + clean[1], 16) || 185,
+      b: parseInt(clean[2] + clean[2], 16) || 129
+    };
+  }
+  if (clean.length === 6) {
+    return {
+      r: parseInt(clean.substring(0, 2), 16) || 16,
+      g: parseInt(clean.substring(2, 4), 16) || 185,
+      b: parseInt(clean.substring(4, 6), 16) || 129
+    };
+  }
+  return { r: 16, g: 185, b: 129 };
+}
+
 export interface TdpRenderOptions {
   pageSize: 'a4' | 'a3' | 'legal';
   orientation: 'portrait' | 'landscape';
@@ -20,6 +149,8 @@ export interface TdpRenderOptions {
   firmSealUrl?: string;
   surconNumber?: string;
   surveyorTitle?: string;
+  style?: TdpStyleConfig;
+  adjoining?: TdpAdjoiningConfig;
 }
 
 /**
@@ -32,6 +163,7 @@ export function generateTitleDeedPlanPDF(
   parcels: Parcel[],
   options: TdpRenderOptions
 ): jsPDF {
+  const style = { ...DEFAULT_TDP_STYLE, ...(options.style || {}) };
   const doc = new jsPDF({
     orientation: options.orientation,
     unit: 'mm',
@@ -177,49 +309,212 @@ export function generateTitleDeedPlanPDF(
     }
   }
 
+  // 6.5. Draw Adjoining (Abutting) Parcels & Road Corridors
+  if (options.adjoining?.showAdjoining && isSinglePlot && selectedParcel) {
+    const adjConfig = options.adjoining;
+    const adjIds = new Set(adjConfig.adjoiningParcelIds || []);
+    const abuttingParcels = parcels.filter(p => p.id !== selectedParcel.id && (adjIds.size === 0 || adjIds.has(p.id)));
+
+    // Set dashed style for adjoining lines
+    doc.setDrawColor(148, 163, 184); // Slate 400
+    doc.setLineWidth(0.35);
+    doc.setLineDashPattern([2.5, 1.5], 0);
+
+    for (const adj of abuttingParcels) {
+      const compAdj = computeParcel(adj, points);
+      if (!compAdj || compAdj.vertices.length < 3) continue;
+
+      if (adjConfig.renderMode === 'dashed_full') {
+        // Draw full dashed polygon
+        const adjMapVerts = compAdj.vertices.map(v => ({ x: toMapX(v.easting), y: toMapY(v.northing) }));
+        for (let i = 0; i < adjMapVerts.length; i++) {
+          const p1 = adjMapVerts[i];
+          const p2 = adjMapVerts[(i + 1) % adjMapVerts.length];
+          doc.line(p1.x, p1.y, p2.x, p2.y);
+        }
+
+        // Adjoining Plot Centroid Label
+        const aCentX = adjMapVerts.reduce((s, v) => s + v.x, 0) / adjMapVerts.length;
+        const aCentY = adjMapVerts.reduce((s, v) => s + v.y, 0) / adjMapVerts.length;
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(adj.plotNumber, aCentX, aCentY, { align: 'center' });
+      } else {
+        // Stub Extension Mode (5m to 15m outward from shared boundary)
+        const focusPointIds = new Set(selectedParcel.pointIds);
+        const sharedPointIds = adj.pointIds.filter(id => focusPointIds.has(id));
+
+        if (sharedPointIds.length >= 2) {
+          const sharedPts = sharedPointIds.map(id => points.find(p => p.id === id)).filter(Boolean) as CoordinatePoint[];
+          if (sharedPts.length >= 2) {
+            const p1 = { x: toMapX(sharedPts[0].easting), y: toMapY(sharedPts[0].northing) };
+            const p2 = { x: toMapX(sharedPts[1].easting), y: toMapY(sharedPts[1].northing) };
+
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.hypot(dx, dy);
+            if (len > 1) {
+              let nx = -dy / len;
+              let ny = dx / len;
+              const midX = (p1.x + p2.x) / 2;
+              const midY = (p1.y + p2.y) / 2;
+              const toFocusCentX = midX - centX;
+              const toFocusCentY = midY - centY;
+              if (nx * toFocusCentX + ny * toFocusCentY < 0) {
+                nx = -nx;
+                ny = -ny;
+              }
+
+              const stubDepthMm = (adjConfig.stubDepthMeters || 8) * mapScale;
+              const s1 = { x: p1.x + nx * stubDepthMm, y: p1.y + ny * stubDepthMm };
+              const s2 = { x: p2.x + nx * stubDepthMm, y: p2.y + ny * stubDepthMm };
+
+              doc.line(p1.x, p1.y, s1.x, s1.y);
+              doc.line(p2.x, p2.y, s2.x, s2.y);
+              doc.line(s1.x, s1.y, s2.x, s2.y);
+
+              const stubCentX = (midX + (s1.x + s2.x) / 2) / 2;
+              const stubCentY = (midY + (s1.y + s2.y) / 2) / 2;
+              doc.setFont('helvetica', 'italic');
+              doc.setFontSize(6.0);
+              doc.setTextColor(100, 116, 139);
+              doc.text(adj.plotNumber, stubCentX, stubCentY, { align: 'center' });
+            }
+          }
+        }
+      }
+    }
+
+    // Road Corridor Depiction
+    if (adjConfig.showRoadCorridor && adjConfig.roadCorridorLabel) {
+      const compFocus = computeParcel(selectedParcel, points);
+      if (compFocus && compFocus.legs.length > 0) {
+        const frontageLeg = compFocus.legs[0];
+        const p1 = { x: toMapX(frontageLeg.fromPoint.easting), y: toMapY(frontageLeg.fromPoint.northing) };
+        const p2 = { x: toMapX(frontageLeg.toPoint.easting), y: toMapY(frontageLeg.toPoint.northing) };
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 1) {
+          let nx = -dy / len;
+          let ny = dx / len;
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          if (nx * (midX - centX) + ny * (midY - centY) < 0) {
+            nx = -nx;
+            ny = -ny;
+          }
+
+          const roadWidthMm = (adjConfig.roadCorridorWidth || 12) * mapScale;
+          const r1 = { x: p1.x + nx * roadWidthMm, y: p1.y + ny * roadWidthMm };
+          const r2 = { x: p2.x + nx * roadWidthMm, y: p2.y + ny * roadWidthMm };
+
+          doc.setDrawColor(100, 116, 139);
+          doc.setLineWidth(0.4);
+          doc.setLineDashPattern([3, 2], 0);
+          doc.line(r1.x, r1.y, r2.x, r2.y);
+
+          const roadMidX = (midX + (r1.x + r2.x) / 2) / 2;
+          const roadMidY = (midY + (r1.y + r2.y) / 2) / 2;
+          let angleRad = Math.atan2(dy, dx);
+          if (angleRad > Math.PI / 2) angleRad -= Math.PI;
+          if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.2);
+          doc.setTextColor(71, 85, 105);
+          const roadText = `═ ${adjConfig.roadCorridorLabel.toUpperCase()} ═`;
+          const rtw = doc.getTextWidth(roadText);
+          const rux = Math.cos(angleRad);
+          const ruy = Math.sin(angleRad);
+          doc.text(roadText, roadMidX - rux * (rtw / 2), roadMidY - ruy * (rtw / 2), { angle: -(angleRad * 180 / Math.PI) });
+        }
+      }
+    }
+
+    doc.setLineDashPattern([], 0); // Reset
+  }
+
   // 7. Draw Parcels (Shaded Polygons, Boundaries, Centroid & Line Dimensions)
   const renderedEdges = new Set<string>();
+  const bRgb = hexToRgb(style.boundaryColor);
+  const fillRgb = hexToRgb(style.fillColor);
+  const beaconRgb = hexToRgb(style.beaconColor);
+  const controlRgb = hexToRgb(style.controlColor);
 
   for (const parcel of targetParcels) {
     const comp = computeParcel(parcel, points);
     if (!comp || comp.vertices.length < 3) continue;
 
-    // Boundary Polyline
-    doc.setDrawColor(16, 185, 129); // Emerald
-    doc.setLineWidth(0.6);
-
     const mapVerts = comp.vertices.map(v => ({ x: toMapX(v.easting), y: toMapY(v.northing) }));
+
+    // Plot Shading / Hatching
+    if (style.fillOpacity > 0) {
+      if (style.hatchPattern === 'diagonal' || style.hatchPattern === 'cross') {
+        doc.setDrawColor(fillRgb.r, fillRgb.g, fillRgb.b);
+        doc.setLineWidth(0.18);
+        doc.setLineDashPattern([1.5, 1.5], 0);
+
+        const pMinX = Math.min(...mapVerts.map(v => v.x));
+        const pMaxX = Math.max(...mapVerts.map(v => v.x));
+        const pMinY = Math.min(...mapVerts.map(v => v.y));
+        const pMaxY = Math.max(...mapVerts.map(v => v.y));
+
+        const hatchStep = 4.0;
+        for (let x = pMinX - (pMaxY - pMinY); x <= pMaxX; x += hatchStep) {
+          doc.line(Math.max(pMinX, x), pMinY, Math.min(pMaxX, x + (pMaxY - pMinY)), pMaxY);
+        }
+        if (style.hatchPattern === 'cross') {
+          for (let x = pMaxX + (pMaxY - pMinY); x >= pMinX; x -= hatchStep) {
+            doc.line(Math.min(pMaxX, x), pMinY, Math.max(pMinX, x - (pMaxY - pMinY)), pMaxY);
+          }
+        }
+        doc.setLineDashPattern([], 0);
+      }
+    }
+
+    // Boundary Polyline
+    doc.setDrawColor(bRgb.r, bRgb.g, bRgb.b);
+    doc.setLineWidth(style.boundaryLineWidth || 0.6);
+    if (style.boundaryLineStyle === 'dashed') {
+      doc.setLineDashPattern([2.5, 1.5], 0);
+    } else if (style.boundaryLineStyle === 'dashdot') {
+      doc.setLineDashPattern([2.5, 1.2, 0.6, 1.2], 0);
+    }
 
     for (let i = 0; i < mapVerts.length; i++) {
       const p1 = mapVerts[i];
       const p2 = mapVerts[(i + 1) % mapVerts.length];
       doc.line(p1.x, p1.y, p2.x, p2.y);
     }
+    doc.setLineDashPattern([], 0);
 
     // Centroid Label
     const pCentX = mapVerts.reduce((s, v) => s + v.x, 0) / mapVerts.length;
     const pCentY = mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isSinglePlot ? 10 : 8);
+    doc.setFontSize(isSinglePlot ? style.titleFontSize : Math.max(6, style.titleFontSize - 2));
     doc.setTextColor(15, 23, 42);
     doc.text(parcel.plotNumber, pCentX, pCentY - (isSinglePlot ? 3 : 1.2), { align: 'center' });
 
     if (parcel.ownerName && isSinglePlot) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(Math.max(6, style.titleFontSize * 0.75));
       doc.setTextColor(71, 85, 105);
       doc.text(parcel.ownerName, pCentX, pCentY + 1.5, { align: 'center' });
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isSinglePlot ? 7.5 : 6);
-    doc.setTextColor(16, 185, 129);
+    doc.setFontSize(isSinglePlot ? style.areaFontSize : Math.max(5.5, style.areaFontSize - 1.5));
+    doc.setTextColor(bRgb.r, bRgb.g, bRgb.b);
     doc.text(`${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`, pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
 
     // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
+    doc.setFontSize(style.bearingFontSize || 5.5);
     doc.setTextColor(30, 41, 59);
 
     for (const leg of comp.legs) {
@@ -340,26 +635,27 @@ export function generateTitleDeedPlanPDF(
   };
 
   // 8. Draw Concrete Beacon Symbols (only relevant points)
+  const bRadius = style.beaconSize || 1.4;
   for (const pt of targetPoints) {
     const sx = toMapX(pt.easting);
     const sy = toMapY(pt.northing);
 
     if (pt.isControl) {
-      doc.setDrawColor(245, 158, 11);
+      doc.setDrawColor(controlRgb.r, controlRgb.g, controlRgb.b);
       doc.setLineWidth(0.4);
-      doc.triangle(sx, sy - 2.2, sx + 2.2, sy + 1.6, sx - 2.2, sy + 1.6);
+      doc.triangle(sx, sy - (bRadius * 1.5), sx + (bRadius * 1.5), sy + (bRadius * 1.1), sx - (bRadius * 1.5), sy + (bRadius * 1.1));
     } else {
-      doc.setDrawColor(220, 38, 38);
+      doc.setDrawColor(beaconRgb.r, beaconRgb.g, beaconRgb.b);
       doc.setLineWidth(0.3);
-      doc.circle(sx, sy, 1.4);
-      doc.line(sx - 1.4, sy, sx + 1.4, sy);
-      doc.line(sx, sy - 1.4, sx, sy + 1.4);
+      doc.circle(sx, sy, bRadius);
+      doc.line(sx - bRadius, sy, sx + bRadius, sy);
+      doc.line(sx, sy - bRadius, sx, sy + bRadius);
     }
 
     // Beacon ID Label (Placed on Exterior Angle Bisector)
     const lbl = computeBeaconLabelPos(pt, sx, sy);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.0);
+    doc.setFontSize(style.beaconFontSize || 6.0);
     doc.setTextColor(15, 23, 42);
     doc.text(pt.id, lbl.x, lbl.y, { align: lbl.align as any });
   }
