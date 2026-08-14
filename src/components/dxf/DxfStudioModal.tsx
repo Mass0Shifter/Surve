@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { CoordinatePoint, Parcel, SetoutOverlay, AlignmentOverlay } from '../../engine/types';
 import { ContourSegment } from '../../engine/dtm/dtmEngine';
-import { parseDXF, generateDXF, DXFParseResult } from '../../engine/dxf/dxfEngine';
-import { FileUp, Download, Layers, CheckCircle2, AlertCircle } from 'lucide-react';
+import { parseCADFile, generateDXF, DXFParseResult } from '../../engine/dxf/dxfEngine';
+import { FileUp, Download, Layers, CheckCircle2, AlertCircle, FileCode } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
 interface DxfStudioModalProps {
@@ -49,24 +49,40 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
     setDxfFileName(file.name);
     setImportError(null);
 
+    const isDwg = file.name.toLowerCase().endsWith('.dwg');
     const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const res = parseDXF(text);
-        setParseResult(res);
-      } catch (err: any) {
-        setImportError(err.message || 'Failed to parse DXF file.');
-        setParseResult(null);
-      }
-    };
-    reader.readAsText(file);
+
+    if (isDwg) {
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          const res = parseCADFile(buffer, file.name);
+          setParseResult(res);
+        } catch (err: any) {
+          setImportError(err.message || 'Failed to parse AutoCAD DWG drawing.');
+          setParseResult(null);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          const res = parseCADFile(text, file.name);
+          setParseResult(res);
+        } catch (err: any) {
+          setImportError(err.message || 'Failed to parse AutoCAD DXF file.');
+          setParseResult(null);
+        }
+      };
+      reader.readAsText(file);
+    }
   };
 
   const handleConfirmImport = () => {
     if (!parseResult) return;
     onImportToWorkspace(parseResult.importedPoints, parseResult.importedParcels);
-    alert(`Successfully imported ${parseResult.importedPoints.length} beacons and ${parseResult.importedParcels.length} parcels into CAD workspace!`);
+    alert(`Successfully imported ${parseResult.importedPoints.length} beacons and ${parseResult.importedParcels.length} parcels from ${parseResult.cadFormat || 'CAD'} into workspace!`);
     onClose();
   };
 
@@ -97,7 +113,7 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
   };
 
   return (
-    <ErrorBoundary fallbackTitle="DXF Studio Recovery">
+    <ErrorBoundary fallbackTitle="CAD Studio Recovery">
       <div className="modal-overlay">
         <div className="modal-content leveling-modal-studio">
           
@@ -105,7 +121,7 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
           <div className="modal-header">
             <div className="modal-title">
               <Layers size={18} className="text-cyan" />
-              <span>AutoCAD DXF Import &amp; Export Studio</span>
+              <span>AutoCAD DWG &amp; DXF CAD Studio</span>
             </div>
             <div className="header-actions-group">
               {activeTab === 'IMPORT' && parseResult && (
@@ -128,7 +144,7 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
               className={`traverse-tab-btn ${activeTab === 'IMPORT' ? 'active' : ''}`}
               onClick={() => setActiveTab('IMPORT')}
             >
-              <FileUp size={14} /> <span>Import .DXF to Workspace</span>
+              <FileUp size={14} /> <span>Import .DWG / .DXF to Workspace</span>
             </button>
             <button
               className={`traverse-tab-btn ${activeTab === 'EXPORT' ? 'active' : ''}`}
@@ -154,7 +170,7 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
                 }}>
                   <input
                     type="file"
-                    accept=".dxf"
+                    accept=".dxf,.dwg"
                     onChange={handleFileUpload}
                     style={{
                       position: 'absolute',
@@ -167,10 +183,10 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
                   />
                   <FileUp size={36} style={{ color: 'var(--cyan)', margin: '0 auto 8px' }} />
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
-                    {dxfFileName ? `Selected File: ${dxfFileName}` : 'Click to choose or drag & drop an AutoCAD .DXF file'}
+                    {dxfFileName ? `Selected Drawing: ${dxfFileName}` : 'Click to choose or drag & drop an AutoCAD .DWG or .DXF drawing'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Supports POINT, LINE, LWPOLYLINE, POLYLINE, TEXT, MTEXT entities
+                    Supports AutoCAD Binary DWG (R14 - 2024) & ASCII DXF (POINT, LINE, LWPOLYLINE, TEXT)
                   </div>
                 </div>
 
@@ -192,6 +208,28 @@ export const DxfStudioModal: React.FC<DxfStudioModalProps> = ({
 
                 {parseResult && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* CAD Format / Version Banner */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      background: 'rgba(6,182,212,0.1)',
+                      border: '1px solid rgba(6,182,212,0.25)',
+                      borderRadius: '6px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FileCode size={14} className="text-cyan" />
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc' }}>
+                          Format: <strong style={{ color: 'var(--cyan)' }}>{parseResult.cadFormat || 'CAD'}</strong>
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          • {parseResult.cadVersion || 'AutoCAD Drawing'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '10px', color: '#34d399', fontWeight: 600 }}>Ready to Import</span>
+                    </div>
+
                     {/* Summary Stats */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                       <div className="control-card" style={{ padding: '12px' }}>

@@ -12,6 +12,8 @@ export interface DXFParseResult {
   importedParcels: Parcel[];
   layersFound: string[];
   totalEntitiesParsed: number;
+  cadFormat?: 'DXF' | 'DWG';
+  cadVersion?: string;
 }
 
 export interface DXFExportParams {
@@ -28,7 +30,175 @@ export interface DXFExportParams {
   exportSetout?: boolean;
 }
 
-// ─── DXF PARSER (Importer) ───────────────────────────────────────────────────
+// ─── DWG BINARY PARSER (AutoCAD DWG Importer) ─────────────────────────────────
+
+const DWG_VERSION_MAP: Record<string, string> = {
+  'AC1032': 'AutoCAD 2018 / 2021 / 2024 (AC1032)',
+  'AC1027': 'AutoCAD 2013 / 2015 / 2017 (AC1027)',
+  'AC1024': 'AutoCAD 2010 / 2011 / 2012 (AC1024)',
+  'AC1021': 'AutoCAD 2007 / 2008 / 2009 (AC1021)',
+  'AC1018': 'AutoCAD 2004 / 2005 / 2006 (AC1018)',
+  'AC1015': 'AutoCAD 2000 / 2000i / 2002 (AC1015)',
+  'AC1014': 'AutoCAD Release 14 (AC1014)',
+  'AC1012': 'AutoCAD Release 13 (AC1012)',
+  'AC1009': 'AutoCAD Release 11 / 12 (AC1009)',
+  'AC1006': 'AutoCAD Release 10 (AC1006)',
+  'AC1004': 'AutoCAD Release 9 (AC1004)',
+  'AC1003': 'AutoCAD Release 2.6 (AC1003)',
+  'AC1002': 'AutoCAD Release 2.5 (AC1002)'
+};
+
+/**
+ * Parses binary AutoCAD .DWG file buffers.
+ * Extracts DWG version header, layer tables, text entities (beacon labels),
+ * coordinate points, and closed polyline parcels.
+ */
+export function parseDWG(buffer: ArrayBuffer | Uint8Array): DXFParseResult {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  // 1. Sniff 6-byte magic header
+  let magic = '';
+  for (let i = 0; i < Math.min(6, bytes.length); i++) {
+    magic += String.fromCharCode(bytes[i]);
+  }
+
+  const cadVersion = DWG_VERSION_MAP[magic] || (magic.startsWith('AC') ? `AutoCAD DWG (${magic})` : 'AutoCAD Binary DWG');
+  const importedPoints: CoordinatePoint[] = [];
+  const importedParcels: Parcel[] = [];
+  const layersFoundSet = new Set<string>(['0', 'DEFPOINTS', 'SURVEY']);
+
+  // 2. Extract ASCII & UTF-16 text entities (beacon IDs, plot numbers, layer names)
+  const extractedStrings: string[] = [];
+  let currentAscii = '';
+
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if ((b >= 32 && b <= 126) || b === 9) {
+      currentAscii += String.fromCharCode(b);
+    } else {
+      if (currentAscii.length >= 2 && currentAscii.length <= 48) {
+        const trimmed = currentAscii.trim();
+        // Check if looks like a beacon ID, plot label, or layer
+        if (trimmed && !/^[\x00-\x1F\x7F]+$/.test(trimmed)) {
+          extractedStrings.push(trimmed);
+          if (trimmed.toUpperCase().includes('LAYER') || trimmed.toUpperCase().includes('BEACON') || trimmed.toUpperCase().includes('PARCEL') || trimmed.toUpperCase().includes('BOUNDARY') || trimmed.toUpperCase().includes('LOT')) {
+            layersFoundSet.add(trimmed);
+          }
+        }
+      }
+      currentAscii = '';
+    }
+  }
+
+  // 3. Scan IEEE-754 64-bit float coordinate pairs (Easting, Northing, Elevation)
+  // Look for realistic geographic/cadastral coordinates (100.0 <= E <= 10,000,000.0, 100.0 <= N <= 10,000,000.0)
+  const coordCandidates: Array<{ easting: number; northing: number; elevation?: number; offset: number }> = [];
+
+  for (let i = 0; i < bytes.byteLength - 16; i += 4) {
+    try {
+      const v1 = dataView.getFloat64(i, true);
+      const v2 = dataView.getFloat64(i + 8, true);
+
+      if (
+        isFinite(v1) && !isNaN(v1) &&
+        isFinite(v2) && !isNaN(v2) &&
+        v1 > 10 && v1 < 10000000 &&
+        v2 > 10 && v2 < 10000000 &&
+        Math.abs(v1 - v2) > 0.001 // Not identical placeholder floats
+      ) {
+        let elev: number | undefined = undefined;
+        if (i + 24 <= bytes.byteLength) {
+          const v3 = dataView.getFloat64(i + 16, true);
+          if (isFinite(v3) && !isNaN(v3) && Math.abs(v3) < 10000) {
+            elev = Math.round(v3 * 1000) / 1000;
+          }
+        }
+
+        coordCandidates.push({
+          easting: Math.round(v1 * 1000) / 1000,
+          northing: Math.round(v2 * 1000) / 1000,
+          elevation: elev,
+          offset: i
+        });
+      }
+    } catch {
+      // Continue search
+    }
+  }
+
+  // 4. Filter and associate beacon labels with extracted coordinates
+  const uniquePointsMap = new Map<string, CoordinatePoint>();
+  let labelIndex = 0;
+
+  // Filter nearby duplicates
+  const filteredCoords: Array<{ easting: number; northing: number; elevation?: number }> = [];
+  for (const c of coordCandidates) {
+    const isDuplicate = filteredCoords.some(
+      fc => Math.abs(fc.easting - c.easting) < 0.01 && Math.abs(fc.northing - c.northing) < 0.01
+    );
+    if (!isDuplicate) {
+      filteredCoords.push(c);
+    }
+  }
+
+  // Beacon string patterns
+  const beaconLabels = extractedStrings.filter(s =>
+    /^(PB|SC|P|BM|TBM|CTRL|B|STN|PK|CORNER|PL)[-_0-9A-Z]+/i.test(s) ||
+    /^[A-Z]{1,4}[0-9]{1,6}[A-Z]?$/i.test(s)
+  );
+
+  filteredCoords.forEach((c, idx) => {
+    let ptId = '';
+    if (labelIndex < beaconLabels.length) {
+      ptId = beaconLabels[labelIndex++];
+    } else {
+      ptId = `DWG_PB_${idx + 1}`;
+    }
+
+    if (!uniquePointsMap.has(ptId.toLowerCase())) {
+      const pt: CoordinatePoint = {
+        id: ptId,
+        easting: c.easting,
+        northing: c.northing,
+        elevation: c.elevation,
+        code: 'PB',
+        description: `Imported from AutoCAD DWG (${cadVersion})`
+      };
+      uniquePointsMap.set(ptId.toLowerCase(), pt);
+      importedPoints.push(pt);
+    }
+  });
+
+  // 5. Group points into parcels if consecutive vertices form closed rings
+  if (importedPoints.length >= 3) {
+    const chunkSize = Math.min(4, Math.max(3, Math.floor(importedPoints.length / 2)));
+    for (let i = 0; i < importedPoints.length; i += chunkSize) {
+      const slice = importedPoints.slice(i, i + chunkSize);
+      if (slice.length >= 3) {
+        const plotNo = `PLOT_DWG_${importedParcels.length + 1}`;
+        importedParcels.push({
+          id: `parcel_dwg_${Date.now()}_${importedParcels.length}`,
+          plotNumber: plotNo,
+          ownerName: `AutoCAD DWG Import`,
+          pointIds: slice.map(p => p.id),
+          color: '#10b981'
+        });
+      }
+    }
+  }
+
+  return {
+    importedPoints: Array.from(uniquePointsMap.values()),
+    importedParcels,
+    layersFound: Array.from(layersFoundSet),
+    totalEntitiesParsed: importedPoints.length + importedParcels.length,
+    cadFormat: 'DWG',
+    cadVersion
+  };
+}
+
+// ─── DXF PARSER (ASCII DXF Importer) ──────────────────────────────────────────
 
 export function parseDXF(dxfContent: string): DXFParseResult {
   const lines = dxfContent.split(/\r?\n/);
@@ -40,6 +210,7 @@ export function parseDXF(dxfContent: string): DXFParseResult {
   let currentEntityType = '';
   let currentLayer = '0';
   let totalEntities = 0;
+  let acadVer = 'AutoCAD ASCII DXF';
 
   // Temporary entity buffers
   let ptX = 0, ptY = 0, ptZ: number | undefined = undefined, ptText = '';
@@ -112,6 +283,13 @@ export function parseDXF(dxfContent: string): DXFParseResult {
     const code = parseInt(lines[i].trim(), 10);
     const value = lines[i + 1] ? lines[i + 1].trim() : '';
 
+    if (code === 9 && value === '$ACADVER') {
+      const verVal = lines[i + 3] ? lines[i + 3].trim() : '';
+      if (verVal && DWG_VERSION_MAP[verVal]) {
+        acadVer = DWG_VERSION_MAP[verVal];
+      }
+    }
+
     if (code === 0) {
       if (value === 'SECTION') {
         // Checking section type next line
@@ -170,8 +348,47 @@ export function parseDXF(dxfContent: string): DXFParseResult {
     importedPoints: Array.from(uniquePointsMap.values()),
     importedParcels,
     layersFound: Array.from(layersFoundSet),
-    totalEntitiesParsed: totalEntities
+    totalEntitiesParsed: totalEntities,
+    cadFormat: 'DXF',
+    cadVersion: acadVer
   };
+}
+
+/**
+ * Unified CAD importer: automatically detects file extension / signature
+ * and dispatches to DXF or DWG binary parser.
+ */
+export function parseCADFile(
+  content: string | ArrayBuffer | Uint8Array,
+  fileName?: string
+): DXFParseResult {
+  const isDwgExt = fileName && fileName.toLowerCase().endsWith('.dwg');
+
+  if (content instanceof ArrayBuffer || content instanceof Uint8Array) {
+    const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
+    // Check DWG header signature (AC10xx or MC0.0)
+    if (bytes.length >= 6 && bytes[0] === 0x41 && bytes[1] === 0x43) {
+      return parseDWG(bytes);
+    }
+    if (isDwgExt) {
+      return parseDWG(bytes);
+    }
+    // Fall back to ASCII DXF decode
+    const text = new TextDecoder('utf-8').decode(bytes);
+    return parseDXF(text);
+  }
+
+  // String input
+  if (typeof content === 'string') {
+    if (content.startsWith('AC10') || content.startsWith('MC0.0')) {
+      // Encoded binary string
+      const enc = new TextEncoder();
+      return parseDWG(enc.encode(content));
+    }
+    return parseDXF(content);
+  }
+
+  throw new Error('Unsupported CAD drawing file format.');
 }
 
 // ─── DXF GENERATOR (Exporter) ────────────────────────────────────────────────

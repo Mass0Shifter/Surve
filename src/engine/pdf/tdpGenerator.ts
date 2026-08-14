@@ -133,6 +133,69 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r: 16, g: 185, b: 129 };
 }
 
+export interface TdpLayoutArrangement {
+  preset: 'surcon_standard' | 'state_lands_boxed' | 'right_sidebar' | 'compact_split' | 'custom_free';
+  headerAlign: 'center' | 'left' | 'split';
+  headerYOffset: number; // in mm
+  coordTablePosition: 'bottom_left' | 'bottom_right' | 'right_column' | 'top_right' | 'hidden';
+  sealBoxPosition: 'bottom_right' | 'bottom_left' | 'bottom_center' | 'right_column';
+  scaleBarPosition: 'bottom_right' | 'bottom_left' | 'top_left';
+  northArrowPosition: 'top_right' | 'top_left' | 'bottom_right';
+  customTitleText?: string;
+  customSubtitleText?: string;
+  customLocationText?: string;
+  customPlanNoText?: string;
+}
+
+export const DEFAULT_TDP_LAYOUT: TdpLayoutArrangement = {
+  preset: 'surcon_standard',
+  headerAlign: 'center',
+  headerYOffset: 0,
+  coordTablePosition: 'bottom_left',
+  sealBoxPosition: 'bottom_right',
+  scaleBarPosition: 'bottom_left',
+  northArrowPosition: 'top_right',
+};
+
+export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
+  surcon_standard: {
+    preset: 'surcon_standard',
+    headerAlign: 'center',
+    headerYOffset: 0,
+    coordTablePosition: 'bottom_left',
+    sealBoxPosition: 'bottom_right',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_right',
+  },
+  state_lands_boxed: {
+    preset: 'state_lands_boxed',
+    headerAlign: 'left',
+    headerYOffset: 0,
+    coordTablePosition: 'bottom_left',
+    sealBoxPosition: 'bottom_right',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_right',
+  },
+  right_sidebar: {
+    preset: 'right_sidebar',
+    headerAlign: 'left',
+    headerYOffset: 0,
+    coordTablePosition: 'right_column',
+    sealBoxPosition: 'right_column',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_left',
+  },
+  compact_split: {
+    preset: 'compact_split',
+    headerAlign: 'split',
+    headerYOffset: 0,
+    coordTablePosition: 'top_right',
+    sealBoxPosition: 'bottom_right',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_left',
+  }
+};
+
 export interface TdpRenderOptions {
   pageSize: 'a4' | 'a3' | 'legal';
   orientation: 'portrait' | 'landscape';
@@ -151,6 +214,7 @@ export interface TdpRenderOptions {
   surveyorTitle?: string;
   style?: TdpStyleConfig;
   adjoining?: TdpAdjoiningConfig;
+  layout?: TdpLayoutArrangement;
 }
 
 /**
@@ -164,6 +228,7 @@ export function generateTitleDeedPlanPDF(
   options: TdpRenderOptions
 ): jsPDF {
   const style = { ...DEFAULT_TDP_STYLE, ...(options.style || {}) };
+  const layout = { ...DEFAULT_TDP_LAYOUT, ...(options.layout || {}) };
   const doc = new jsPDF({
     orientation: options.orientation,
     unit: 'mm',
@@ -213,28 +278,34 @@ export function generateTitleDeedPlanPDF(
   doc.setLineWidth(0.3);
   doc.rect(outerX + 1.5, outerY + 1.5, outerW - 3, outerH - 3);
 
-  // 3. Header & Title Block (Top)
-  const headerY = outerY + 6;
+  // 3. Header & Title Block with Dynamic Layout Alignment
+  const headerY = outerY + 6 + (layout.headerYOffset || 0);
+  const titleText = layout.customTitleText || 'TITLE DEED PLAN';
+  const planSub = layout.customSubtitleText || (isSinglePlot && selectedParcel
+    ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+    : `SURVEY PLAN OF ${project.title.toUpperCase()}`);
+  const locText = layout.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
+  const planNo = layout.customPlanNoText || project.code;
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.setTextColor(15, 23, 42);
-  doc.text('TITLE DEED PLAN', pageWidth / 2, headerY + 4, { align: 'center' });
+
+  const isLeftHeader = layout.headerAlign === 'left';
+  const isSplitHeader = layout.headerAlign === 'split';
+  const titleX = isLeftHeader ? outerX + 6 : isSplitHeader ? outerX + 6 : pageWidth / 2;
+  const titleAlign: 'left' | 'center' = isLeftHeader || isSplitHeader ? 'left' : 'center';
+  const maxTitleW = isLeftHeader || isSplitHeader ? outerW - 65 : outerW - 60;
+
+  doc.text(titleText, titleX, headerY + 4, { align: titleAlign });
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-
-  const maxTitleW = outerW - 60;
-  const planSub = isSinglePlot && selectedParcel
-    ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
-    : `SURVEY PLAN OF ${project.title.toUpperCase()}`;
-
   doc.setFontSize(8.5);
-  doc.text(planSub, pageWidth / 2, headerY + 9, { align: 'center', maxWidth: maxTitleW });
+  doc.setTextColor(71, 85, 105);
+  doc.text(planSub, titleX, headerY + 9, { align: titleAlign, maxWidth: maxTitleW });
 
   doc.setFontSize(7.5);
-  const locText = `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
-  doc.text(locText, pageWidth / 2, headerY + 13.5, { align: 'center', maxWidth: maxTitleW });
+  doc.text(locText, titleX, headerY + 13.5, { align: titleAlign, maxWidth: maxTitleW });
 
   // Divider Line
   doc.setLineWidth(0.3);
@@ -242,10 +313,17 @@ export function generateTitleDeedPlanPDF(
   doc.line(outerX + 3, headerY + 16, outerX + outerW - 3, headerY + 16);
 
   // 4. Drawing Area Dimensions & Scale Ratio Determination
-  const bottomPanelHeight = options.showCoordinateTable || options.showSealBox ? 55 : 30;
+  const isRightSidebar = layout.coordTablePosition === 'right_column' || layout.sealBoxPosition === 'right_column';
+  const rightColW = isRightSidebar ? outerW * 0.36 : 0;
+  const bottomPanelHeight = isRightSidebar
+    ? 15
+    : (options.showCoordinateTable && layout.coordTablePosition !== 'hidden') || (options.showSealBox)
+      ? 55
+      : 25;
+
   const drawAreaX = outerX + 6;
   const drawAreaY = headerY + 20;
-  const drawAreaW = outerW - 12;
+  const drawAreaW = outerW - 12 - rightColW;
   const drawAreaH = outerH - (drawAreaY - outerY) - bottomPanelHeight;
 
   // Extents calculated based on target points (focused purely on parcel in single plot mode)
@@ -276,7 +354,7 @@ export function generateTitleDeedPlanPDF(
   doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.text(`SCALE 1:${effectiveScale}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
-  doc.text(`JOB NO: ${project.code}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
+  doc.text(`JOB NO: ${planNo}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
 
   // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
@@ -661,8 +739,15 @@ export function generateTitleDeedPlanPDF(
   }
 
   // 9. Vector North Arrow
-  const naX = drawAreaX + drawAreaW - 14;
-  const naY = drawAreaY + 14;
+  let naX = drawAreaX + drawAreaW - 14;
+  let naY = drawAreaY + 14;
+  if (layout.northArrowPosition === 'top_left') {
+    naX = drawAreaX + 14;
+    naY = drawAreaY + 14;
+  } else if (layout.northArrowPosition === 'bottom_right') {
+    naX = drawAreaX + drawAreaW - 14;
+    naY = drawAreaY + drawAreaH - 18;
+  }
 
   doc.setDrawColor(15, 23, 42);
   doc.setLineWidth(0.4);
@@ -679,8 +764,14 @@ export function generateTitleDeedPlanPDF(
   doc.text('GRID NORTH', naX, naY + 13, { align: 'center' });
 
   // 10. Metric Bar Scale (Dynamically Scaled for Generous Spacing)
-  const sbX = drawAreaX + 6;
-  const sbY = drawAreaY + drawAreaH - 8;
+  let sbX = drawAreaX + 6;
+  let sbY = drawAreaY + drawAreaH - 8;
+  if (layout.scaleBarPosition === 'bottom_right') {
+    sbX = drawAreaX + drawAreaW - 45;
+  } else if (layout.scaleBarPosition === 'top_left') {
+    sbX = drawAreaX + 6;
+    sbY = drawAreaY + 14;
+  }
 
   const targetBarMm = 35;
   const rawMeters = targetBarMm / mapScale;
@@ -703,16 +794,32 @@ export function generateTitleDeedPlanPDF(
     doc.text(`SCALE 1:${effectiveScale}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
   }
 
-  // 11. Bottom Footer: Coordinate Schedule Table & Surveyor Seal Box
+  // 11. Coordinate Schedule Table & Surveyor Seal Box Layout Arrangement
   const footerY = outerY + outerH - bottomPanelHeight;
-  doc.setLineWidth(0.3);
-  doc.setDrawColor(203, 213, 225);
-  doc.line(outerX + 3, footerY, outerX + outerW - 3, footerY);
+  if (!isRightSidebar) {
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(outerX + 3, footerY, outerX + outerW - 3, footerY);
+  }
 
-  if (options.showCoordinateTable) {
-    const tableW = outerW * 0.55;
-    const tableX = outerX + 4;
-    const tableY = footerY + 3;
+  // Coordinate Schedule Placement
+  if (options.showCoordinateTable && layout.coordTablePosition !== 'hidden') {
+    let tableX = outerX + 4;
+    let tableY = footerY + 3;
+    let tableW = outerW * 0.53;
+
+    if (layout.coordTablePosition === 'bottom_right') {
+      tableX = outerX + outerW * 0.45;
+      tableW = outerW * 0.53;
+    } else if (layout.coordTablePosition === 'right_column') {
+      tableX = outerX + outerW - rightColW + 2;
+      tableY = drawAreaY;
+      tableW = rightColW - 4;
+    } else if (layout.coordTablePosition === 'top_right') {
+      tableX = drawAreaX + drawAreaW - 75;
+      tableY = drawAreaY + 4;
+      tableW = 70;
+    }
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
@@ -722,34 +829,48 @@ export function generateTitleDeedPlanPDF(
     // Table Header
     doc.setFillColor(241, 245, 249);
     doc.rect(tableX, tableY + 3.5, tableW, 4, 'F');
-    doc.setFontSize(6);
+    doc.setFontSize(5.8);
     doc.setTextColor(71, 85, 105);
+    const colStep = tableW / 4;
     doc.text('BEACON ID', tableX + 2, tableY + 6.2);
-    doc.text('EASTING (m)', tableX + 25, tableY + 6.2);
-    doc.text('NORTHING (m)', tableX + 50, tableY + 6.2);
-    doc.text('ORIGIN', tableX + 75, tableY + 6.2);
+    doc.text('EASTING (m)', tableX + colStep, tableY + 6.2);
+    doc.text('NORTHING (m)', tableX + colStep * 2, tableY + 6.2);
+    doc.text('ORIGIN', tableX + colStep * 3, tableY + 6.2);
 
-    // Table Rows (only beacons for this plot in single plot mode!)
+    // Table Rows
     const schedulePoints = isSinglePlot ? targetPoints : points.slice(0, 8);
     let rowY = tableY + 10.5;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
+    doc.setFontSize(5.8);
     doc.setTextColor(15, 23, 42);
 
     for (const pt of schedulePoints) {
       doc.text(pt.id, tableX + 2, rowY);
-      doc.text(pt.easting.toFixed(3), tableX + 25, rowY);
-      doc.text(pt.northing.toFixed(3), tableX + 50, rowY);
-      doc.text(pt.isControl ? 'CONTROL PILLAR' : 'CONCRETE PILLAR', tableX + 75, rowY);
-      rowY += 4.0;
+      doc.text(pt.easting.toFixed(3), tableX + colStep, rowY);
+      doc.text(pt.northing.toFixed(3), tableX + colStep * 2, rowY);
+      doc.text(pt.isControl ? 'CONTROL' : 'CONCRETE', tableX + colStep * 3, rowY);
+      rowY += 3.8;
     }
   }
 
+  // Surveyor Seal Box Placement
   if (options.showSealBox) {
-    const sealX = outerX + outerW * 0.55;
-    const sealY = footerY + 2;
-    const sealW = outerW * 0.43;
+    let sealX = outerX + outerW * 0.55;
+    let sealY = footerY + 2;
+    let sealW = outerW * 0.43;
+
+    if (layout.sealBoxPosition === 'bottom_left') {
+      sealX = outerX + 4;
+      sealW = outerW * 0.43;
+    } else if (layout.sealBoxPosition === 'bottom_center') {
+      sealX = outerX + outerW * 0.2;
+      sealW = outerW * 0.6;
+    } else if (layout.sealBoxPosition === 'right_column') {
+      sealX = outerX + outerW - rightColW + 2;
+      sealY = drawAreaY + 55;
+      sealW = rightColW - 4;
+    }
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
