@@ -1,8 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { CoordinatePoint, Parcel, ProjectMetadata, NigerianGridBelt } from '../../engine/types';
 import { computeParcel } from '../../engine/cogo';
-import { Layers, Plus, Compass, CheckCircle2, Download, Trash2, Edit2, User, Hash, AlertCircle, Search, Eye, EyeOff, FileText, Code2, FileSpreadsheet } from 'lucide-react';
-import { exportParcelScheduleToCSV, downloadFile } from '../../engine/exporters/csvExporter';
+import {
+  Layers,
+  Plus,
+  Compass,
+  CheckCircle2,
+  Download,
+  Trash2,
+  Edit2,
+  User,
+  Hash,
+  AlertCircle,
+  Search,
+  Eye,
+  EyeOff,
+  FileText,
+  Code2,
+  FileSpreadsheet,
+  UploadCloud,
+  FileDown,
+  Check
+} from 'lucide-react';
+import { exportParcelScheduleToCSV, exportParcelManifestToCSV, downloadFile } from '../../engine/exporters/csvExporter';
+import {
+  parseParcelCSV,
+  getSampleParcelManifestCSV,
+  getSampleParcelAllInOneCSV,
+  ParcelCsvParseResult
+} from '../../engine/importer/parcelCsvImporter';
 import { generateParcelsDXF } from '../../engine/exporters/dxfExporter';
 import { generateParcelsSCR } from '../../engine/exporters/scrExporter';
 
@@ -15,6 +41,7 @@ interface ParcelInspectorProps {
   onAddParcel: (parcel: Parcel) => boolean;
   onUpdateParcel: (updatedParcel: Parcel) => boolean;
   onDeleteParcel: (id: string) => void;
+  onBatchImportParcels?: (importedParcels: Parcel[], importedPoints?: CoordinatePoint[], mode?: 'update' | 'append') => void;
 }
 
 export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
@@ -25,7 +52,8 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   onSelectParcel,
   onAddParcel,
   onUpdateParcel,
-  onDeleteParcel
+  onDeleteParcel,
+  onBatchImportParcels
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'plot_asc' | 'plot_desc' | 'area_desc' | 'area_asc' | 'beacons_desc'>('plot_asc');
@@ -34,8 +62,16 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
   // CAD Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'dxf' | 'scr' | 'csv'>('dxf');
+  const [csvExportType, setCsvExportType] = useState<'manifest' | 'schedule'>('manifest');
   const [exportScope, setExportScope] = useState<'single' | 'selected' | 'all'>('single');
   const [exportParcelIds, setExportParcelIds] = useState<string[]>(() => parcels.map(p => p.id));
+
+  // CSV Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importRawText, setImportRawText] = useState('');
+  const [importFileName, setImportFileName] = useState('');
+  const [importMode, setImportMode] = useState<'update' | 'append'>('update');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExecuteExport = () => {
     const defaultProject: ProjectMetadata = project || {
@@ -79,8 +115,13 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
       const scr = generateParcelsSCR(defaultProject, points, targetParcelsToExport);
       downloadFile(scr, `${baseName}.scr`, 'text/plain');
     } else {
-      const csv = exportParcelScheduleToCSV(targetParcelsToExport, points);
-      downloadFile(csv, `${baseName}_schedule.csv`, 'text/csv');
+      if (csvExportType === 'manifest') {
+        const csv = exportParcelManifestToCSV(targetParcelsToExport, points);
+        downloadFile(csv, `${baseName}_manifest.csv`, 'text/csv');
+      } else {
+        const csv = exportParcelScheduleToCSV(targetParcelsToExport, points);
+        downloadFile(csv, `${baseName}_schedule.csv`, 'text/csv');
+      }
     }
 
     setShowExportModal(false);
@@ -306,6 +347,58 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
     setEditError(null);
   };
 
+  // CSV Import Parsing
+  const importParseResult: ParcelCsvParseResult | null = useMemo(() => {
+    if (!importRawText.trim()) return null;
+    try {
+      return parseParcelCSV(importRawText, points);
+    } catch (e) {
+      return null;
+    }
+  }, [importRawText, points]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setImportRawText(content);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExecuteImportParcels = () => {
+    if (!importParseResult || importParseResult.parcels.length === 0) return;
+
+    const validItems = importParseResult.parcels.filter(p => p.isValid);
+    if (validItems.length === 0) {
+      alert('No valid parcels found to import. Please review the errors in the preview table.');
+      return;
+    }
+
+    const constructedParcels: Parcel[] = validItems.map((item, idx) => ({
+      id: `pcl_${Date.now()}_${idx}`,
+      plotNumber: item.plotNumber,
+      blockNumber: item.blockNumber,
+      ownerName: item.ownerName,
+      pointIds: item.beaconIds
+    }));
+
+    if (onBatchImportParcels) {
+      onBatchImportParcels(constructedParcels, importParseResult.embeddedPoints, importMode);
+    } else {
+      constructedParcels.forEach(p => onAddParcel(p));
+    }
+
+    setShowImportModal(false);
+    setImportRawText('');
+    setImportFileName('');
+  };
+
   return (
     <div className="parcel-panel">
       <div className="panel-header">
@@ -324,6 +417,18 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
             }}
           >
             {parcels.every(p => p.hidden) ? <EyeOff size={14} className="text-muted" /> : <Eye size={14} className="text-emerald" />}
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Import Parcels from CSV (Manifest or Coordinates)"
+            onClick={() => {
+              setImportRawText('');
+              setImportFileName('');
+              setShowImportModal(true);
+            }}
+          >
+            <UploadCloud size={14} className="text-cyan" />
           </button>
           <button
             type="button"
@@ -837,11 +942,40 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
                     style={{ textAlign: 'center', padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
                   >
                     <FileSpreadsheet size={16} className="text-amber" />
-                    <span style={{ fontSize: '11px', fontWeight: 600 }}>Schedule (.CSV)</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600 }}>CSV Table</span>
                     <span style={{ fontSize: '9px', color: '#94a3b8' }}>Excel / Sheet</span>
                   </button>
                 </div>
               </div>
+
+              {/* CSV Layout Selection (Manifest vs Schedule) */}
+              {exportFormat === 'csv' && (
+                <div className="form-group" style={{ background: 'rgba(30, 41, 59, 0.4)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc', marginBottom: '6px', display: 'block' }}>
+                    CSV Export Layout Structure
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className={`btn-secondary-sm ${csvExportType === 'manifest' ? 'active text-cyan' : ''}`}
+                      style={{ fontSize: '10px', padding: '6px 8px', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                      onClick={() => setCsvExportType('manifest')}
+                    >
+                      <span style={{ fontWeight: 600 }}>Parcel Manifest</span>
+                      <span style={{ fontSize: '9px', color: '#94a3b8' }}>1 row per plot (with beacon list)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn-secondary-sm ${csvExportType === 'schedule' ? 'active text-cyan' : ''}`}
+                      style={{ fontSize: '10px', padding: '6px 8px', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                      onClick={() => setCsvExportType('schedule')}
+                    >
+                      <span style={{ fontWeight: 600 }}>Boundary Schedule</span>
+                      <span style={{ fontSize: '9px', color: '#94a3b8' }}>1 row per traverse boundary line</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* 2. Scope Selection */}
               <div className="form-group">
@@ -940,6 +1074,237 @@ export const ParcelInspector: React.FC<ParcelInspectorProps> = ({
               >
                 <Download size={13} />
                 <span>Download {exportFormat.toUpperCase()}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parcel Batch CSV Import Dialog Modal */}
+      {showImportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '640px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <UploadCloud size={16} className="text-cyan" />
+                <span>Import Cadastral Parcels (CSV / Text)</span>
+              </div>
+              <button className="icon-btn" onClick={() => setShowImportModal(false)}>✕</button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', flex: 1, padding: '16px' }}>
+              {/* Template Helpers & File Upload Box */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30, 41, 59, 0.4)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc' }}>Standard Cadastral Templates</div>
+                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>Download sample CSV to prepare your plot schedules</div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary-sm"
+                    style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => downloadFile(getSampleParcelManifestCSV(), 'parcel_manifest_sample.csv', 'text/csv')}
+                    title="1 row per plot with beacon list"
+                  >
+                    <FileDown size={12} />
+                    <span>Manifest Template</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary-sm"
+                    style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => downloadFile(getSampleParcelAllInOneCSV(), 'parcel_points_sample.csv', 'text/csv')}
+                    title="Plot definition with embedded coordinates"
+                  >
+                    <FileDown size={12} />
+                    <span>All-in-One Template</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload Drop Zone */}
+              <div
+                style={{
+                  border: '2px dashed rgba(56, 189, 248, 0.3)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  textAlign: 'center',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  cursor: 'pointer'
+                }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadCloud size={24} className="text-cyan" style={{ margin: '0 auto 6px' }} />
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc' }}>
+                  {importFileName ? `Selected: ${importFileName}` : 'Click or Drag & Drop CSV File'}
+                </div>
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                  Supports CSV, TXT files (Manifest, Boundary Traverse Schedule, or Point-Plot layouts)
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.txt"
+                  style={{ display: 'none' }}
+                  onChange={handleFileUpload}
+                />
+              </div>
+
+              {/* Paste or Direct Edit Raw Textarea */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc' }}>
+                    CSV Data Stream / Paste Text
+                  </label>
+                  {importRawText && (
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      style={{ fontSize: '9px', padding: '1px 6px' }}
+                      onClick={() => { setImportRawText(''); setImportFileName(''); }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={4}
+                  value={importRawText}
+                  onChange={(e) => setImportRawText(e.target.value)}
+                  placeholder={`Plot Number,Block,Owner,Beacon IDs\n"Plot 1","Block A","Chief Okon","PB101, PB102, PB103, PB104"\n"Plot 2","Block A","Engr Bello","PB102, PB105, PB106, PB103"`}
+                  style={{
+                    width: '100%',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    padding: '8px',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '4px',
+                    color: '#f8fafc'
+                  }}
+                />
+              </div>
+
+              {/* Parse Validation Results & Summary Card */}
+              {importParseResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30, 41, 59, 0.6)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="badge badge-info" style={{ fontSize: '10px', textTransform: 'uppercase' }}>
+                        {importParseResult.detectedFormat.replace('_', ' ')}
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#f8fafc', fontWeight: 600 }}>
+                        {importParseResult.totalParcelsFound} Plot(s) Recognized
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
+                      <span style={{ color: '#10b981', fontWeight: 600 }}>
+                        ✓ {importParseResult.validParcelsCount} Valid
+                      </span>
+                      {importParseResult.invalidParcelsCount > 0 && (
+                        <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                          ⚠ {importParseResult.invalidParcelsCount} Needs Attention
+                        </span>
+                      )}
+                      {importParseResult.embeddedPoints.length > 0 && (
+                        <span style={{ color: '#06b6d4', fontWeight: 600 }}>
+                          + {importParseResult.embeddedPoints.length} Coordinates
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '6px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(15, 23, 42, 0.9)', color: '#94a3b8', borderBottom: '1px solid rgba(148, 163, 184, 0.2)' }}>
+                          <th style={{ padding: '6px 8px' }}>Plot</th>
+                          <th style={{ padding: '6px 8px' }}>Block</th>
+                          <th style={{ padding: '6px 8px' }}>Owner</th>
+                          <th style={{ padding: '6px 8px' }}>Beacons</th>
+                          <th style={{ padding: '6px 8px' }}>Area</th>
+                          <th style={{ padding: '6px 8px' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importParseResult.parcels.map((p, i) => (
+                          <tr
+                            key={i}
+                            style={{
+                              borderBottom: '1px solid rgba(148, 163, 184, 0.08)',
+                              background: p.isValid ? 'transparent' : 'rgba(239, 68, 68, 0.06)'
+                            }}
+                          >
+                            <td style={{ padding: '5px 8px', fontWeight: 600, color: '#f8fafc' }}>{p.plotNumber}</td>
+                            <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{p.blockNumber || '-'}</td>
+                            <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{p.ownerName || '-'}</td>
+                            <td style={{ padding: '5px 8px', color: '#38bdf8', fontFamily: 'monospace' }}>
+                              {p.beaconIds.join(' → ')}
+                            </td>
+                            <td style={{ padding: '5px 8px', color: '#10b981' }}>
+                              {p.computedAreaSqMeters !== undefined ? `${p.computedAreaSqMeters.toFixed(2)} m²` : '-'}
+                            </td>
+                            <td style={{ padding: '5px 8px' }}>
+                              {p.isValid ? (
+                                <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  <Check size={11} /> Ready
+                                </span>
+                              ) : (
+                                <span style={{ color: '#ef4444', fontSize: '10px' }} title={p.statusMessage}>
+                                  ⚠ {p.statusMessage}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Conflict Resolution Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>If plot number already exists:</span>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <label style={{ fontSize: '11px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value="update"
+                          checked={importMode === 'update'}
+                          onChange={() => setImportMode('update')}
+                        />
+                        <span>Update Existing</span>
+                      </label>
+                      <label style={{ fontSize: '11px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value="append"
+                          checked={importMode === 'append'}
+                          onChange={() => setImportMode('append')}
+                        />
+                        <span>Keep Both (Append)</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button type="button" className="btn-secondary" onClick={() => setShowImportModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleExecuteImportParcels}
+                disabled={!importParseResult || importParseResult.validParcelsCount === 0}
+              >
+                <UploadCloud size={13} />
+                <span>Import {importParseResult ? importParseResult.validParcelsCount : 0} Parcel(s)</span>
               </button>
             </div>
           </div>

@@ -16,7 +16,7 @@ export function exportCoordinatesToCSV(points: CoordinatePoint[]): string {
 }
 
 /**
- * Exports cadastral parcel computation boundary schedules to CSV.
+ * Exports cadastral parcel computation boundary schedules to CSV (1 row per boundary leg).
  */
 export function exportParcelScheduleToCSV(parcels: Parcel[], points: CoordinatePoint[]): string {
   const rows: string[] = [
@@ -32,6 +32,29 @@ export function exportParcelScheduleToCSV(parcels: Parcel[], points: CoordinateP
         `"${parcel.plotNumber}","${parcel.blockNumber || ''}","${parcel.ownerName || ''}","${leg.fromPoint.id}","${leg.toPoint.id}","${leg.bearing.formatted}",${leg.distance.toFixed(3)},${leg.deltaEasting.toFixed(3)},${leg.deltaNorthing.toFixed(3)},${comp.areaSquareMeters.toFixed(2)},${comp.areaHectares.toFixed(4)}`
       );
     }
+  }
+
+  return rows.join('\r\n');
+}
+
+/**
+ * Exports cadastral parcel manifest / topology table to CSV (1 row per parcel).
+ */
+export function exportParcelManifestToCSV(parcels: Parcel[], points: CoordinatePoint[]): string {
+  const rows: string[] = [
+    'Plot Number,Block,Owner,Beacon IDs,Area (sq.m),Area (Ha),Perimeter (m)'
+  ];
+
+  for (const parcel of parcels) {
+    const comp = computeParcel(parcel, points);
+    const beaconStr = parcel.pointIds.join(', ');
+    const areaSqM = comp ? comp.areaSquareMeters.toFixed(2) : '0.00';
+    const areaHa = comp ? comp.areaHectares.toFixed(4) : '0.0000';
+    const perim = comp ? comp.perimeter.toFixed(2) : '0.00';
+
+    rows.push(
+      `"${parcel.plotNumber}","${parcel.blockNumber || ''}","${parcel.ownerName || ''}","${beaconStr}",${areaSqM},${areaHa},${perim}`
+    );
   }
 
   return rows.join('\r\n');

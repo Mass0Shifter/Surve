@@ -595,6 +595,52 @@ export const App: React.FC = () => {
     return true;
   };
 
+  const handleBatchImportParcels = (importedParcels: Parcel[], importedPoints?: CoordinatePoint[], mode: 'update' | 'append' = 'update') => {
+    recordSnapshot(`Batch Import ${importedParcels.length} Parcels`);
+
+    // 1. If coordinates were provided, insert any new points
+    if (importedPoints && importedPoints.length > 0) {
+      const existingMap = new Map<string, CoordinatePoint>(points.map(p => [p.id.toUpperCase(), p]));
+      const newPts = [...points];
+      for (const ip of importedPoints) {
+        const key = ip.id.toUpperCase();
+        if (!existingMap.has(key)) {
+          existingMap.set(key, ip);
+          newPts.push(ip);
+        }
+      }
+      setPoints(newPts);
+    }
+
+    // 2. Merge parcels based on selected mode
+    const parcelMap = new Map<string, Parcel>(parcels.map(p => [p.plotNumber.toUpperCase(), p]));
+    const resultParcels = [...parcels];
+
+    for (const ip of importedParcels) {
+      const key = ip.plotNumber.toUpperCase();
+      const existing = parcelMap.get(key);
+
+      if (existing && mode === 'update') {
+        const idx = resultParcels.findIndex(p => p.id === existing.id);
+        if (idx !== -1) {
+          resultParcels[idx] = {
+            ...existing,
+            ...ip,
+            id: existing.id
+          };
+        }
+      } else {
+        parcelMap.set(key, ip);
+        resultParcels.push(ip);
+      }
+    }
+
+    setParcels(resultParcels);
+    if (importedParcels.length > 0) {
+      setSelectedParcelId(importedParcels[0].id);
+    }
+  };
+
   const handleDeleteParcel = (id: string) => {
     recordSnapshot(`Delete Parcel`);
     setParcels(prev => prev.filter(p => p.id !== id));
@@ -936,6 +982,7 @@ export const App: React.FC = () => {
                   onAddParcel={handleAddParcel}
                   onUpdateParcel={handleUpdateParcel}
                   onDeleteParcel={handleDeleteParcel}
+                  onBatchImportParcels={handleBatchImportParcels}
                 />
                 <LayerManager
                   layers={layers}

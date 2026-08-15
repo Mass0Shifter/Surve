@@ -693,7 +693,10 @@ export function generateTitleDeedPlanPDF(
         console.warn('GState opacity not supported in current environment', e);
       }
 
-      const lines = mapVerts.slice(1).map(v => [v.x - mapVerts[0].x, v.y - mapVerts[0].y]);
+      const lines: [number, number][] = [];
+      for (let i = 1; i < mapVerts.length; i++) {
+        lines.push([mapVerts[i].x - mapVerts[i - 1].x, mapVerts[i].y - mapVerts[i - 1].y]);
+      }
       doc.lines(lines, mapVerts[0].x, mapVerts[0].y, [1.0, 1.0], 'F', true);
 
       try {
