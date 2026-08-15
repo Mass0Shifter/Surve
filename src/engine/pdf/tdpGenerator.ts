@@ -246,6 +246,60 @@ export interface TdpRenderOptions {
   elementTransforms?: Record<string, TdpElementTransform>;
   parcelShadingOverrides?: Record<string, ParcelShadingStyle>;
   enableCollisionDeconfliction?: boolean;
+  previewPixelsPerMeter?: number;
+}
+
+/**
+ * Mathematically clips and draws hatch lines strictly inside an arbitrary 2D polygon
+ * using exact ray-segment intersection and even-odd interior filling.
+ */
+function clipAndDrawPolygonHatch(
+  doc: jsPDF,
+  vertices: { x: number; y: number }[],
+  angleDeg: number,
+  hatchStepMm: number = 3.5
+) {
+  if (vertices.length < 3) return;
+
+  const rad = (angleDeg * Math.PI) / 180;
+  const cosA = Math.cos(rad);
+  const sinA = Math.sin(rad);
+
+  // Normal vector: (-sinA, cosA), Tangent vector: (cosA, sinA)
+  // Projection of vertex along normal: d = -x * sinA + y * cosA
+  const projections = vertices.map(v => -v.x * sinA + v.y * cosA);
+  const minD = Math.min(...projections);
+  const maxD = Math.max(...projections);
+
+  const n = vertices.length;
+
+  for (let d = minD + hatchStepMm * 0.5; d <= maxD; d += hatchStepMm) {
+    const intersections: { s: number; x: number; y: number }[] = [];
+
+    for (let i = 0; i < n; i++) {
+      const p1 = vertices[i];
+      const p2 = vertices[(i + 1) % n];
+      const d1 = projections[i];
+      const d2 = projections[(i + 1) % n];
+
+      // Check if scanline d crosses edge segment (p1, p2)
+      if ((d1 <= d && d2 > d) || (d2 <= d && d1 > d)) {
+        const t = (d - d1) / (d2 - d1);
+        const ix = p1.x + t * (p2.x - p1.x);
+        const iy = p1.y + t * (p2.y - p1.y);
+        const s = ix * cosA + iy * sinA;
+        intersections.push({ s, x: ix, y: iy });
+      }
+    }
+
+    // Sort intersections along tangent line
+    intersections.sort((a, b) => a.s - b.s);
+
+    // Draw pairwise line segments (Even-Odd interior fill rule)
+    for (let j = 0; j < intersections.length - 1; j += 2) {
+      doc.line(intersections[j].x, intersections[j].y, intersections[j + 1].x, intersections[j + 1].y);
+    }
+  }
 }
 
 /**
@@ -553,24 +607,43 @@ export function generateTitleDeedPlanPDF(
   const controlRgb = hexToRgb(style.controlColor);
 
   const elemTransforms = options.elementTransforms || {};
+
+  // Convert preview SVG pixel offsets to PDF millimeters based on actual scale ratio
+  const svgPpm = options.previewPixelsPerMeter || (drawAreaW / Math.max(10, extents.width));
+  const pxToMm = svgPpm > 0 ? (mapScale / svgPpm) : 0.28;
+
   const getTransform = (key: string): TdpElementTransform => {
-    if (elemTransforms[key]) return elemTransforms[key];
-    // Case-insensitive key lookup fallback
-    const lowerKey = key.toLowerCase();
-    for (const [k, v] of Object.entries(elemTransforms)) {
-      if (k.toLowerCase() === lowerKey) return v;
+    let raw: TdpElementTransform | undefined = elemTransforms[key];
+    if (!raw) {
+      const lowerKey = key.toLowerCase();
+      for (const [k, v] of Object.entries(elemTransforms)) {
+        if (k.toLowerCase() === lowerKey) {
+          raw = v;
+          break;
+        }
+      }
+    }
+    if (raw) {
+      return {
+        ...raw,
+        dx: (raw.dx || 0) * pxToMm,
+        dy: (raw.dy || 0) * pxToMm
+      };
     }
     const offset = (options.manualOffsets || {})[key];
-    return { dx: offset?.dx || 0, dy: offset?.dy || 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
+    return { dx: (offset?.dx || 0) * pxToMm, dy: (offset?.dy || 0) * pxToMm, scale: 1.0, rotation: 0, hidden: false, locked: false };
   };
 
-  // Compile combined manual offsets
-  const combinedOffsets: Record<string, { dx: number; dy: number }> = {
-    ...(options.manualOffsets || {})
-  };
+  // Compile combined manual offsets in millimeter units for collision engine
+  const combinedOffsets: Record<string, { dx: number; dy: number }> = {};
+  if (options.manualOffsets) {
+    Object.entries(options.manualOffsets).forEach(([k, off]) => {
+      combinedOffsets[k] = { dx: off.dx * pxToMm, dy: off.dy * pxToMm };
+    });
+  }
   Object.entries(elemTransforms).forEach(([key, tf]) => {
     if (tf.dx !== 0 || tf.dy !== 0) {
-      combinedOffsets[key] = { dx: tf.dx, dy: tf.dy };
+      combinedOffsets[key] = { dx: tf.dx * pxToMm, dy: tf.dy * pxToMm };
     }
   });
 
@@ -586,7 +659,8 @@ export function generateTitleDeedPlanPDF(
     bearingFontSize: (style.bearingFontSize || 5.5) * 0.35,
     beaconFontSize: (style.beaconFontSize || 6.0) * 0.35,
     manualOffsets: combinedOffsets,
-    enableAutoDeconfliction: options.enableCollisionDeconfliction === true
+    enableAutoDeconfliction: options.enableCollisionDeconfliction === true,
+    unitScale: 'mm'
   });
 
   const badgeMap = new Map(resolvedLayout.parcelBadges.map(b => [b.parcelId, b]));
@@ -609,29 +683,38 @@ export function generateTitleDeedPlanPDF(
     const pFillRgb = hexToRgb(plotFillColor);
     const pBoundRgb = hexToRgb(plotBoundaryColor);
 
-    // Plot Shading / Hatching with Granular Override
-    if (plotFillOpacity > 0 && plotHatchPattern !== 'none') {
-      if (plotHatchPattern === 'diagonal' || plotHatchPattern === 'cross') {
-        doc.setDrawColor(pFillRgb.r, pFillRgb.g, pFillRgb.b);
-        doc.setLineWidth(0.18);
-        doc.setLineDashPattern([1.5, 1.5], 0);
-
-        const pMinX = Math.min(...mapVerts.map(v => v.x));
-        const pMaxX = Math.max(...mapVerts.map(v => v.x));
-        const pMinY = Math.min(...mapVerts.map(v => v.y));
-        const pMaxY = Math.max(...mapVerts.map(v => v.y));
-
-        const hatchStep = 4.0;
-        for (let x = pMinX - (pMaxY - pMinY); x <= pMaxX; x += hatchStep) {
-          doc.line(Math.max(pMinX, x), pMinY, Math.min(pMaxX, x + (pMaxY - pMinY)), pMaxY);
-        }
-        if (plotHatchPattern === 'cross') {
-          for (let x = pMaxX + (pMaxY - pMinY); x >= pMinX; x -= hatchStep) {
-            doc.line(Math.min(pMaxX, x), pMinY, Math.max(pMinX, x - (pMaxY - pMinY)), pMaxY);
-          }
-        }
-        doc.setLineDashPattern([], 0);
+    // 1. Solid / Tint Alpha-Blended Vector Polygon Fill
+    if (plotFillOpacity > 0 && (plotHatchPattern === 'tint' || plotHatchPattern === 'solid' || plotHatchPattern === 'none')) {
+      doc.setFillColor(pFillRgb.r, pFillRgb.g, pFillRgb.b);
+      try {
+        const gState = new (doc as any).GState({ opacity: plotFillOpacity });
+        doc.setGState(gState);
+      } catch (e) {
+        console.warn('GState opacity not supported in current environment', e);
       }
+
+      const lines = mapVerts.slice(1).map(v => [v.x - mapVerts[0].x, v.y - mapVerts[0].y]);
+      doc.lines(lines, mapVerts[0].x, mapVerts[0].y, [1.0, 1.0], 'F', true);
+
+      try {
+        doc.setGState(new (doc as any).GState({ opacity: 1.0 }));
+      } catch (e) {
+        console.warn('GState opacity reset not supported', e);
+      }
+    }
+
+    // 2. Exact Even-Odd Mathematically Clipped Hatching
+    if (plotFillOpacity > 0 && (plotHatchPattern === 'diagonal' || plotHatchPattern === 'cross')) {
+      doc.setDrawColor(pFillRgb.r, pFillRgb.g, pFillRgb.b);
+      doc.setLineWidth(0.18);
+      doc.setLineDashPattern([1.5, 1.5], 0);
+
+      clipAndDrawPolygonHatch(doc, mapVerts, 45, 3.5);
+      if (plotHatchPattern === 'cross') {
+        clipAndDrawPolygonHatch(doc, mapVerts, -45, 3.5);
+      }
+
+      doc.setLineDashPattern([], 0);
     }
 
     // Boundary Polyline with Granular Override
@@ -1274,14 +1357,18 @@ export function generateCoordinateSchedulePDF(
   // ====================================================
   // SECTION 2: PRIMARY GEODETIC CONTROL & REFERENCE PILLARS
   // ====================================================
-  const controlPoints = points.filter(p => p.isControl || !assignedPointIds.has(p.id.toUpperCase()));
+  const isSinglePlotSchedule = targetParcels.length === 1;
+  const controlPoints = isSinglePlotSchedule
+    ? points.filter(p => p.isControl)
+    : points.filter(p => p.isControl || !assignedPointIds.has(p.id.toUpperCase()));
+
   const controlCols = [
-    { header: 'S/N', w: 10 },
-    { header: 'STATION / PILLAR ID', w: 38 },
-    { header: 'EASTING (m)', w: 38 },
-    { header: 'NORTHING (m)', w: 38 },
-    { header: 'HEIGHT (m)', w: 20 },
-    { header: 'MONUMENT TYPE & DESCRIPTION', w: 34 }
+    { header: 'S/N', w: 8 },
+    { header: 'STATION / PILLAR ID', w: 32 },
+    { header: 'EASTING (m)', w: 34 },
+    { header: 'NORTHING (m)', w: 34 },
+    { header: 'HEIGHT (m)', w: 18 },
+    { header: 'MONUMENT TYPE & DESCRIPTION', w: 52 }
   ];
 
   const renderControlTableHeader = () => {

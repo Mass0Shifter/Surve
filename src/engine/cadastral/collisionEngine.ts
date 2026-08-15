@@ -77,6 +77,7 @@ export interface CollisionLayoutInput {
   beaconFontSize?: number;
   manualOffsets?: Record<string, { dx: number; dy: number }>;
   enableAutoDeconfliction?: boolean;
+  unitScale?: 'mm' | 'px';
 }
 
 /**
@@ -92,7 +93,7 @@ function boxesOverlap(b1: BoundingBox, b2: BoundingBox, margin: number = 3): boo
 }
 
 /**
- * Computes an AABB for a text label given center position, estimated character count, and font size.
+ * Estimates text bounding box given center coordinate and anchor.
  */
 function estimateTextAABB(
   cx: number,
@@ -129,15 +130,17 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
     bearingFontSize = 5.2,
     beaconFontSize = 6.2,
     manualOffsets = {},
-    enableAutoDeconfliction = true
+    enableAutoDeconfliction = true,
+    unitScale = 'px'
   } = input;
 
+  const isMm = unitScale === 'mm';
   const pointMap = new Map(points.map(p => [p.id, p]));
   const targetPointIds = new Set<string>();
   parcels.forEach(p => p.pointIds.forEach(id => targetPointIds.add(id)));
   const targetPoints = Array.from(targetPointIds).map(id => pointMap.get(id)).filter(Boolean) as CoordinatePoint[];
 
-  const bRad = beaconSize * 2.2;
+  const bRad = isMm ? (beaconSize || 1.4) : (beaconSize || 1.4) * 2.2;
 
   // ─── 1. INITIALIZE PARCEL CENTROID BADGES ─────────────────────────────────
   const parcelBadges: ParcelBadgePlacement[] = [];
@@ -153,7 +156,7 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
 
     const areaText = `${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`;
     const maxTextLen = Math.max(parcel.plotNumber.length, areaText.length, (parcel.ownerName || '').length);
-    const boxWidth = Math.max(45, maxTextLen * (Math.max(titleFontSize, areaFontSize) * 0.58));
+    const boxWidth = Math.max(isMm ? 15 : 45, maxTextLen * (Math.max(titleFontSize, areaFontSize) * 0.58));
     const boxHeight = (parcel.ownerName ? 3 : 2) * (Math.max(titleFontSize, areaFontSize) * 1.3);
 
     const override = manualOffsets[`parcel_${parcel.id}`] || { dx: 0, dy: 0 };
@@ -177,7 +180,7 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
       areaText,
       x: initX,
       y: initY,
-      hasLeaderLine: Math.hypot(override.dx, override.dy) > 18,
+      hasLeaderLine: Math.hypot(override.dx, override.dy) > (isMm ? 6 : 18),
       anchorX: centX,
       anchorY: centY,
       areaSqMeters: comp.areaSquareMeters
@@ -253,9 +256,12 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
       }
     }
 
-    const defaultDist = bRad + 6;
+    const defaultDist = isMm ? (bRad + 1.8) : (bRad + 6);
+    const yOff = isMm
+      ? (normY < -0.2 ? -0.8 : normY > 0.2 ? 1.4 : 0.3)
+      : (normY < -0.2 ? -2 : normY > 0.2 ? 5 : 1);
     let initX = bx + normX * defaultDist;
-    let initY = by + normY * defaultDist + (normY < -0.2 ? -2 : normY > 0.2 ? 5 : 1);
+    let initY = by + normY * defaultDist + yOff;
 
     const override = manualOffsets[`beacon_${pt.id}`] || { dx: 0, dy: 0 };
     initX += override.dx;
@@ -270,7 +276,7 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
       y: initY,
       textAnchor,
       dominantBaseline: 'auto',
-      hasLeaderLine: Math.hypot(initX - bx, initY - by) > (bRad + 14) || Math.hypot(override.dx, override.dy) > 10,
+      hasLeaderLine: Math.hypot(initX - bx, initY - by) > (isMm ? (bRad + 4.5) : (bRad + 14)) || Math.hypot(override.dx, override.dy) > (isMm ? 3.5 : 10),
       anchorX: bx,
       anchorY: by,
       isControl: pt.isControl

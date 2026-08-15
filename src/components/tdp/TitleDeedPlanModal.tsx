@@ -543,7 +543,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       adjoining: adjoiningConfig,
       layout: layoutArrangement,
       elementTransforms,
-      enableCollisionDeconfliction
+      enableCollisionDeconfliction,
+      previewPixelsPerMeter: pixelsPerMeter
     };
 
     const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
@@ -572,7 +573,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       adjoining: adjoiningConfig,
       layout: layoutArrangement,
       elementTransforms,
-      enableCollisionDeconfliction
+      enableCollisionDeconfliction,
+      previewPixelsPerMeter: pixelsPerMeter
     };
 
     // Generate crisp vector PDF and trigger clean print window
@@ -585,11 +587,13 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   // Standalone Beacon Coordinate Schedule PDF Handlers
   const handleExportCoordinateSchedule = () => {
     const opts: Partial<TdpRenderOptions> = {
+      planType,
       surveyorSealUrl: currentUser?.digitalSealUrl,
       surveyorSignatureUrl: currentUser?.signatureUrl,
       firmSealUrl: activeOrg?.officialSealUrl,
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
-      surveyorTitle: currentUser?.title
+      surveyorTitle: currentUser?.title,
+      previewPixelsPerMeter: pixelsPerMeter
     };
     const doc = generateCoordinateSchedulePDF(project, points, targetParcels, opts, currentUser, activeOrg);
     doc.save(`Coordinate_Schedule_${project.code || 'PLAN'}.pdf`);
@@ -597,11 +601,13 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
 
   const handlePrintCoordinateSchedule = () => {
     const opts: Partial<TdpRenderOptions> = {
+      planType,
       surveyorSealUrl: currentUser?.digitalSealUrl,
       surveyorSignatureUrl: currentUser?.signatureUrl,
       firmSealUrl: activeOrg?.officialSealUrl,
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
-      surveyorTitle: currentUser?.title
+      surveyorTitle: currentUser?.title,
+      previewPixelsPerMeter: pixelsPerMeter
     };
     const doc = generateCoordinateSchedulePDF(project, points, targetParcels, opts, currentUser, activeOrg);
     doc.autoPrint();
