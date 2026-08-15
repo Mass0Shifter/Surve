@@ -60,10 +60,12 @@ interface MenuBarProps {
   onOpenTacheometry: () => void;
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
+  onOpenEarthView: () => void;
   onOpenAlignment: () => void;
   onOpenVerticalAlignment: () => void;
   onOpenSubdivision: () => void;
   onOpenDxf: () => void;
+  onOpenCadStudio?: () => void;
   onOpenResection: () => void;
   onOpenCsvImporter: () => void;
   onOpenCogo: () => void;
@@ -106,10 +108,12 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onOpenTacheometry,
   onOpenSetout,
   onOpenDatumTransform,
+  onOpenEarthView,
   onOpenAlignment,
   onOpenVerticalAlignment,
   onOpenSubdivision,
   onOpenDxf,
+  onOpenCadStudio,
   onOpenResection,
   onOpenCsvImporter,
   onOpenCogo,
@@ -386,6 +390,16 @@ export const MenuBar: React.FC<MenuBarProps> = ({
                 <span>Toggle Fullscreen Canvas Max View</span>
               </div>
             </div>
+
+            <div className="menu-dropdown-divider" />
+
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('EARTH_VIEW_STUDIO', onOpenEarthView)}>
+              <div className="menu-item-left">
+                <Globe size={14} className="text-emerald" />
+                <span>Earth View Satellite &amp; GIS Studio...</span>
+              </div>
+              {renderTierBadge('EARTH_VIEW_STUDIO')}
+            </div>
           </div>
         )}
       </div>
@@ -442,6 +456,14 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               {renderTierBadge('SETOUT_STAKING')}
             </div>
 
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('EARTH_VIEW_STUDIO', onOpenEarthView)}>
+              <div className="menu-item-left">
+                <Globe size={14} className="text-emerald" />
+                <span>Earth View Satellite &amp; GIS Studio</span>
+              </div>
+              {renderTierBadge('EARTH_VIEW_STUDIO')}
+            </div>
+
             <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('DATUM_TRANSFORM', onOpenDatumTransform)}>
               <div className="menu-item-left">
                 <Globe size={14} className="text-cyan" />
@@ -474,10 +496,18 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               {renderTierBadge('SUBDIVISION_STUDIO')}
             </div>
 
+            <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('DXF_STUDIO', onOpenCadStudio || onOpenDxf)}>
+              <div className="menu-item-left">
+                <Layers size={14} className="text-cyan" />
+                <span>AutoCAD DWG &amp; Script (.SCR) Drafting Studio</span>
+              </div>
+              {renderTierBadge('DXF_STUDIO')}
+            </div>
+
             <div className="menu-dropdown-item" onClick={() => checkAccessAndRun('DXF_STUDIO', onOpenDxf)}>
               <div className="menu-item-left">
-                <FileCode size={14} className="text-cyan" />
-                <span>AutoCAD DXF Import &amp; Export Studio</span>
+                <FileCode size={14} className="text-muted" />
+                <span>AutoCAD DXF File Exchange Studio</span>
               </div>
               {renderTierBadge('DXF_STUDIO')}
             </div>

@@ -13,6 +13,10 @@ dist/
 dist-ssr/
 *.local
 
+# Tauri & Rust Desktop Build Artifacts
+src-tauri/target/
+src-tauri/gen/
+
 # System & IDE files
 .DS_Store
 Thumbs.db

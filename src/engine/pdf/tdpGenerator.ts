@@ -3,6 +3,7 @@ import { CoordinatePoint, Parcel, ProjectMetadata } from '../types';
 import { computeParcel, computeExtents } from '../cogo';
 import { getDatumBeltName } from '../datums';
 import { determineCadastralSheets } from '../cadastral/sheetIndex';
+import { computeCollisionFreeLayout } from '../cadastral/collisionEngine';
 
 export interface TdpStyleConfig {
   // Typography (pt)
@@ -196,6 +197,15 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
   }
 };
 
+export interface TdpElementTransform {
+  dx: number;
+  dy: number;
+  scale?: number;     // 0.5x to 3.0x multiplier
+  rotation?: number;  // -180 to 180 degrees
+  hidden?: boolean;   // true = omit from render
+  locked?: boolean;   // true = prevent accidental repositioning
+}
+
 export interface TdpRenderOptions {
   pageSize: 'a4' | 'a3' | 'legal';
   orientation: 'portrait' | 'landscape';
@@ -215,6 +225,9 @@ export interface TdpRenderOptions {
   style?: TdpStyleConfig;
   adjoining?: TdpAdjoiningConfig;
   layout?: TdpLayoutArrangement;
+  manualOffsets?: Record<string, { dx: number; dy: number }>;
+  elementTransforms?: Record<string, TdpElementTransform>;
+  enableCollisionDeconfliction?: boolean;
 }
 
 /**
@@ -522,6 +535,40 @@ export function generateTitleDeedPlanPDF(
   const beaconRgb = hexToRgb(style.beaconColor);
   const controlRgb = hexToRgb(style.controlColor);
 
+  const elemTransforms = options.elementTransforms || {};
+  const getTransform = (key: string): TdpElementTransform => {
+    if (elemTransforms[key]) return elemTransforms[key];
+    const offset = (options.manualOffsets || {})[key];
+    return { dx: offset?.dx || 0, dy: offset?.dy || 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
+  };
+
+  // Compile combined manual offsets
+  const combinedOffsets: Record<string, { dx: number; dy: number }> = {
+    ...(options.manualOffsets || {})
+  };
+  Object.entries(elemTransforms).forEach(([key, tf]) => {
+    if (tf.dx !== 0 || tf.dy !== 0) {
+      combinedOffsets[key] = { dx: tf.dx, dy: tf.dy };
+    }
+  });
+
+  // Compute Anti-Collision Layout for PDF space (mm coordinates)
+  const resolvedLayout = computeCollisionFreeLayout({
+    parcels: targetParcels,
+    points: targetPoints,
+    toScreenX: toMapX,
+    toScreenY: toMapY,
+    beaconSize: style.beaconSize || 1.4,
+    titleFontSize: (isSinglePlot ? style.titleFontSize : Math.max(6, style.titleFontSize - 2)) * 0.35,
+    areaFontSize: (isSinglePlot ? style.areaFontSize : Math.max(5.5, style.areaFontSize - 1.5)) * 0.35,
+    bearingFontSize: (style.bearingFontSize || 5.5) * 0.35,
+    beaconFontSize: (style.beaconFontSize || 6.0) * 0.35,
+    manualOffsets: combinedOffsets,
+    enableAutoDeconfliction: options.enableCollisionDeconfliction === true
+  });
+
+  const badgeMap = new Map(resolvedLayout.parcelBadges.map(b => [b.parcelId, b]));
+
   for (const parcel of targetParcels) {
     const comp = computeParcel(parcel, points);
     if (!comp || comp.vertices.length < 3) continue;
@@ -569,36 +616,49 @@ export function generateTitleDeedPlanPDF(
     }
     doc.setLineDashPattern([], 0);
 
-    // Centroid Label
-    const pCentX = mapVerts.reduce((s, v) => s + v.x, 0) / mapVerts.length;
-    const pCentY = mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
+    // Centroid / De-conflicted Badge
+    const parcelTf = getTransform(`parcel_${parcel.id}`);
+    if (!parcelTf.hidden) {
+      const badge = badgeMap.get(parcel.id);
+      const pCentX = badge ? badge.x : mapVerts.reduce((s, v) => s + v.x, 0) / mapVerts.length;
+      const pCentY = badge ? badge.y : mapVerts.reduce((s, v) => s + v.y, 0) / mapVerts.length;
+      const badgeScale = parcelTf.scale || 1.0;
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isSinglePlot ? style.titleFontSize : Math.max(6, style.titleFontSize - 2));
-    doc.setTextColor(15, 23, 42);
-    doc.text(parcel.plotNumber, pCentX, pCentY - (isSinglePlot ? 3 : 1.2), { align: 'center' });
+      // Draw Leader line if badge was displaced
+      if (badge && badge.hasLeaderLine) {
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineWidth(0.2);
+        doc.setLineDashPattern([1.0, 1.0], 0);
+        doc.line(badge.anchorX, badge.anchorY, badge.x, badge.y);
+        doc.setLineDashPattern([], 0);
+      }
 
-    if (parcel.ownerName && isSinglePlot) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(Math.max(6, style.titleFontSize * 0.75));
-      doc.setTextColor(71, 85, 105);
-      doc.text(parcel.ownerName, pCentX, pCentY + 1.5, { align: 'center' });
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize((isSinglePlot ? style.titleFontSize : Math.max(6, style.titleFontSize - 2)) * badgeScale);
+      doc.setTextColor(15, 23, 42);
+      doc.text(parcel.plotNumber, pCentX, pCentY - (isSinglePlot ? 3 : 1.2), { align: 'center' });
+
+      if (parcel.ownerName && isSinglePlot) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(Math.max(6, style.titleFontSize * 0.75) * badgeScale);
+        doc.setTextColor(71, 85, 105);
+        doc.text(parcel.ownerName, pCentX, pCentY + 1.5, { align: 'center' });
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize((isSinglePlot ? style.areaFontSize : Math.max(5.5, style.areaFontSize - 1.5)) * badgeScale);
+      doc.setTextColor(bRgb.r, bRgb.g, bRgb.b);
+      doc.text(`${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`, pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
     }
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isSinglePlot ? style.areaFontSize : Math.max(5.5, style.areaFontSize - 1.5));
-    doc.setTextColor(bRgb.r, bRgb.g, bRgb.b);
-    doc.text(`${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`, pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
-
     // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(style.bearingFontSize || 5.5);
-    doc.setTextColor(30, 41, 59);
-
     for (const leg of comp.legs) {
       const edgeKey = [leg.fromPoint.id, leg.toPoint.id].sort().join('__');
       if (renderedEdges.has(edgeKey)) continue;
       renderedEdges.add(edgeKey);
+
+      const dimTf = getTransform(`dim_${edgeKey}`);
+      if (dimTf.hidden) continue;
 
       const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
       const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
@@ -608,8 +668,8 @@ export function generateTitleDeedPlanPDF(
       const segLen = Math.hypot(dx, dy);
       if (segLen < 0.5) continue;
 
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
+      const midX = (p1.x + p2.x) / 2 + dimTf.dx;
+      const midY = (p1.y + p2.y) / 2 + dimTf.dy;
 
       let angleRad = Math.atan2(dy, dx);
       if (angleRad > Math.PI / 2) angleRad -= Math.PI;
@@ -623,119 +683,69 @@ export function generateTitleDeedPlanPDF(
       let nx = -uy;
       let ny = ux;
 
-      // Ensure normal points outward from polygon centroid
-      const toCentX = midX - pCentX;
-      const toCentY = midY - pCentY;
+      const toCentX = midX - (toMapX(comp.vertices[0].easting));
+      const toCentY = midY - (toMapY(comp.vertices[0].northing));
       if (nx * toCentX + ny * toCentY < 0) {
         nx = -nx;
         ny = -ny;
       }
 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize((style.bearingFontSize || 5.5) * (dimTf.scale || 1.0));
+      doc.setTextColor(30, 41, 59);
+
       const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
       const textWidth = doc.getTextWidth(legText);
-      // Cap-height compensation (1.4mm font height + 0.9mm line clearance)
       const offDist = 2.3;
 
-      // Analytically compute start point along line tangent and outward normal
       const startX = midX - ux * (textWidth / 2) + nx * offDist;
       const startY = midY - uy * (textWidth / 2) + ny * offDist;
-      const angleDeg = angleRad * (180 / Math.PI);
+      const angleDeg = angleRad * (180 / Math.PI) + (dimTf.rotation || 0);
 
       doc.text(legText, startX, startY, { angle: -angleDeg });
     }
   }
 
-  // Helper to compute outward exterior normal offset for beacon labels
-  const computeBeaconLabelPos = (pt: CoordinatePoint, sx: number, sy: number) => {
-    for (const parcel of targetParcels) {
-      const idx = parcel.pointIds.indexOf(pt.id);
-      if (idx !== -1 && parcel.pointIds.length >= 3) {
-        const comp = computeParcel(parcel, points);
-        if (comp && comp.vertices.length >= 3) {
-          const vCentX = comp.vertices.reduce((s, v) => s + toMapX(v.easting), 0) / comp.vertices.length;
-          const vCentY = comp.vertices.reduce((s, v) => s + toMapY(v.northing), 0) / comp.vertices.length;
-
-          const n = parcel.pointIds.length;
-          const prevId = parcel.pointIds[(idx - 1 + n) % n];
-          const nextId = parcel.pointIds[(idx + 1) % n];
-          const prevPt = points.find(p => p.id === prevId);
-          const nextPt = points.find(p => p.id === nextId);
-
-          if (prevPt && nextPt) {
-            const px = toMapX(prevPt.easting);
-            const py = toMapY(prevPt.northing);
-            const nx = toMapX(nextPt.easting);
-            const ny = toMapY(nextPt.northing);
-
-            const v1x = sx - px;
-            const v1y = sy - py;
-            const v2x = nx - sx;
-            const v2y = ny - sy;
-            const l1 = Math.hypot(v1x, v1y) || 1;
-            const l2 = Math.hypot(v2x, v2y) || 1;
-
-            const u1x = v1x / l1;
-            const u1y = v1y / l1;
-            const u2x = v2x / l2;
-            const u2y = v2y / l2;
-
-            let bx = -(u1y + u2y);
-            let by = (u1x + u2x);
-            let bl = Math.hypot(bx, by);
-
-            if (bl < 0.01) {
-              bx = sx - vCentX;
-              by = sy - vCentY;
-              bl = Math.hypot(bx, by) || 1;
-            }
-
-            bx /= bl;
-            by /= bl;
-
-            const toCentX = sx - vCentX;
-            const toCentY = sy - vCentY;
-            if (bx * toCentX + by * toCentY < 0) {
-              bx = -bx;
-              by = -by;
-            }
-
-            const dist = 3.2;
-            return {
-              x: sx + bx * dist + (bx < -0.3 ? -1.0 : bx > 0.3 ? 1.0 : 0),
-              y: sy + by * dist + (by < -0.2 ? -1.0 : by > 0.2 ? 2.5 : 0.8),
-              align: bx < -0.3 ? 'right' : bx > 0.3 ? 'left' : 'center'
-            };
-          }
-        }
-      }
-    }
-    return { x: sx + 2.5, y: sy - 1.2, align: 'left' };
-  };
-
-  // 8. Draw Concrete Beacon Symbols (only relevant points)
+  // 8. Draw Concrete Beacon Symbols & De-conflicted Labels
   const bRadius = style.beaconSize || 1.4;
+  const beaconLabelMap = new Map(resolvedLayout.beaconLabels.map(l => [l.pointId, l]));
+
   for (const pt of targetPoints) {
     const sx = toMapX(pt.easting);
     const sy = toMapY(pt.northing);
+    const beaconTf = getTransform(`beacon_${pt.id}`);
 
-    if (pt.isControl) {
-      doc.setDrawColor(controlRgb.r, controlRgb.g, controlRgb.b);
-      doc.setLineWidth(0.4);
-      doc.triangle(sx, sy - (bRadius * 1.5), sx + (bRadius * 1.5), sy + (bRadius * 1.1), sx - (bRadius * 1.5), sy + (bRadius * 1.1));
-    } else {
-      doc.setDrawColor(beaconRgb.r, beaconRgb.g, beaconRgb.b);
-      doc.setLineWidth(0.3);
-      doc.circle(sx, sy, bRadius);
-      doc.line(sx - bRadius, sy, sx + bRadius, sy);
-      doc.line(sx, sy - bRadius, sx, sy + bRadius);
+    if (!beaconTf.hidden) {
+      if (pt.isControl) {
+        doc.setDrawColor(controlRgb.r, controlRgb.g, controlRgb.b);
+        doc.setLineWidth(0.4);
+        doc.triangle(sx, sy - (bRadius * 1.5), sx + (bRadius * 1.5), sy + (bRadius * 1.1), sx - (bRadius * 1.5), sy + (bRadius * 1.1));
+      } else {
+        doc.setDrawColor(beaconRgb.r, beaconRgb.g, beaconRgb.b);
+        doc.setLineWidth(0.3);
+        doc.circle(sx, sy, bRadius);
+        doc.line(sx - bRadius, sy, sx + bRadius, sy);
+        doc.line(sx, sy - bRadius, sx, sy + bRadius);
+      }
+
+      // Beacon ID Label (De-conflicted position)
+      const lbl = beaconLabelMap.get(pt.id);
+      if (lbl) {
+        if (lbl.hasLeaderLine) {
+          doc.setDrawColor(100, 116, 139);
+          doc.setLineWidth(0.2);
+          doc.setLineDashPattern([1.0, 1.0], 0);
+          doc.line(lbl.anchorX, lbl.anchorY, lbl.x, lbl.y);
+          doc.setLineDashPattern([], 0);
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize((style.beaconFontSize || 6.0) * (beaconTf.scale || 1.0));
+        doc.setTextColor(15, 23, 42);
+        const align = lbl.textAnchor === 'start' ? 'left' : lbl.textAnchor === 'end' ? 'right' : 'center';
+        doc.text(pt.id, lbl.x, lbl.y, { align: align as any });
+      }
     }
-
-    // Beacon ID Label (Placed on Exterior Angle Bisector)
-    const lbl = computeBeaconLabelPos(pt, sx, sy);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(style.beaconFontSize || 6.0);
-    doc.setTextColor(15, 23, 42);
-    doc.text(pt.id, lbl.x, lbl.y, { align: lbl.align as any });
   }
 
   // 9. Vector North Arrow
@@ -937,3 +947,287 @@ export function generateTitleDeedPlanPDF(
 
   return doc;
 }
+
+/**
+ * Generates an official Standalone A4 Beacon Coordinate Schedule & Boundary Traverse Report PDF.
+ */
+export function generateCoordinateSchedulePDF(
+  project: ProjectMetadata,
+  points: CoordinatePoint[],
+  parcels: Parcel[],
+  options: Partial<TdpRenderOptions> = {},
+  currentUser?: { fullName?: string; title?: string; surconNumber?: string; signatureUrl?: string; digitalSealUrl?: string } | null,
+  activeOrg?: { name?: string; officialSealUrl?: string } | null
+): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const pageW = 210;
+  const pageH = 297;
+  const margin = 12;
+
+  // Outer Border Box
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.7);
+  doc.rect(margin, margin, pageW - 2 * margin, pageH - 2 * margin);
+
+  // Inner Subtle Neatline
+  doc.setLineWidth(0.2);
+  doc.rect(margin + 1.5, margin + 1.5, pageW - 2 * margin - 3, pageH - 2 * margin - 3);
+
+  let currentY = margin + 8;
+
+  // 1. Official Header
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(15, 23, 42);
+  doc.text('BEACON COORDINATE & BOUNDARY SCHEDULE', pageW / 2, currentY, { align: 'center' });
+
+  currentY += 5;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(51, 65, 85);
+  doc.text((activeOrg?.name || project.surveyFirm || 'CADASTRAL SURVEY SERVICES').toUpperCase(), pageW / 2, currentY, { align: 'center' });
+
+  currentY += 4;
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(`PROJECT: ${project.title.toUpperCase()} | LOCATION: ${project.location.toUpperCase()}`, pageW / 2, currentY, { align: 'center' });
+
+  currentY += 4;
+  doc.text(`DATUM: MINNA GRID (CLARKE 1880) | PLAN NO: ${project.code || 'PLAN-001'} | DATE: ${project.date || new Date().toISOString().split('T')[0]}`, pageW / 2, currentY, { align: 'center' });
+
+  currentY += 4;
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.line(margin + 4, currentY, pageW - margin - 4, currentY);
+
+  currentY += 6;
+
+  // 2. Beacon Coordinate Schedule Table
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  doc.text('1. BEACON COORDINATE SCHEDULE', margin + 4, currentY);
+
+  currentY += 3.5;
+
+  const tableX = margin + 4;
+  const tableW = pageW - 2 * margin - 8;
+  const cols = [
+    { header: 'S/N', w: 10 },
+    { header: 'BEACON ID', w: 32 },
+    { header: 'EASTING (m)', w: 38 },
+    { header: 'NORTHING (m)', w: 38 },
+    { header: 'HEIGHT (m)', w: 26 },
+    { header: 'MONUMENT TYPE', w: 36 }
+  ];
+
+  // Table Header Background
+  doc.setFillColor(241, 245, 249);
+  doc.rect(tableX, currentY, tableW, 6, 'F');
+  doc.setDrawColor(203, 213, 225);
+  doc.rect(tableX, currentY, tableW, 6, 'S');
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+
+  let hX = tableX;
+  for (const c of cols) {
+    doc.text(c.header, hX + 2, currentY + 4.2);
+    hX += c.w;
+  }
+
+  currentY += 6;
+
+  // Table Rows
+  const sortedPoints = [...points].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(15, 23, 42);
+
+  const rowHeight = 4.8;
+  sortedPoints.forEach((pt, index) => {
+    // Alternating Row Background
+    if (index % 2 === 1) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(tableX, currentY, tableW, rowHeight, 'F');
+    }
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(tableX, currentY, tableW, rowHeight, 'S');
+
+    let rX = tableX;
+    doc.text(String(index + 1), rX + 2, currentY + 3.4);
+    rX += cols[0].w;
+
+    doc.setFont('helvetica', pt.isControl ? 'bold' : 'normal');
+    doc.text(pt.id, rX + 2, currentY + 3.4);
+    doc.setFont('helvetica', 'normal');
+    rX += cols[1].w;
+
+    doc.text(pt.easting.toFixed(3), rX + 2, currentY + 3.4);
+    rX += cols[2].w;
+
+    doc.text(pt.northing.toFixed(3), rX + 2, currentY + 3.4);
+    rX += cols[3].w;
+
+    doc.text(pt.elevation !== undefined ? pt.elevation.toFixed(3) : '-', rX + 2, currentY + 3.4);
+    rX += cols[4].w;
+
+    doc.text(pt.isControl ? 'PRIMARY CONTROL PILLAR' : 'BURIED CONCRETE BEACON', rX + 2, currentY + 3.4);
+
+    currentY += rowHeight;
+  });
+
+  currentY += 6;
+
+  // 3. Parcel Area & Perimeter Schedule Table
+  if (parcels.length > 0 && currentY < pageH - 75) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. PARCEL COMPUTATION SUMMARY', margin + 4, currentY);
+
+    currentY += 3.5;
+
+    const pCols = [
+      { header: 'PLOT NO', w: 32 },
+      { header: 'OWNER / ALLOTTEE', w: 48 },
+      { header: 'AREA (SQ.M)', w: 36 },
+      { header: 'AREA (HECTARES)', w: 34 },
+      { header: 'PERIMETER (m)', w: 30 }
+    ];
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(tableX, currentY, tableW, 6, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(tableX, currentY, tableW, 6, 'S');
+
+    doc.setFontSize(6.8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+
+    let phX = tableX;
+    for (const c of pCols) {
+      doc.text(c.header, phX + 2, currentY + 4.2);
+      phX += c.w;
+    }
+
+    currentY += 6;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(15, 23, 42);
+
+    parcels.forEach((pcl, pIdx) => {
+      const comp = computeParcel(pcl, points);
+      if (pIdx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(tableX, currentY, tableW, rowHeight, 'F');
+      }
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(tableX, currentY, tableW, rowHeight, 'S');
+
+      let prX = tableX;
+      doc.setFont('helvetica', 'bold');
+      doc.text(pcl.plotNumber, prX + 2, currentY + 3.4);
+      doc.setFont('helvetica', 'normal');
+      prX += pCols[0].w;
+
+      doc.text(pcl.ownerName || 'UNASSIGNED', prX + 2, currentY + 3.4);
+      prX += pCols[1].w;
+
+      doc.text(comp ? `${comp.areaSquareMeters.toFixed(2)} m²` : '-', prX + 2, currentY + 3.4);
+      prX += pCols[2].w;
+
+      doc.text(comp ? `${comp.areaHectares.toFixed(4)} Ha` : '-', prX + 2, currentY + 3.4);
+      prX += pCols[3].w;
+
+      doc.text(comp ? `${comp.perimeter.toFixed(2)} m` : '-', prX + 2, currentY + 3.4);
+
+      currentY += rowHeight;
+    });
+
+    currentY += 6;
+  }
+
+  // 4. Surveyor's Official Certification Block (Pinned to bottom of page)
+  const sealBlockY = pageH - margin - 42;
+  const sealBlockW = tableW;
+  const sealBlockH = 38;
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setFillColor(250, 250, 250);
+  doc.rect(tableX, sealBlockY, sealBlockW, sealBlockH, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text("SURVEYOR'S STATUTORY CERTIFICATION", tableX + 4, sealBlockY + 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+  doc.setTextColor(71, 85, 105);
+  const certText = `I hereby certify that the coordinates and measurements stated in this schedule have been computed and checked in accordance with the Survey Regulations of the Federal Republic of Nigeria and the Surveyors Council of Nigeria (SURCON).`;
+  doc.text(certText, tableX + 4, sealBlockY + 9.5, { maxWidth: sealBlockW - 40 });
+
+  const survTitle = currentUser?.title || options.surveyorTitle ? `${currentUser?.title || options.surveyorTitle} ` : 'SURV. ';
+  const survName = `${survTitle}${currentUser?.fullName || project.surveyorName}`.toUpperCase();
+  const surconNum = currentUser?.surconNumber || options.surconNumber || project.surveyorNumber || 'SURCON REG.';
+
+  // Embed Signature if present
+  const sigUrl = currentUser?.signatureUrl || options.surveyorSignatureUrl;
+  if (sigUrl) {
+    try {
+      doc.addImage(sigUrl, 'PNG', tableX + 4, sealBlockY + 16, 26, 7.5);
+    } catch (e) {
+      console.warn('Failed to embed signature image', e);
+    }
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.2);
+  doc.setTextColor(15, 23, 42);
+  doc.text(survName, tableX + 4, sealBlockY + 26);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+  doc.setTextColor(16, 185, 129);
+  doc.text(surconNum, tableX + 4, sealBlockY + 29.5);
+
+  doc.setTextColor(71, 85, 105);
+  doc.text(`FIRM: ${(activeOrg?.name || project.surveyFirm).toUpperCase()} | DATE: ${project.date}`, tableX + 4, sealBlockY + 33.5);
+
+  // Official Seal Stamp
+  const sealStampUrl = currentUser?.digitalSealUrl || activeOrg?.officialSealUrl || options.surveyorSealUrl || options.firmSealUrl;
+  const sealBoxW = 28;
+  const sealBoxH = 28;
+  const sealImgX = tableX + sealBlockW - sealBoxW - 4;
+  const sealImgY = sealBlockY + 5;
+
+  if (sealStampUrl) {
+    try {
+      doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
+    } catch {
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
+      doc.setFontSize(6);
+      doc.setTextColor(148, 163, 184);
+      doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
+    }
+  } else {
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
+  }
+
+  return doc;
+}
+

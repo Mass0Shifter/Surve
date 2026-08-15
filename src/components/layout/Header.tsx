@@ -30,10 +30,12 @@ interface HeaderProps {
   onOpenTacheometry: () => void;
   onOpenSetout: () => void;
   onOpenDatumTransform: () => void;
+  onOpenEarthView?: () => void;
   onOpenAlignment: () => void;
   onOpenVerticalAlignment: () => void;
   onOpenSubdivision: () => void;
   onOpenDxf: () => void;
+  onOpenCadStudio?: () => void;
   onOpenResection: () => void;
   onOpenCsvImporter: () => void;
   onOpenSurvpackImporter?: () => void;
@@ -54,6 +56,7 @@ interface HeaderProps {
   onRequestUpgrade?: (featureId: FeatureId) => void;
   onLogout: () => void;
 
+  activeView?: 'workspace' | 'cad_studio';
   isLeftVisible: boolean;
   isRightVisible: boolean;
   onToggleLeft: () => void;
@@ -79,10 +82,12 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenTacheometry,
   onOpenSetout,
   onOpenDatumTransform,
+  onOpenEarthView = () => {},
   onOpenAlignment,
   onOpenVerticalAlignment,
   onOpenSubdivision,
   onOpenDxf,
+  onOpenCadStudio,
   onOpenResection,
   onOpenCsvImporter,
   onOpenSurvpackImporter,
@@ -104,6 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSubscription,
   onRequestUpgrade,
   onLogout,
+  activeView = 'workspace',
   isLeftVisible,
   isRightVisible,
   onToggleLeft,
@@ -180,10 +186,12 @@ export const Header: React.FC<HeaderProps> = ({
           onOpenTacheometry={onOpenTacheometry}
           onOpenSetout={onOpenSetout}
           onOpenDatumTransform={onOpenDatumTransform}
+          onOpenEarthView={onOpenEarthView}
           onOpenAlignment={onOpenAlignment}
           onOpenVerticalAlignment={onOpenVerticalAlignment}
           onOpenSubdivision={onOpenSubdivision}
           onOpenDxf={onOpenDxf}
+          onOpenCadStudio={onOpenCadStudio}
           onOpenResection={onOpenResection}
           onOpenCsvImporter={onOpenCsvImporter}
           onOpenCogo={onOpenCogo}
@@ -331,6 +339,19 @@ export const Header: React.FC<HeaderProps> = ({
           <FileText size={13} />
           <span>TDP Studio</span>
         </button>
+
+        {onOpenCadStudio && (
+          <button
+            id="btn-open-cad-studio"
+            className="btn-traverse-highlight"
+            style={activeView === 'cad_studio' ? { color: '#38bdf8', borderColor: 'rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.18)' } : undefined}
+            title="AutoCAD DWG/DXF Drafting Studio & Virtual Machine"
+            onClick={onOpenCadStudio}
+          >
+            <Compass size={13} className="text-cyan" />
+            <span>CAD Studio</span>
+          </button>
+        )}
 
         {/* User Account / Profile Button */}
         {currentUser ? (

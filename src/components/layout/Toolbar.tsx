@@ -1,11 +1,13 @@
 import React from 'react';
 import { CadTool } from '../../engine/types';
-import { MousePointer, Hand, PlusCircle, Ruler, Compass, Undo2, Redo2, History, PanelLeft, PanelRight, Maximize2, Minimize2 } from 'lucide-react';
+import { MousePointer, Hand, PlusCircle, Ruler, Compass, Globe, Undo2, Redo2, History, PanelLeft, PanelRight, Maximize2, Minimize2, Layers } from 'lucide-react';
 
 interface ToolbarProps {
   activeTool: CadTool;
   onSelectTool: (tool: CadTool) => void;
   onOpenCogo: () => void;
+  onOpenEarthView?: () => void;
+  onOpenCadStudio?: () => void;
   onOpenHistory: () => void;
   canUndo: boolean;
   canRedo: boolean;
@@ -23,6 +25,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   activeTool,
   onSelectTool,
   onOpenCogo,
+  onOpenEarthView = () => {},
+  onOpenCadStudio,
   onOpenHistory,
   canUndo,
   canRedo,
@@ -130,7 +134,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="tool-divider" />
 
-      {/* COGO Shortcut */}
+      {/* COGO, CAD Studio & Earth Satellite GIS Shortcuts */}
       <div className="tool-group">
         <button
           className="tool-btn"
@@ -139,6 +143,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           <Compass size={15} className="text-emerald" />
           <span className="tool-btn-label">COGO</span>
+        </button>
+
+        {onOpenCadStudio && (
+          <button
+            className="tool-btn"
+            title="Open AutoCAD DWG / DXF CAD Drafting Studio & Script (.SCR) Runner"
+            onClick={onOpenCadStudio}
+          >
+            <Layers size={15} className="text-cyan" />
+            <span className="tool-btn-label">CAD Studio</span>
+          </button>
+        )}
+
+        <button
+          className="tool-btn"
+          title="Open Earth View — Satellite Imagery & Cadastral GIS Studio"
+          onClick={onOpenEarthView}
+        >
+          <Globe size={15} className="text-cyan" />
+          <span className="tool-btn-label">Earth View</span>
         </button>
       </div>
     </div>

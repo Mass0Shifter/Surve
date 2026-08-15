@@ -17,10 +17,12 @@ import { LevelingStudioModal } from './components/leveling/LevelingStudioModal';
 import { TacheometryStudioModal } from './components/tacheometry/TacheometryStudioModal';
 import { SetoutStudioModal } from './components/setout/SetoutStudioModal';
 import { DatumTransformModal } from './components/transform/DatumTransformModal';
+import { EarthViewStudioModal } from './components/gis/EarthViewStudioModal';
 import { AlignmentStudioModal } from './components/alignment/AlignmentStudioModal';
 import { VerticalAlignmentModal } from './components/alignment/VerticalAlignmentModal';
 import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStudioModal';
 import { DxfStudioModal } from './components/dxf/DxfStudioModal';
+import { CadStudioModal } from './components/cad/CadStudioModal';
 import { ResectionStudioModal } from './components/resection/ResectionStudioModal';
 import { CsvImporterModal } from './components/importer/CsvImporterModal';
 import { SurvPackMigrationModal } from './components/importer/SurvPackMigrationModal';
@@ -136,6 +138,7 @@ export const App: React.FC = () => {
   const [isTachOpen, setIsTachOpen] = useState<boolean>(false);
   const [isSetoutOpen, setIsSetoutOpen] = useState<boolean>(false);
   const [isDatumTransformOpen, setIsDatumTransformOpen] = useState<boolean>(false);
+  const [isEarthViewOpen, setIsEarthViewOpen] = useState<boolean>(false);
   const [isAlignmentOpen, setIsAlignmentOpen] = useState<boolean>(false);
   const [isVerticalOpen, setIsVerticalOpen] = useState<boolean>(false);
   const [isSubdivisionOpen, setIsSubdivisionOpen] = useState<boolean>(false);
@@ -145,6 +148,7 @@ export const App: React.FC = () => {
   const [isSurvpackOpen, setIsSurvpackOpen] = useState<boolean>(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState<boolean>(false);
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
+  const [activeView, setActiveView] = useState<'workspace' | 'cad_studio'>('workspace');
   const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
   const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
   const [currentLoadedProjectId, setCurrentLoadedProjectId] = useState<string | null>('proj_seed_abuja_001');
@@ -774,10 +778,12 @@ export const App: React.FC = () => {
           onOpenTacheometry={() => checkFeatureOrRun('TACHEOMETRY_DTM', () => setIsTachOpen(true))}
           onOpenSetout={() => checkFeatureOrRun('SETOUT_STAKING', () => setIsSetoutOpen(true))}
           onOpenDatumTransform={() => checkFeatureOrRun('DATUM_TRANSFORM', () => setIsDatumTransformOpen(true))}
+          onOpenEarthView={() => checkFeatureOrRun('EARTH_VIEW_STUDIO', () => setIsEarthViewOpen(true))}
           onOpenAlignment={() => checkFeatureOrRun('ALIGNMENT_STUDIO', () => setIsAlignmentOpen(true))}
           onOpenVerticalAlignment={() => checkFeatureOrRun('VERTICAL_ALIGNMENT', () => setIsVerticalOpen(true))}
           onOpenSubdivision={() => checkFeatureOrRun('SUBDIVISION_STUDIO', () => setIsSubdivisionOpen(true))}
-          onOpenDxf={() => checkFeatureOrRun('DXF_STUDIO', () => setIsDxfOpen(true))}
+          onOpenDxf={() => checkFeatureOrRun('DXF_STUDIO', () => setActiveView('cad_studio'))}
+          onOpenCadStudio={() => checkFeatureOrRun('DXF_STUDIO', () => setActiveView(v => v === 'cad_studio' ? 'workspace' : 'cad_studio'))}
           onOpenResection={() => checkFeatureOrRun('RESECTION_STUDIO', () => setIsResectionOpen(true))}
           onOpenCsvImporter={() => setIsCsvImporterOpen(true)}
           onOpenSurvpackImporter={() => checkFeatureOrRun('LEGACY_BATCH_IMPORT', () => setIsSurvpackOpen(true))}
@@ -796,6 +802,7 @@ export const App: React.FC = () => {
           onOpenSubscription={() => setIsSubscriptionOpen(true)}
           onRequestUpgrade={(fId) => setUpgradePromptFeature(fId)}
           onLogout={logout}
+          activeView={activeView}
           isLeftVisible={isLeftVisible}
           isRightVisible={isRightVisible}
           onToggleLeft={() => setIsLeftVisible(v => !v)}
@@ -803,129 +810,152 @@ export const App: React.FC = () => {
           onToggleMaximize={handleToggleMaximizeCanvas}
         />
 
-      {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
-      <Toolbar
-        activeTool={activeTool}
-        onSelectTool={setActiveTool}
-        onOpenCogo={() => setIsCogoOpen(true)}
-        onOpenHistory={() => setIsHistoryOpen(true)}
-        canUndo={undoStack.length > 0}
-        canRedo={redoStack.length > 0}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        historyCount={undoStack.length + redoStack.length + 1}
-        isLeftVisible={isLeftVisible}
-        isRightVisible={isRightVisible}
-        onToggleLeft={() => setIsLeftVisible(v => !v)}
-        onToggleRight={() => setIsRightVisible(v => !v)}
-        onToggleMaximizeCanvas={() => {
-          if (isLeftVisible || isRightVisible) {
-            setIsLeftVisible(false);
-            setIsRightVisible(false);
-          } else {
-            setIsLeftVisible(true);
-            setIsRightVisible(true);
-          }
-        }}
-      />
-
-      {/* 3. Main Resizable CAD Workstation Area */}
-      <main className="app-workspace">
-        {/* Left Side: Coordinate Table */}
-        {isLeftVisible ? (
-          <aside className="workspace-sidebar left-sidebar" style={{ width: `${leftWidth}px` }}>
-            <CoordinateTable
-              points={points}
-              selectedPointId={selectedPointId}
-              onSelectPoint={setSelectedPointId}
-              onAddPoint={handleAddPoint}
-              onUpdatePoint={handleUpdatePoint}
-              onDeletePoint={handleDeletePoint}
-              onBatchImport={handleBatchImport}
-            />
-            {/* Left Resizer Drag Handle */}
-            <div
-              className="resizer-handle resizer-right"
-              onMouseDown={handleStartDragLeft}
-              title="Drag to resize Coordinates panel"
-            />
-          </aside>
-        ) : (
-          <button
-            className="collapsed-edge-tab left-edge-tab"
-            title="Restore Coordinates Panel"
-            onClick={() => setIsLeftVisible(true)}
-          >
-            <MapPin size={13} />
-            <span>Coords</span>
-            <ChevronRight size={12} />
-          </button>
-        )}
-
-        {/* Center: Interactive 2D Vector CAD Canvas */}
-        <section className="workspace-center">
-          <CadCanvas
-            points={points}
-            parcels={parcels}
-            layers={layers}
+      {/* 2. Main Workstation Body: Survey Workspace OR AutoCAD DWG/DXF Studio Full View */}
+      {activeView === 'cad_studio' ? (
+        <CadStudioModal
+          isOpen={true}
+          isViewMode={true}
+          onClose={() => setActiveView('workspace')}
+          project={project}
+          workspacePoints={points}
+          workspaceParcels={parcels}
+          alignmentOverlay={alignmentOverlay}
+          setoutOverlay={setoutOverlay}
+          onSyncToWorkspace={(syncedPoints, syncedParcels) => {
+            recordSnapshot('Sync from CAD Studio to Workspace');
+            setPoints(syncedPoints);
+            setParcels(syncedParcels);
+          }}
+        />
+      ) : (
+        <>
+          {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
+          <Toolbar
             activeTool={activeTool}
-            selectedPointId={selectedPointId}
-            selectedParcelId={selectedParcelId}
-            onSelectPoint={setSelectedPointId}
-            onSelectParcel={setSelectedParcelId}
-            onAddPointAtCoord={handleAddPointAtCoord}
-            onCursorMove={(e, n) => setCursorCoord({ easting: e, northing: n })}
-            setoutOverlay={setoutOverlay}
-            alignmentOverlay={alignmentOverlay}
+            onSelectTool={setActiveTool}
+            onOpenCogo={() => setIsCogoOpen(true)}
+            onOpenCadStudio={() => checkFeatureOrRun('DXF_STUDIO', () => setActiveView('cad_studio'))}
+            onOpenEarthView={() => checkFeatureOrRun('EARTH_VIEW_STUDIO', () => setIsEarthViewOpen(true))}
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            historyCount={undoStack.length + redoStack.length + 1}
+            isLeftVisible={isLeftVisible}
+            isRightVisible={isRightVisible}
+            onToggleLeft={() => setIsLeftVisible(v => !v)}
+            onToggleRight={() => setIsRightVisible(v => !v)}
+            onToggleMaximizeCanvas={() => {
+              if (isLeftVisible || isRightVisible) {
+                setIsLeftVisible(false);
+                setIsRightVisible(false);
+              } else {
+                setIsLeftVisible(true);
+                setIsRightVisible(true);
+              }
+            }}
           />
-        </section>
 
-        {/* Right Side: Parcel Inspector & Layer Manager */}
-        {isRightVisible ? (
-          <aside className="workspace-sidebar right-sidebar" style={{ width: `${rightWidth}px` }}>
-            {/* Right Resizer Drag Handle */}
-            <div
-              className="resizer-handle resizer-left"
-              onMouseDown={handleStartDragRight}
-              title="Drag to resize Inspector panel"
-            />
-            <ParcelInspector
-              parcels={parcels}
-              points={points}
-              project={project}
-              selectedParcelId={selectedParcelId}
-              onSelectParcel={setSelectedParcelId}
-              onAddParcel={handleAddParcel}
-              onUpdateParcel={handleUpdateParcel}
-              onDeleteParcel={handleDeleteParcel}
-            />
-            <LayerManager
-              layers={layers}
-              onToggleLayer={handleToggleLayer}
-              onUpdateLayerValue={handleUpdateLayerValue}
-            />
-          </aside>
-        ) : (
-          <button
-            className="collapsed-edge-tab right-edge-tab"
-            title="Restore Inspector & Layers Panel"
-            onClick={() => setIsRightVisible(true)}
-          >
-            <ChevronLeft size={12} />
-            <span>Inspector</span>
-            <Layers size={13} />
-          </button>
-        )}
-      </main>
+          {/* 3. Main Resizable CAD Workstation Area */}
+          <main className="app-workspace">
+            {/* Left Side: Coordinate Table */}
+            {isLeftVisible ? (
+              <aside className="workspace-sidebar left-sidebar" style={{ width: `${leftWidth}px` }}>
+                <CoordinateTable
+                  points={points}
+                  selectedPointId={selectedPointId}
+                  onSelectPoint={setSelectedPointId}
+                  onAddPoint={handleAddPoint}
+                  onUpdatePoint={handleUpdatePoint}
+                  onDeletePoint={handleDeletePoint}
+                  onBatchImport={handleBatchImport}
+                />
+                {/* Left Resizer Drag Handle */}
+                <div
+                  className="resizer-handle resizer-right"
+                  onMouseDown={handleStartDragLeft}
+                  title="Drag to resize Coordinates panel"
+                />
+              </aside>
+            ) : (
+              <button
+                className="collapsed-edge-tab left-edge-tab"
+                title="Restore Coordinates Panel"
+                onClick={() => setIsLeftVisible(true)}
+              >
+                <MapPin size={13} />
+                <span>Coords</span>
+                <ChevronRight size={12} />
+              </button>
+            )}
 
-      {/* 4. Live Cursor Coordinate Status Bar */}
-      <StatusBar
-        cursorEasting={cursorCoord.easting}
-        cursorNorthing={cursorCoord.northing}
-        beaconCount={points.length}
-        parcelCount={parcels.length}
-        project={project}
-      />
+            {/* Center: Interactive 2D Vector CAD Canvas */}
+            <section className="workspace-center">
+              <CadCanvas
+                points={points}
+                parcels={parcels}
+                layers={layers}
+                activeTool={activeTool}
+                selectedPointId={selectedPointId}
+                selectedParcelId={selectedParcelId}
+                onSelectPoint={setSelectedPointId}
+                onSelectParcel={setSelectedParcelId}
+                onAddPointAtCoord={handleAddPointAtCoord}
+                onCursorMove={(e, n) => setCursorCoord({ easting: e, northing: n })}
+                setoutOverlay={setoutOverlay}
+                alignmentOverlay={alignmentOverlay}
+              />
+            </section>
+
+            {/* Right Side: Parcel Inspector & Layer Manager */}
+            {isRightVisible ? (
+              <aside className="workspace-sidebar right-sidebar" style={{ width: `${rightWidth}px` }}>
+                {/* Right Resizer Drag Handle */}
+                <div
+                  className="resizer-handle resizer-left"
+                  onMouseDown={handleStartDragRight}
+                  title="Drag to resize Inspector panel"
+                />
+                <ParcelInspector
+                  parcels={parcels}
+                  points={points}
+                  project={project}
+                  selectedParcelId={selectedParcelId}
+                  onSelectParcel={setSelectedParcelId}
+                  onAddParcel={handleAddParcel}
+                  onUpdateParcel={handleUpdateParcel}
+                  onDeleteParcel={handleDeleteParcel}
+                />
+                <LayerManager
+                  layers={layers}
+                  onToggleLayer={handleToggleLayer}
+                  onUpdateLayerValue={handleUpdateLayerValue}
+                />
+              </aside>
+            ) : (
+              <button
+                className="collapsed-edge-tab right-edge-tab"
+                title="Restore Inspector & Layers Panel"
+                onClick={() => setIsRightVisible(true)}
+              >
+                <ChevronLeft size={12} />
+                <span>Inspector</span>
+                <Layers size={13} />
+              </button>
+            )}
+          </main>
+
+          {/* 4. Live Cursor Coordinate Status Bar */}
+          <StatusBar
+            cursorEasting={cursorCoord.easting}
+            cursorNorthing={cursorCoord.northing}
+            beaconCount={points.length}
+            parcelCount={parcels.length}
+            project={project}
+          />
+        </>
+      )}
 
       {/* Quick COGO Modal */}
       <CogoCalculator
@@ -1040,6 +1070,17 @@ export const App: React.FC = () => {
           }
           setPoints(merged);
         }}
+      />
+
+      {/* Earth View Satellite & GIS Studio Modal */}
+      <EarthViewStudioModal
+        isOpen={isEarthViewOpen}
+        onClose={() => setIsEarthViewOpen(false)}
+        project={project}
+        points={points}
+        parcels={parcels}
+        selectedParcelId={selectedParcelId}
+        onSelectParcel={setSelectedParcelId}
       />
 
       {/* Horizontal Alignment & Earthworks Studio Modal */}

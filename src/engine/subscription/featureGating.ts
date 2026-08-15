@@ -20,7 +20,8 @@ export type FeatureId =
   | 'OFFLINE_BUSH_LICENSE'
   | 'ORGANIZATION_CREATE'
   | 'SURCON_STAMPING'
-  | 'LEGACY_BATCH_IMPORT';
+  | 'LEGACY_BATCH_IMPORT'
+  | 'EARTH_VIEW_STUDIO';
 
 export interface FeatureDefinition {
   id: FeatureId;
@@ -194,6 +195,17 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
       'Enterprise batch migration of historical cadastral archives',
       'Automatic coordinate system & Minna Belt projection detection',
       'Consortium shared project repository access'
+    ]
+  },
+  EARTH_VIEW_STUDIO: {
+    id: 'EARTH_VIEW_STUDIO',
+    name: 'Earth View Satellite & GIS Studio',
+    minTier: 'PROFESSIONAL',
+    tagline: 'High-resolution satellite imagery & OpenStreetMap basemaps with live Minna-to-WGS84 cadastral vector overlay.',
+    benefits: [
+      'Multi-source satellite imagery (Esri World Imagery HD, OSM, Google Hybrid, CartoDB)',
+      'Real-time Alpha Opacity slider for ground feature and fence line comparison',
+      '1-Click RFC 7946 GeoJSON and Google Earth 3D KML export & live launch'
     ]
   }
 };

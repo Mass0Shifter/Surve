@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
 import {
   generateTitleDeedPlanPDF,
+  generateCoordinateSchedulePDF,
   TdpRenderOptions,
   TdpStyleConfig,
   TdpAdjoiningConfig,
   TdpLayoutArrangement,
+  TdpElementTransform,
   DEFAULT_TDP_STYLE,
   DEFAULT_TDP_LAYOUT,
   TDP_THEME_PRESETS,
@@ -14,12 +16,14 @@ import {
 import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
 import { computeParcel, computeExtents } from '../../engine/cogo';
+import { computeCollisionFreeLayout } from '../../engine/cadastral/collisionEngine';
 import { UserProfile } from '../../engine/auth/authTypes';
 import { Organization } from '../../engine/organization/orgTypes';
 import {
   FileText,
   Download,
   Printer,
+  Table,
   Settings2,
   ShieldCheck,
   Grid,
@@ -34,7 +38,15 @@ import {
   Save,
   MapPin,
   Layout,
-  Type
+  Type,
+  Eye,
+  EyeOff,
+  Lock,
+  Unlock,
+  RotateCw,
+  Sparkles,
+  Search,
+  X
 } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
@@ -56,8 +68,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   isOpen,
   onClose
 }) => {
-  // Navigation Tabs: 'specs' (Plan Specs & Layout) | 'design' (Design & Template Studio)
-  const [activeTab, setActiveTab] = useState<'specs' | 'design'>('specs');
+  // Navigation Tabs: 'specs' (Plan Specs & Layout) | 'design' (Design & Template Studio) | 'layers' (Element Layers Inspector)
+  const [activeTab, setActiveTab] = useState<'specs' | 'design' | 'layers'>('specs');
 
   const [planType, setPlanType] = useState<'single_plot' | 'selected_plots' | 'layout'>('single_plot');
   const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
@@ -110,7 +122,65 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   // Preview Zoom Level (default 0.68 for perfect A4 portrait fit)
   const [previewZoom, setPreviewZoom] = useState<number>(0.68);
 
-  if (!isOpen) return null;
+  // Element Transforms (Position, Rotation, Scale, Visibility, Lock)
+  const [elementTransforms, setElementTransforms] = useState<Record<string, TdpElementTransform>>({});
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [transformMode, setTransformMode] = useState<'move' | 'scale' | 'rotate' | null>(null);
+  const [enableCollisionDeconfliction, setEnableCollisionDeconfliction] = useState<boolean>(false); // Opt-in default
+  const [layerSearchTerm, setLayerSearchTerm] = useState<string>('');
+
+  const [dragStartMouse, setDragStartMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragInitialOffset, setDragInitialOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
+  const getTransform = useCallback((key: string): TdpElementTransform => {
+    return elementTransforms[key] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
+  }, [elementTransforms]);
+
+  const updateTransform = useCallback((key: string, patch: Partial<TdpElementTransform>) => {
+    setElementTransforms(prev => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, hidden: false, locked: false }),
+        ...patch
+      }
+    }));
+  }, []);
+
+  const toggleVisibility = useCallback((key: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setElementTransforms(prev => {
+      const curr = prev[key] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
+      return {
+        ...prev,
+        [key]: { ...curr, hidden: !curr.hidden }
+      };
+    });
+  }, []);
+
+  const toggleLock = useCallback((key: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setElementTransforms(prev => {
+      const curr = prev[key] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
+      return {
+        ...prev,
+        [key]: { ...curr, locked: !curr.locked }
+      };
+    });
+  }, []);
+
+  const resetTransform = useCallback((key: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setElementTransforms(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const resetAllTransforms = useCallback(() => {
+    setElementTransforms({});
+    setSelectedElementId(null);
+  }, []);
 
   const selectedParcel = parcels.find(p => p.id === selectedParcelId) || parcels[0] || null;
   const isSinglePlot = planType === 'single_plot' && selectedParcel !== null;
@@ -161,8 +231,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const effectiveScaleRatio = activeScale === 0 ? Math.round(1000 / (autoFitScale / 2.94)) : activeScale;
   const pixelsPerMeter = activeScale === 0 ? autoFitScale : (1000 / activeScale) * 2.94;
 
-  const toSvgX = (easting: number) => svgWidth / 2 + (easting - centE) * pixelsPerMeter;
-  const toSvgY = (northing: number) => svgHeight / 2 - (northing - centN) * pixelsPerMeter;
+  const toSvgX = useCallback((easting: number) => svgWidth / 2 + (easting - centE) * pixelsPerMeter, [centE, pixelsPerMeter]);
+  const toSvgY = useCallback((northing: number) => svgHeight / 2 - (northing - centN) * pixelsPerMeter, [centN, pixelsPerMeter]);
 
   // Scale bar metrics
   const scaleBarMeters = effectiveScaleRatio <= 250 ? 10 : effectiveScaleRatio <= 500 ? 20 : effectiveScaleRatio <= 1000 ? 50 : effectiveScaleRatio <= 2000 ? 100 : 200;
@@ -174,6 +244,123 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const gEndE = Math.ceil((centE + (svgWidth / (2 * pixelsPerMeter))) / gridStep) * gridStep;
   const gStartN = Math.floor((centN - (svgHeight / (2 * pixelsPerMeter))) / gridStep) * gridStep;
   const gEndN = Math.ceil((centN + (svgHeight / (2 * pixelsPerMeter))) / gridStep) * gridStep;
+
+  // Extract manual offsets from elementTransforms
+  const combinedOffsets = useMemo(() => {
+    const offsets: Record<string, { dx: number; dy: number }> = {};
+    Object.entries(elementTransforms).forEach(([k, tf]) => {
+      if (tf.dx !== 0 || tf.dy !== 0) {
+        offsets[k] = { dx: tf.dx, dy: tf.dy };
+      }
+    });
+    return offsets;
+  }, [elementTransforms]);
+
+  // Compute Anti-Collision Spatial Layout for Preview
+  const resolvedLayout = useMemo(() => {
+    return computeCollisionFreeLayout({
+      parcels: targetParcels,
+      points: targetPoints,
+      toScreenX: toSvgX,
+      toScreenY: toSvgY,
+      beaconSize: styleConfig.beaconSize,
+      titleFontSize: isSinglePlot ? styleConfig.titleFontSize * 1.2 : styleConfig.titleFontSize * 0.9,
+      areaFontSize: isSinglePlot ? styleConfig.areaFontSize * 1.1 : styleConfig.areaFontSize * 0.9,
+      bearingFontSize: styleConfig.bearingFontSize * 1.15,
+      beaconFontSize: styleConfig.beaconFontSize * 1.25,
+      manualOffsets: combinedOffsets,
+      enableAutoDeconfliction: enableCollisionDeconfliction
+    });
+  }, [
+    targetParcels,
+    targetPoints,
+    toSvgX,
+    toSvgY,
+    styleConfig,
+    combinedOffsets,
+    enableCollisionDeconfliction,
+    isSinglePlot
+  ]);
+
+  const handleElementMouseDown = useCallback((entityId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const current = getTransform(entityId);
+    if (current.locked) return;
+    setSelectedElementId(entityId);
+    setTransformMode('move');
+    setDragStartMouse({ x: e.clientX, y: e.clientY });
+    setDragInitialOffset({ dx: current.dx, dy: current.dy });
+  }, [getTransform]);
+
+  const handleScaleHandleMouseDown = useCallback((entityId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const current = getTransform(entityId);
+    if (current.locked) return;
+    setSelectedElementId(entityId);
+    setTransformMode('scale');
+    setDragStartMouse({ x: e.clientX, y: e.clientY });
+    setDragInitialOffset({ dx: current.scale || 1.0, dy: 0 });
+  }, [getTransform]);
+
+  const handleRotateHandleMouseDown = useCallback((entityId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const current = getTransform(entityId);
+    if (current.locked) return;
+    setSelectedElementId(entityId);
+    setTransformMode('rotate');
+    setDragStartMouse({ x: e.clientX, y: e.clientY });
+    setDragInitialOffset({ dx: current.rotation || 0, dy: 0 });
+  }, [getTransform]);
+
+  const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!selectedElementId || !transformMode) return;
+    const current = getTransform(selectedElementId);
+    if (current.locked) return;
+
+    const deltaX = (e.clientX - dragStartMouse.x) / previewZoom;
+    const deltaY = (e.clientY - dragStartMouse.y) / previewZoom;
+
+    if (transformMode === 'move') {
+      updateTransform(selectedElementId, {
+        dx: Math.round(dragInitialOffset.dx + deltaX),
+        dy: Math.round(dragInitialOffset.dy + deltaY)
+      });
+    } else if (transformMode === 'scale') {
+      const scaleDelta = (deltaX + deltaY) * 0.015;
+      const newScale = Math.max(0.5, Math.min(2.8, (dragInitialOffset.dx + scaleDelta)));
+      updateTransform(selectedElementId, {
+        scale: parseFloat(newScale.toFixed(2))
+      });
+    } else if (transformMode === 'rotate') {
+      const rotDelta = Math.round(deltaX * 1.5);
+      const newRot = (((dragInitialOffset.dx + rotDelta) % 360) + 360) % 360;
+      updateTransform(selectedElementId, {
+        rotation: newRot > 180 ? newRot - 360 : newRot
+      });
+    }
+  }, [selectedElementId, transformMode, dragStartMouse, dragInitialOffset, previewZoom, getTransform, updateTransform]);
+
+  const handleSvgMouseUp = useCallback(() => {
+    setTransformMode(null);
+  }, []);
+
+  const filteredParcels = useMemo(() => {
+    if (!layerSearchTerm.trim()) return targetParcels;
+    const term = layerSearchTerm.toLowerCase();
+    return targetParcels.filter(p => (p.plotNumber || '').toLowerCase().includes(term) || (p.ownerName || '').toLowerCase().includes(term));
+  }, [targetParcels, layerSearchTerm]);
+
+  const filteredPoints = useMemo(() => {
+    if (!layerSearchTerm.trim()) return targetPoints;
+    const term = layerSearchTerm.toLowerCase();
+    return targetPoints.filter(pt => (pt.id || '').toLowerCase().includes(term));
+  }, [targetPoints, layerSearchTerm]);
+
+  const filteredDimensions = useMemo(() => {
+    if (!layerSearchTerm.trim()) return resolvedLayout.boundaryDimensions;
+    const term = layerSearchTerm.toLowerCase();
+    return resolvedLayout.boundaryDimensions.filter(d => (d.bearingStr || '').toLowerCase().includes(term) || (d.distStr || '').toLowerCase().includes(term));
+  }, [resolvedLayout.boundaryDimensions, layerSearchTerm]);
 
   const handleApplyTheme = (presetKey: string) => {
     if (TDP_THEME_PRESETS[presetKey]) {
@@ -216,7 +403,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       surveyorTitle: currentUser?.title,
       style: styleConfig,
       adjoining: adjoiningConfig,
-      layout: layoutArrangement
+      layout: layoutArrangement,
+      elementTransforms,
+      enableCollisionDeconfliction
     };
 
     const doc = generateTitleDeedPlanPDF(project, points, parcels, opts);
@@ -243,7 +432,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       surveyorTitle: currentUser?.title,
       style: styleConfig,
       adjoining: adjoiningConfig,
-      layout: layoutArrangement
+      layout: layoutArrangement,
+      elementTransforms,
+      enableCollisionDeconfliction
     };
 
     // Generate crisp vector PDF and trigger clean print window
@@ -252,6 +443,35 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     const blobUrl = doc.output('bloburl');
     window.open(blobUrl, '_blank');
   };
+
+  // Standalone Beacon Coordinate Schedule PDF Handlers
+  const handleExportCoordinateSchedule = () => {
+    const opts: Partial<TdpRenderOptions> = {
+      surveyorSealUrl: currentUser?.digitalSealUrl,
+      surveyorSignatureUrl: currentUser?.signatureUrl,
+      firmSealUrl: activeOrg?.officialSealUrl,
+      surconNumber: currentUser?.surconNumber || project.surveyorNumber,
+      surveyorTitle: currentUser?.title
+    };
+    const doc = generateCoordinateSchedulePDF(project, points, targetParcels, opts, currentUser, activeOrg);
+    doc.save(`Coordinate_Schedule_${project.code || 'PLAN'}.pdf`);
+  };
+
+  const handlePrintCoordinateSchedule = () => {
+    const opts: Partial<TdpRenderOptions> = {
+      surveyorSealUrl: currentUser?.digitalSealUrl,
+      surveyorSignatureUrl: currentUser?.signatureUrl,
+      firmSealUrl: activeOrg?.officialSealUrl,
+      surconNumber: currentUser?.surconNumber || project.surveyorNumber,
+      surveyorTitle: currentUser?.title
+    };
+    const doc = generateCoordinateSchedulePDF(project, points, targetParcels, opts, currentUser, activeOrg);
+    doc.autoPrint();
+    const blobUrl = doc.output('bloburl');
+    window.open(blobUrl, '_blank');
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div className="modal-overlay">
@@ -263,9 +483,27 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             <span>Title Deed Plan (TDP) Print Studio & Cadastral Suite</span>
           </div>
           <div className="header-actions-group">
+            <button
+              className="btn-secondary-sm"
+              onClick={handlePrintCoordinateSchedule}
+              title="Print Standalone A4 Beacon Coordinate Schedule"
+              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <Table size={14} className="text-cyan" />
+              <span>Print Schedule</span>
+            </button>
+            <button
+              className="btn-secondary-sm"
+              onClick={handleExportCoordinateSchedule}
+              title="Export Standalone A4 Beacon Coordinate Schedule PDF"
+              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <Download size={14} />
+              <span>Schedule PDF</span>
+            </button>
             <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan (Pure Vector Clean White)">
               <Printer size={14} />
-              <span>Print</span>
+              <span>Print Plan</span>
             </button>
             <button className="btn-primary-sm" onClick={handleDownloadPDF} title="Download Vector PDF (SURCON / FCDA Print-Ready)">
               <Download size={14} />
@@ -293,6 +531,13 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               >
                 <Palette size={13} />
                 <span>Design Studio</span>
+              </button>
+              <button
+                className={`tdp-tab-btn ${activeTab === 'layers' ? 'active' : ''}`}
+                onClick={() => setActiveTab('layers')}
+              >
+                <Layers size={13} />
+                <span>Layers {Object.keys(elementTransforms).length > 0 ? `(${Object.keys(elementTransforms).length})` : ''}</span>
               </button>
             </div>
 
@@ -1110,6 +1355,278 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                 </div>
               </>
             )}
+
+            {/* TAB 3: ELEMENT LAYERS INSPECTOR */}
+            {activeTab === 'layers' && (
+              <div className="tdp-layer-inspector">
+                <div className="sidebar-section-title">
+                  <Layers size={14} className="text-emerald" />
+                  <span>Cartographic Entity Layers</span>
+                </div>
+
+                {/* Search Bar */}
+                <div className="tdp-layer-search-box">
+                  <Search size={13} className="text-muted" />
+                  <input
+                    type="text"
+                    value={layerSearchTerm}
+                    onChange={(e) => setLayerSearchTerm(e.target.value)}
+                    placeholder="Search beacon, plot, or dimension..."
+                  />
+                  {layerSearchTerm && (
+                    <button className="tdp-layer-btn" onClick={() => setLayerSearchTerm('')}>
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Layer Group: Parcel Badges */}
+                <div className="tdp-layer-group">
+                  <div className="tdp-layer-group-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <MapPin size={12} className="text-emerald" />
+                      <span>Parcel Plot Badges</span>
+                    </div>
+                    <span className="tdp-layer-group-count">{filteredParcels.length}</span>
+                  </div>
+                  <div className="tdp-layer-list">
+                    {filteredParcels.map(p => {
+                      const entityKey = `parcel_${p.id}`;
+                      const tf = getTransform(entityKey);
+                      const isSelected = selectedElementId === entityKey;
+                      return (
+                        <div
+                          key={p.id}
+                          className={`tdp-layer-item ${isSelected ? 'selected' : ''} ${tf.hidden ? 'hidden-entity' : ''}`}
+                          onClick={() => setSelectedElementId(entityKey)}
+                        >
+                          <div className="tdp-layer-item-main">
+                            <span className="tdp-layer-item-title">{p.plotNumber}</span>
+                            {tf.scale !== 1.0 && tf.scale ? (
+                              <span style={{ fontSize: '9px', color: '#38bdf8', fontFamily: 'monospace' }}>{tf.scale}x</span>
+                            ) : null}
+                            {tf.rotation ? (
+                              <span style={{ fontSize: '9px', color: '#f59e0b', fontFamily: 'monospace' }}>{tf.rotation}°</span>
+                            ) : null}
+                          </div>
+                          <div className="tdp-layer-item-actions">
+                            <button
+                              className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
+                              title={tf.locked ? 'Unlock element' : 'Lock element position'}
+                              onClick={(e) => toggleLock(entityKey, e)}
+                            >
+                              {tf.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                            </button>
+                            <button
+                              className={`tdp-layer-btn ${!tf.hidden ? 'active' : ''}`}
+                              title={tf.hidden ? 'Show element' : 'Hide element'}
+                              onClick={(e) => toggleVisibility(entityKey, e)}
+                            >
+                              {tf.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                            </button>
+                            {(tf.dx !== 0 || tf.dy !== 0 || tf.scale !== 1.0 || tf.rotation !== 0 || tf.hidden) && (
+                              <button
+                                className="tdp-layer-btn"
+                                title="Reset transform"
+                                onClick={(e) => resetTransform(entityKey, e)}
+                              >
+                                <RotateCcw size={11} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Layer Group: Beacon Number Labels */}
+                <div className="tdp-layer-group">
+                  <div className="tdp-layer-group-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <ShieldCheck size={12} className="text-cyan" />
+                      <span>Beacon Numbers</span>
+                    </div>
+                    <span className="tdp-layer-group-count">{filteredPoints.length}</span>
+                  </div>
+                  <div className="tdp-layer-list">
+                    {filteredPoints.map(pt => {
+                      const entityKey = `beacon_${pt.id}`;
+                      const tf = getTransform(entityKey);
+                      const isSelected = selectedElementId === entityKey;
+                      return (
+                        <div
+                          key={pt.id}
+                          className={`tdp-layer-item ${isSelected ? 'selected' : ''} ${tf.hidden ? 'hidden-entity' : ''}`}
+                          onClick={() => setSelectedElementId(entityKey)}
+                        >
+                          <div className="tdp-layer-item-main">
+                            <span className="tdp-layer-item-title">{pt.id}</span>
+                            {pt.isControl && <span style={{ fontSize: '8px', color: '#f59e0b', fontWeight: 600 }}>CTRL</span>}
+                            {tf.scale !== 1.0 && tf.scale ? (
+                              <span style={{ fontSize: '9px', color: '#38bdf8', fontFamily: 'monospace' }}>{tf.scale}x</span>
+                            ) : null}
+                          </div>
+                          <div className="tdp-layer-item-actions">
+                            <button
+                              className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
+                              title={tf.locked ? 'Unlock element' : 'Lock element position'}
+                              onClick={(e) => toggleLock(entityKey, e)}
+                            >
+                              {tf.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                            </button>
+                            <button
+                              className={`tdp-layer-btn ${!tf.hidden ? 'active' : ''}`}
+                              title={tf.hidden ? 'Show element' : 'Hide element'}
+                              onClick={(e) => toggleVisibility(entityKey, e)}
+                            >
+                              {tf.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                            </button>
+                            {(tf.dx !== 0 || tf.dy !== 0 || tf.scale !== 1.0 || tf.rotation !== 0 || tf.hidden) && (
+                              <button
+                                className="tdp-layer-btn"
+                                title="Reset transform"
+                                onClick={(e) => resetTransform(entityKey, e)}
+                              >
+                                <RotateCcw size={11} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Layer Group: Boundary Leg Dimensions */}
+                <div className="tdp-layer-group">
+                  <div className="tdp-layer-group-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Compass size={12} className="text-amber" />
+                      <span>Boundary Dimensions</span>
+                    </div>
+                    <span className="tdp-layer-group-count">{filteredDimensions.length}</span>
+                  </div>
+                  <div className="tdp-layer-list">
+                    {filteredDimensions.map(dim => {
+                      const entityKey = `dim_${dim.key}`;
+                      const tf = getTransform(entityKey);
+                      const isSelected = selectedElementId === entityKey;
+                      return (
+                        <div
+                          key={dim.key}
+                          className={`tdp-layer-item ${isSelected ? 'selected' : ''} ${tf.hidden ? 'hidden-entity' : ''}`}
+                          onClick={() => setSelectedElementId(entityKey)}
+                        >
+                          <div className="tdp-layer-item-main">
+                            <span className="tdp-layer-item-title">{dim.bearingStr} {dim.distStr}</span>
+                            {tf.rotation ? (
+                              <span style={{ fontSize: '9px', color: '#f59e0b', fontFamily: 'monospace' }}>{tf.rotation}°</span>
+                            ) : null}
+                          </div>
+                          <div className="tdp-layer-item-actions">
+                            <button
+                              className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
+                              title={tf.locked ? 'Unlock element' : 'Lock element position'}
+                              onClick={(e) => toggleLock(entityKey, e)}
+                            >
+                              {tf.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                            </button>
+                            <button
+                              className={`tdp-layer-btn ${!tf.hidden ? 'active' : ''}`}
+                              title={tf.hidden ? 'Show element' : 'Hide element'}
+                              onClick={(e) => toggleVisibility(entityKey, e)}
+                            >
+                              {tf.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                            </button>
+                            {(tf.dx !== 0 || tf.dy !== 0 || tf.scale !== 1.0 || tf.rotation !== 0 || tf.hidden) && (
+                              <button
+                                className="tdp-layer-btn"
+                                title="Reset transform"
+                                onClick={(e) => resetTransform(entityKey, e)}
+                              >
+                                <RotateCcw size={11} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Layer Group: Sheet Layout Elements */}
+                <div className="tdp-layer-group">
+                  <div className="tdp-layer-group-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Layout size={12} className="text-indigo" />
+                      <span>Sheet Cartographic Elements</span>
+                    </div>
+                    <span className="tdp-layer-group-count">4</span>
+                  </div>
+                  <div className="tdp-layer-list">
+                    {[
+                      { key: 'elem_north_arrow', label: 'True North Arrow' },
+                      { key: 'elem_scale_bar', label: 'Bar Scale & Ratio' },
+                      { key: 'elem_coord_table', label: 'Beacon Coordinate Schedule' },
+                      { key: 'elem_seal_box', label: 'Surveyor Seal & Signature' }
+                    ].map(elem => {
+                      const tf = getTransform(elem.key);
+                      const isSelected = selectedElementId === elem.key;
+                      return (
+                        <div
+                          key={elem.key}
+                          className={`tdp-layer-item ${isSelected ? 'selected' : ''} ${tf.hidden ? 'hidden-entity' : ''}`}
+                          onClick={() => setSelectedElementId(elem.key)}
+                        >
+                          <div className="tdp-layer-item-main">
+                            <span className="tdp-layer-item-title">{elem.label}</span>
+                          </div>
+                          <div className="tdp-layer-item-actions">
+                            <button
+                              className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
+                              title={tf.locked ? 'Unlock element' : 'Lock element'}
+                              onClick={(e) => toggleLock(elem.key, e)}
+                            >
+                              {tf.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                            </button>
+                            <button
+                              className={`tdp-layer-btn ${!tf.hidden ? 'active' : ''}`}
+                              title={tf.hidden ? 'Show element' : 'Hide element'}
+                              onClick={(e) => toggleVisibility(elem.key, e)}
+                            >
+                              {tf.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                            </button>
+                            {(tf.hidden || tf.locked) && (
+                              <button
+                                className="tdp-layer-btn"
+                                title="Reset"
+                                onClick={(e) => resetTransform(elem.key, e)}
+                              >
+                                <RotateCcw size={11} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Reset All Action */}
+                {Object.keys(elementTransforms).length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ marginTop: '8px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={resetAllTransforms}
+                  >
+                    <RotateCcw size={13} />
+                    <span>Reset All Entity Customizations ({Object.keys(elementTransforms).length})</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right Live Print Preview Stage with Zoom Scale Controls */}
@@ -1139,7 +1656,110 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                 <Maximize2 size={12} className="inline-icon" />
                 <span>Fit</span>
               </button>
+
+              {/* Opt-In De-Clutter Button */}
+              <button
+                className="btn-secondary-xs"
+                title="Click to resolve overlapping text and beacon labels"
+                onClick={() => setEnableCollisionDeconfliction(prev => !prev)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: enableCollisionDeconfliction ? '#38bdf8' : '#94a3b8',
+                  background: enableCollisionDeconfliction ? 'rgba(56,189,248,0.12)' : undefined,
+                  borderColor: enableCollisionDeconfliction ? 'rgba(56,189,248,0.4)' : undefined
+                }}
+              >
+                <Sparkles size={12} />
+                <span>{enableCollisionDeconfliction ? 'De-Cluttered (On)' : 'De-Clutter Plan'}</span>
+              </button>
+
+              {/* Reset Custom Transforms Button */}
+              {Object.keys(elementTransforms).length > 0 && (
+                <button
+                  className="btn-secondary-xs"
+                  title="Reset custom manual positions, rotations and scales"
+                  onClick={resetAllTransforms}
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
+                >
+                  <RotateCcw size={12} />
+                  <span>Reset ({Object.keys(elementTransforms).length})</span>
+                </button>
+              )}
             </div>
+
+            {/* Floating Quick Action Toolbar for Selected Element */}
+            {selectedElementId && (
+              <div className="tdp-selected-quick-toolbar">
+                <span className="tdp-quick-title">
+                  {selectedElementId.startsWith('parcel_') ? `Plot: ${targetParcels.find(p => p.id === selectedElementId.replace('parcel_', ''))?.plotNumber || selectedElementId}`
+                    : selectedElementId.startsWith('beacon_') ? `Beacon: ${selectedElementId.replace('beacon_', '')}`
+                    : selectedElementId.startsWith('dim_') ? 'Dimension'
+                    : selectedElementId.replace('elem_', '').replace('_', ' ').toUpperCase()}
+                </span>
+                <button
+                  className="tdp-quick-btn"
+                  title="Scale Up (+10%)"
+                  onClick={() => {
+                    const curr = getTransform(selectedElementId);
+                    updateTransform(selectedElementId, { scale: parseFloat(((curr.scale || 1.0) + 0.1).toFixed(2)) });
+                  }}
+                >
+                  <span>A+</span>
+                </button>
+                <button
+                  className="tdp-quick-btn"
+                  title="Scale Down (-10%)"
+                  onClick={() => {
+                    const curr = getTransform(selectedElementId);
+                    updateTransform(selectedElementId, { scale: Math.max(0.5, parseFloat(((curr.scale || 1.0) - 0.1).toFixed(2))) });
+                  }}
+                >
+                  <span>A-</span>
+                </button>
+                <button
+                  className="tdp-quick-btn"
+                  title="Rotate +15°"
+                  onClick={() => {
+                    const curr = getTransform(selectedElementId);
+                    updateTransform(selectedElementId, { rotation: ((curr.rotation || 0) + 15) % 360 });
+                  }}
+                >
+                  <RotateCw size={11} />
+                  <span>+15°</span>
+                </button>
+                <button
+                  className="tdp-quick-btn"
+                  title={getTransform(selectedElementId).locked ? 'Unlock element' : 'Lock element position'}
+                  onClick={() => toggleLock(selectedElementId)}
+                >
+                  {getTransform(selectedElementId).locked ? <Lock size={11} /> : <Unlock size={11} />}
+                </button>
+                <button
+                  className="tdp-quick-btn"
+                  title="Hide Element"
+                  onClick={() => toggleVisibility(selectedElementId)}
+                >
+                  <EyeOff size={11} />
+                  <span>Hide</span>
+                </button>
+                <button
+                  className="tdp-quick-btn"
+                  title="Reset Element Transform"
+                  onClick={() => resetTransform(selectedElementId)}
+                >
+                  <RotateCcw size={11} />
+                </button>
+                <button
+                  className="tdp-quick-btn danger"
+                  title="Deselect"
+                  onClick={() => setSelectedElementId(null)}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            )}
 
             <div className="tdp-canvas-scaler" style={{ transform: `scale(${previewZoom})` }}>
               <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
@@ -1179,6 +1799,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         <svg
                           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
                           className="tdp-vector-svg"
+                          onMouseMove={handleSvgMouseMove}
+                          onMouseUp={handleSvgMouseUp}
+                          onMouseLeave={handleSvgMouseUp}
                         >
                           <defs>
                             <pattern id="svg-diag-hatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
@@ -1378,9 +2001,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             </g>
                           )}
 
-                          {/* 2. Parcel Vector Polygons & Labels */}
+                          {/* 2. Parcel Vector Polygons & Shading */}
                           {(() => {
-                            const renderedEdges = new Set<string>();
                             const strokeDash = styleConfig.boundaryLineStyle === 'dashed' ? '6 4' : styleConfig.boundaryLineStyle === 'dashdot' ? '6 3 2 3' : undefined;
                             const fillStyle = styleConfig.fillOpacity > 0
                               ? (styleConfig.hatchPattern === 'diagonal' ? 'url(#svg-diag-hatch)' : styleConfig.hatchPattern === 'cross' ? 'url(#svg-cross-hatch)' : styleConfig.fillColor)
@@ -1395,11 +2017,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
                                 .join(' ');
 
-                              const centSvgX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
-                              const centSvgY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
-
                               return (
-                                <g key={parcel.id} className="svg-parcel-group">
+                                <g key={parcel.id} className="svg-parcel-polygon-group">
                                   {/* Shaded Polygon Fill & Stroke */}
                                   <polygon
                                     points={polyPoints}
@@ -1410,198 +2029,228 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     strokeDasharray={strokeDash}
                                     strokeLinejoin="round"
                                   />
-
-                                  {/* Centroid Badge */}
-                                  <text
-                                    x={centSvgX}
-                                    y={centSvgY - (isSinglePlot ? 5 : 2)}
-                                    textAnchor="middle"
-                                    fontWeight="bold"
-                                    fontSize={isSinglePlot ? `${styleConfig.titleFontSize * 1.2}` : `${styleConfig.titleFontSize * 0.9}`}
-                                    fill="#0f172a"
-                                    style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
-                                  >
-                                    {parcel.plotNumber}
-                                  </text>
-                                  {parcel.ownerName && isSinglePlot && (
-                                    <text
-                                      x={centSvgX}
-                                      y={centSvgY + 7}
-                                      textAnchor="middle"
-                                      fontSize={`${styleConfig.titleFontSize * 0.8}`}
-                                      fill="#475569"
-                                      style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
-                                    >
-                                      {parcel.ownerName}
-                                    </text>
-                                  )}
-                                  <text
-                                    x={centSvgX}
-                                    y={centSvgY + (isSinglePlot ? 19 : 9)}
-                                    textAnchor="middle"
-                                    fontWeight="bold"
-                                    fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.1}` : `${styleConfig.areaFontSize * 0.9}`}
-                                    fill={styleConfig.boundaryColor}
-                                    fontFamily="monospace"
-                                    style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
-                                  >
-                                    {comp.areaSquareMeters.toFixed(2)} m² ({comp.areaHectares.toFixed(4)} Ha)
-                                  </text>
-
-                                  {/* Leg Bearings & Distances */}
-                                  {comp.legs.map((leg, lidx) => {
-                                    const edgeKey = [leg.fromPoint.id, leg.toPoint.id].sort().join('--');
-                                    if (renderedEdges.has(edgeKey)) return null;
-                                    renderedEdges.add(edgeKey);
-
-                                    const p1 = { x: toSvgX(leg.fromPoint.easting), y: toSvgY(leg.fromPoint.northing) };
-                                    const p2 = { x: toSvgX(leg.toPoint.easting), y: toSvgY(leg.toPoint.northing) };
-
-                                    const dx = p2.x - p1.x;
-                                    const dy = p2.y - p1.y;
-                                    const len = Math.hypot(dx, dy);
-                                    if (len < 1) return null;
-
-                                    let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
-                                    if (angleDeg > 90 || angleDeg < -90) {
-                                      angleDeg += 180;
-                                    }
-
-                                    const midX = (p1.x + p2.x) / 2;
-                                    const midY = (p1.y + p2.y) / 2;
-
-                                    let normX = -dy / len;
-                                    let normY = dx / len;
-                                    const toCentX = centSvgX - midX;
-                                    const toCentY = centSvgY - midY;
-                                    if (normX * toCentX + normY * toCentY > 0) {
-                                      normX = -normX;
-                                      normY = -normY;
-                                    }
-
-                                    const offsetPx = 5.0;
-                                    const textCenterX = midX + normX * offsetPx;
-                                    const textCenterY = midY + normY * offsetPx;
-
-                                    return (
-                                      <g key={lidx} transform={`translate(${textCenterX}, ${textCenterY}) rotate(${angleDeg})`}>
-                                        <text
-                                          x={0}
-                                          y={-1.5}
-                                          textAnchor="middle"
-                                          dominantBaseline="auto"
-                                          fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                          fontWeight="bold"
-                                          fontFamily="monospace"
-                                          fill="#0f172a"
-                                          style={{
-                                            paintOrder: 'stroke fill',
-                                            stroke: '#ffffff',
-                                            strokeWidth: '3.5px',
-                                            strokeLinecap: 'round',
-                                            strokeLinejoin: 'round'
-                                          }}
-                                        >
-                                          {leg.bearing.formatted}
-                                        </text>
-                                        <text
-                                          x={0}
-                                          y={7.5}
-                                          textAnchor="middle"
-                                          dominantBaseline="auto"
-                                          fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                          fontWeight="bold"
-                                          fontFamily="monospace"
-                                          fill="#0f172a"
-                                          style={{
-                                            paintOrder: 'stroke fill',
-                                            stroke: '#ffffff',
-                                            strokeWidth: '3.5px',
-                                            strokeLinecap: 'round',
-                                            strokeLinejoin: 'round'
-                                          }}
-                                        >
-                                          {leg.distance.toFixed(2)}m
-                                        </text>
-                                      </g>
-                                    );
-                                  })}
                                 </g>
                               );
                             });
                           })()}
 
-                          {/* 3. Beacon / Control Pillar Symbols & Labels */}
+                          {/* 3. De-Conflicted Parcel Centroid Badges (Interactive Drag & Transform) */}
+                          {resolvedLayout.parcelBadges.map(badge => {
+                            const entityKey = `parcel_${badge.parcelId}`;
+                            const tf = getTransform(entityKey);
+                            if (tf.hidden) return null;
+                            const isSelected = selectedElementId === entityKey;
+                            const scale = tf.scale || 1.0;
+                            const rot = tf.rotation || 0;
+
+                            return (
+                              <g
+                                key={badge.id}
+                                className={`svg-parcel-badge-group ${isSelected ? 'selected' : ''}`}
+                                style={{ cursor: tf.locked ? 'default' : 'move' }}
+                                transform={`translate(${badge.x}, ${badge.y}) rotate(${rot}) scale(${scale}) translate(${-badge.x}, ${-badge.y})`}
+                                onMouseDown={(e) => handleElementMouseDown(entityKey, e)}
+                              >
+                                {/* Dynamic Leader line when displaced */}
+                                {badge.hasLeaderLine && (
+                                  <line
+                                    x1={badge.anchorX}
+                                    y1={badge.anchorY}
+                                    x2={badge.x}
+                                    y2={badge.y}
+                                    stroke="#64748b"
+                                    strokeWidth="1.2"
+                                    strokeDasharray="3 2"
+                                  />
+                                )}
+
+                                {/* Selection Bounding Box & Handles */}
+                                {isSelected && (
+                                  <g className="element-selection-gizmo">
+                                    <rect
+                                      x={badge.x - 42}
+                                      y={badge.y - 20}
+                                      width={84}
+                                      height={40}
+                                      fill="rgba(56,189,248,0.08)"
+                                      stroke="#38bdf8"
+                                      strokeWidth="1.2"
+                                      strokeDasharray="3 2"
+                                      rx="4"
+                                    />
+                                    {/* Scale Handle */}
+                                    <rect
+                                      x={badge.x + 38}
+                                      y={badge.y + 16}
+                                      width="8"
+                                      height="8"
+                                      fill="#38bdf8"
+                                      stroke="#ffffff"
+                                      strokeWidth="1"
+                                      cursor="nwse-resize"
+                                      onMouseDown={(e) => handleScaleHandleMouseDown(entityKey, e)}
+                                    />
+                                    {/* Rotate Handle */}
+                                    <line x1={badge.x} y1={badge.y - 20} x2={badge.x} y2={badge.y - 30} stroke="#38bdf8" strokeWidth="1" />
+                                    <circle
+                                      cx={badge.x}
+                                      cy={badge.y - 30}
+                                      r="4.5"
+                                      fill="#38bdf8"
+                                      stroke="#ffffff"
+                                      strokeWidth="1"
+                                      cursor="crosshair"
+                                      onMouseDown={(e) => handleRotateHandleMouseDown(entityKey, e)}
+                                    />
+                                  </g>
+                                )}
+
+                                <text
+                                  x={badge.x}
+                                  y={badge.y - (isSinglePlot ? 5 : 2)}
+                                  textAnchor="middle"
+                                  fontWeight="bold"
+                                  fontSize={isSinglePlot ? `${styleConfig.titleFontSize * 1.2}` : `${styleConfig.titleFontSize * 0.9}`}
+                                  fill="#0f172a"
+                                  style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                >
+                                  {badge.plotNumber}
+                                </text>
+                                {badge.ownerName && isSinglePlot && (
+                                  <text
+                                    x={badge.x}
+                                    y={badge.y + 7}
+                                    textAnchor="middle"
+                                    fontSize={`${styleConfig.titleFontSize * 0.8}`}
+                                    fill="#475569"
+                                    style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2.5px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                  >
+                                    {badge.ownerName}
+                                  </text>
+                                )}
+                                <text
+                                  x={badge.x}
+                                  y={badge.y + (isSinglePlot ? 19 : 9)}
+                                  textAnchor="middle"
+                                  fontWeight="bold"
+                                  fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.1}` : `${styleConfig.areaFontSize * 0.9}`}
+                                  fill={styleConfig.boundaryColor}
+                                  fontFamily="monospace"
+                                  style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                >
+                                  {badge.areaText}
+                                </text>
+                              </g>
+                            );
+                          })}
+
+                          {/* 4. Boundary Leg Bearings & Distances (Interactive Drag & Transform) */}
+                          {resolvedLayout.boundaryDimensions.map(dim => {
+                            const entityKey = `dim_${dim.key}`;
+                            const tf = getTransform(entityKey);
+                            if (tf.hidden) return null;
+                            const isSelected = selectedElementId === entityKey;
+                            const scale = tf.scale || 1.0;
+                            const totalRot = dim.angleDeg + (tf.rotation || 0);
+
+                            return (
+                              <g
+                                key={dim.key}
+                                transform={`translate(${dim.x}, ${dim.y}) rotate(${totalRot}) scale(${scale})`}
+                                style={{ cursor: tf.locked ? 'default' : 'move' }}
+                                onMouseDown={(e) => handleElementMouseDown(entityKey, e)}
+                              >
+                                {isSelected && (
+                                  <g className="element-selection-gizmo">
+                                    <rect
+                                      x={-34}
+                                      y={-12}
+                                      width={68}
+                                      height={28}
+                                      fill="rgba(56,189,248,0.08)"
+                                      stroke="#38bdf8"
+                                      strokeWidth="1.2"
+                                      strokeDasharray="3 2"
+                                      rx="3"
+                                    />
+                                    <rect
+                                      x={30}
+                                      y={12}
+                                      width="7"
+                                      height="7"
+                                      fill="#38bdf8"
+                                      stroke="#ffffff"
+                                      strokeWidth="1"
+                                      cursor="nwse-resize"
+                                      onMouseDown={(e) => handleScaleHandleMouseDown(entityKey, e)}
+                                    />
+                                    <line x1={0} y1={-12} x2={0} y2={-20} stroke="#38bdf8" strokeWidth="1" />
+                                    <circle
+                                      cx={0}
+                                      cy={-20}
+                                      r="4"
+                                      fill="#38bdf8"
+                                      stroke="#ffffff"
+                                      strokeWidth="1"
+                                      cursor="crosshair"
+                                      onMouseDown={(e) => handleRotateHandleMouseDown(entityKey, e)}
+                                    />
+                                  </g>
+                                )}
+
+                                <text
+                                  x={0}
+                                  y={-1.5}
+                                  textAnchor="middle"
+                                  dominantBaseline="auto"
+                                  fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                  fontWeight="bold"
+                                  fontFamily="monospace"
+                                  fill="#0f172a"
+                                  style={{
+                                    paintOrder: 'stroke fill',
+                                    stroke: '#ffffff',
+                                    strokeWidth: '3.5px',
+                                    strokeLinecap: 'round',
+                                    strokeLinejoin: 'round'
+                                  }}
+                                >
+                                  {dim.bearingStr}
+                                </text>
+                                <text
+                                  x={0}
+                                  y={7.5}
+                                  textAnchor="middle"
+                                  dominantBaseline="auto"
+                                  fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                  fontWeight="bold"
+                                  fontFamily="monospace"
+                                  fill="#0f172a"
+                                  style={{
+                                    paintOrder: 'stroke fill',
+                                    stroke: '#ffffff',
+                                    strokeWidth: '3.5px',
+                                    strokeLinecap: 'round',
+                                    strokeLinejoin: 'round'
+                                  }}
+                                >
+                                  {dim.distStr}
+                                </text>
+                              </g>
+                            );
+                          })}
+
+                          {/* 5. Beacon Symbols & De-Conflicted Labels (Interactive Drag & Transform) */}
                           {targetPoints.map(pt => {
                             const bx = toSvgX(pt.easting);
                             const by = toSvgY(pt.northing);
                             const bRad = (styleConfig.beaconSize || 1.4) * 2.2;
+                            const entityKey = `beacon_${pt.id}`;
+                            const tf = getTransform(entityKey);
+                            const lbl = resolvedLayout.beaconLabels.find(l => l.pointId === pt.id);
+                            const isSelected = selectedElementId === entityKey;
 
-                            let offX = 6;
-                            let offY = -4;
-                            let textAnchor: 'start' | 'middle' | 'end' = 'start';
-
-                            if (targetParcels.length > 0) {
-                              for (const parcel of targetParcels) {
-                                const idx = parcel.pointIds.indexOf(pt.id);
-                                if (idx !== -1) {
-                                  const comp = computeParcel(parcel, points);
-                                  if (comp && comp.vertices.length >= 3) {
-                                    const n = parcel.pointIds.length;
-                                    const vCentX = comp.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / comp.vertices.length;
-                                    const vCentY = comp.vertices.reduce((s, v) => s + toSvgY(v.northing), 0) / comp.vertices.length;
-
-                                    const prevId = parcel.pointIds[(idx - 1 + n) % n];
-                                    const nextId = parcel.pointIds[(idx + 1) % n];
-                                    const prevPt = points.find(p => p.id === prevId);
-                                    const nextPt = points.find(p => p.id === nextId);
-
-                                    if (prevPt && nextPt) {
-                                      const px = toSvgX(prevPt.easting);
-                                      const py = toSvgY(prevPt.northing);
-                                      const nx = toSvgX(nextPt.easting);
-                                      const ny = toSvgY(nextPt.northing);
-
-                                      const v1x = bx - px;
-                                      const v1y = by - py;
-                                      const v2x = nx - bx;
-                                      const v2y = ny - by;
-                                      const l1 = Math.hypot(v1x, v1y) || 1;
-                                      const l2 = Math.hypot(v2x, v2y) || 1;
-
-                                      const u1x = v1x / l1;
-                                      const u1y = v1y / l1;
-                                      const u2x = v2x / l2;
-                                      const u2y = v2y / l2;
-
-                                      let normX = -(u1y + u2y);
-                                      let normY = (u1x + u2x);
-                                      let normL = Math.hypot(normX, normY);
-
-                                      if (normL < 0.01) {
-                                        normX = bx - vCentX;
-                                        normY = by - vCentY;
-                                        normL = Math.hypot(normX, normY) || 1;
-                                      }
-
-                                      normX /= normL;
-                                      normY /= normL;
-
-                                      if (normX * (bx - vCentX) + normY * (by - vCentY) < 0) {
-                                        normX = -normX;
-                                        normY = -normY;
-                                      }
-
-                                      const dist = 9;
-                                      offX = normX * dist;
-                                      offY = normY * dist + (normY < -0.2 ? -2 : normY > 0.2 ? 6 : 2);
-                                      textAnchor = normX < -0.3 ? 'end' : normX > 0.3 ? 'start' : 'middle';
-                                      break;
-                                    }
-                                  }
-                                }
-                              }
-                            }
+                            if (tf.hidden) return null;
 
                             return (
                               <g key={pt.id} className="svg-beacon-group">
@@ -1619,23 +2268,82 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     <line x1={bx} y1={by - bRad} x2={bx} y2={by + bRad} stroke="#ffffff" strokeWidth="0.6" />
                                   </>
                                 )}
-                                <text
-                                  x={bx + offX}
-                                  y={by + offY}
-                                  textAnchor={textAnchor}
-                                  fontSize={`${styleConfig.beaconFontSize * 1.25}`}
-                                  fontWeight="bold"
-                                  fill="#0f172a"
-                                  style={{
-                                    paintOrder: 'stroke fill',
-                                    stroke: '#ffffff',
-                                    strokeWidth: '3.5px',
-                                    strokeLinecap: 'round',
-                                    strokeLinejoin: 'round'
-                                  }}
-                                >
-                                  {pt.id}
-                                </text>
+
+                                {lbl && (
+                                  <g
+                                    style={{ cursor: tf.locked ? 'default' : 'move' }}
+                                    transform={`translate(${lbl.x}, ${lbl.y}) rotate(${tf.rotation || 0}) scale(${tf.scale || 1.0}) translate(${-lbl.x}, ${-lbl.y})`}
+                                    onMouseDown={(e) => handleElementMouseDown(entityKey, e)}
+                                  >
+                                    {lbl.hasLeaderLine && (
+                                      <line
+                                        x1={lbl.anchorX}
+                                        y1={lbl.anchorY}
+                                        x2={lbl.x}
+                                        y2={lbl.y}
+                                        stroke="#64748b"
+                                        strokeWidth="1"
+                                        strokeDasharray="2 2"
+                                      />
+                                    )}
+
+                                    {isSelected && (
+                                      <g className="element-selection-gizmo">
+                                        <rect
+                                          x={lbl.x - 18}
+                                          y={lbl.y - 14}
+                                          width={36}
+                                          height={22}
+                                          fill="rgba(56,189,248,0.08)"
+                                          stroke="#38bdf8"
+                                          strokeWidth="1.2"
+                                          strokeDasharray="3 2"
+                                          rx="3"
+                                        />
+                                        <rect
+                                          x={lbl.x + 14}
+                                          y={lbl.y + 4}
+                                          width="6"
+                                          height="6"
+                                          fill="#38bdf8"
+                                          stroke="#ffffff"
+                                          strokeWidth="0.8"
+                                          cursor="nwse-resize"
+                                          onMouseDown={(e) => handleScaleHandleMouseDown(entityKey, e)}
+                                        />
+                                        <line x1={lbl.x} y1={lbl.y - 14} x2={lbl.x} y2={lbl.y - 22} stroke="#38bdf8" strokeWidth="1" />
+                                        <circle
+                                          cx={lbl.x}
+                                          cy={lbl.y - 22}
+                                          r="3.5"
+                                          fill="#38bdf8"
+                                          stroke="#ffffff"
+                                          strokeWidth="0.8"
+                                          cursor="crosshair"
+                                          onMouseDown={(e) => handleRotateHandleMouseDown(entityKey, e)}
+                                        />
+                                      </g>
+                                    )}
+
+                                    <text
+                                      x={lbl.x}
+                                      y={lbl.y}
+                                      textAnchor={lbl.textAnchor}
+                                      fontSize={`${styleConfig.beaconFontSize * 1.25}`}
+                                      fontWeight="bold"
+                                      fill="#0f172a"
+                                      style={{
+                                        paintOrder: 'stroke fill',
+                                        stroke: '#ffffff',
+                                        strokeWidth: '3.5px',
+                                        strokeLinecap: 'round',
+                                        strokeLinejoin: 'round'
+                                      }}
+                                    >
+                                      {pt.id}
+                                    </text>
+                                  </g>
+                                )}
                               </g>
                             );
                           })}
@@ -1670,40 +2378,48 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         )}
 
                         {/* North Arrow with Dynamic Positioning */}
-                        <div
-                          className="tdp-north-arrow"
-                          style={{
-                            top: layoutArrangement.northArrowPosition === 'bottom_right' ? 'auto' : '10px',
-                            bottom: layoutArrangement.northArrowPosition === 'bottom_right' ? '14px' : 'auto',
-                            right: layoutArrangement.northArrowPosition === 'top_left' ? 'auto' : '12px',
-                            left: layoutArrangement.northArrowPosition === 'top_left' ? '12px' : 'auto'
-                          }}
-                        >
-                          <div className="arrow-head">N</div>
-                          <div className="arrow-stem" />
-                          <div className="arrow-label">GRID NORTH</div>
-                        </div>
+                        {!getTransform('elem_north_arrow').hidden && (
+                          <div
+                            className={`tdp-north-arrow ${selectedElementId === 'elem_north_arrow' ? 'selected' : ''}`}
+                            onClick={() => setSelectedElementId('elem_north_arrow')}
+                            style={{
+                              top: layoutArrangement.northArrowPosition === 'bottom_right' ? 'auto' : '10px',
+                              bottom: layoutArrangement.northArrowPosition === 'bottom_right' ? '14px' : 'auto',
+                              right: layoutArrangement.northArrowPosition === 'top_left' ? 'auto' : '12px',
+                              left: layoutArrangement.northArrowPosition === 'top_left' ? '12px' : 'auto',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div className="arrow-head">N</div>
+                            <div className="arrow-stem" />
+                            <div className="arrow-label">GRID NORTH</div>
+                          </div>
+                        )}
 
                         {/* Dynamic Metric Bar Scale with Dynamic Positioning */}
-                        <div
-                          className="tdp-scale-bar-box"
-                          style={{
-                            left: layoutArrangement.scaleBarPosition === 'bottom_right' ? 'auto' : '12px',
-                            right: layoutArrangement.scaleBarPosition === 'bottom_right' ? '12px' : 'auto',
-                            top: layoutArrangement.scaleBarPosition === 'top_left' ? '10px' : 'auto',
-                            bottom: layoutArrangement.scaleBarPosition === 'top_left' ? 'auto' : '8px'
-                          }}
-                        >
-                          <div className="scale-bar-graphic" style={{ width: `${Math.min(160, Math.max(40, scaleBarPx))}px` }}>
-                            <div className="scale-bar-fill" />
+                        {!getTransform('elem_scale_bar').hidden && (
+                          <div
+                            className={`tdp-scale-bar-box ${selectedElementId === 'elem_scale_bar' ? 'selected' : ''}`}
+                            onClick={() => setSelectedElementId('elem_scale_bar')}
+                            style={{
+                              left: layoutArrangement.scaleBarPosition === 'bottom_right' ? 'auto' : '12px',
+                              right: layoutArrangement.scaleBarPosition === 'bottom_right' ? '12px' : 'auto',
+                              top: layoutArrangement.scaleBarPosition === 'top_left' ? '10px' : 'auto',
+                              bottom: layoutArrangement.scaleBarPosition === 'top_left' ? 'auto' : '8px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div className="scale-bar-graphic" style={{ width: `${Math.min(160, Math.max(40, scaleBarPx))}px` }}>
+                              <div className="scale-bar-fill" />
+                            </div>
+                            <div className="scale-bar-text">
+                              <span>0</span>
+                              <span>{scaleBarMeters / 2}m</span>
+                              <span>{scaleBarMeters} METRES</span>
+                            </div>
+                            <div className="scale-ratio-text">SCALE 1:{effectiveScaleRatio}</div>
                           </div>
-                          <div className="scale-bar-text">
-                            <span>0</span>
-                            <span>{scaleBarMeters / 2}m</span>
-                            <span>{scaleBarMeters} METRES</span>
-                          </div>
-                          <div className="scale-ratio-text">SCALE 1:{effectiveScaleRatio}</div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Right Sidebar Column Mode (when layout is right_sidebar) */}
@@ -1718,8 +2434,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           background: '#fafafa',
                           fontSize: '8px'
                         }}>
-                          {showCoordinateTable && layoutArrangement.coordTablePosition === 'right_column' && (
-                            <div className="tdp-coord-schedule-table" style={{ width: '100%' }}>
+                          {showCoordinateTable && !getTransform('elem_coord_table').hidden && layoutArrangement.coordTablePosition === 'right_column' && (
+                            <div
+                              className="tdp-coord-schedule-table"
+                              style={{ width: '100%', cursor: 'pointer' }}
+                              onClick={() => setSelectedElementId('elem_coord_table')}
+                            >
                               <div className="schedule-table-title">COORDINATE SCHEDULE</div>
                               <table>
                                 <thead>
@@ -1742,8 +2462,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             </div>
                           )}
 
-                          {showSealBox && layoutArrangement.sealBoxPosition === 'right_column' && (
-                            <div className="tdp-seal-block" style={{ width: '100%', position: 'relative' }}>
+                          {showSealBox && !getTransform('elem_seal_box').hidden && layoutArrangement.sealBoxPosition === 'right_column' && (
+                            <div
+                              className="tdp-seal-block"
+                              style={{ width: '100%', position: 'relative', cursor: 'pointer' }}
+                              onClick={() => setSelectedElementId('elem_seal_box')}
+                            >
                               <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
                               <div className="cert-body" style={{ fontSize: '7px', lineHeight: 1.2 }}>
                                 Certified surveyed by me or under my direct supervision.
@@ -1764,12 +2488,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                     {/* Standard Bottom Footer (when not right sidebar) */}
                     {layoutArrangement.coordTablePosition !== 'right_column' && layoutArrangement.sealBoxPosition !== 'right_column' && (
                       <div className="tdp-plan-footer">
-                        {showCoordinateTable && layoutArrangement.coordTablePosition !== 'hidden' && layoutArrangement.coordTablePosition !== 'top_right' && (
+                        {showCoordinateTable && !getTransform('elem_coord_table').hidden && layoutArrangement.coordTablePosition !== 'hidden' && layoutArrangement.coordTablePosition !== 'top_right' && (
                           <div
                             className="tdp-coord-schedule-table"
                             style={{
-                              order: layoutArrangement.coordTablePosition === 'bottom_right' ? 2 : 1
+                              order: layoutArrangement.coordTablePosition === 'bottom_right' ? 2 : 1,
+                              cursor: 'pointer'
                             }}
+                            onClick={() => setSelectedElementId('elem_coord_table')}
                           >
                             <div className="schedule-table-title">COORDINATE SCHEDULE (MINNA DATUM)</div>
                             <table>
@@ -1795,13 +2521,15 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           </div>
                         )}
 
-                        {showSealBox && (
+                        {showSealBox && !getTransform('elem_seal_box').hidden && (
                           <div
                             className="tdp-seal-block"
                             style={{
                               order: layoutArrangement.sealBoxPosition === 'bottom_left' ? 1 : 2,
-                              width: layoutArrangement.sealBoxPosition === 'bottom_center' ? '98%' : undefined
+                              width: layoutArrangement.sealBoxPosition === 'bottom_center' ? '98%' : undefined,
+                              cursor: 'pointer'
                             }}
+                            onClick={() => setSelectedElementId('elem_seal_box')}
                           >
                             <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
                             <div className="cert-body">
