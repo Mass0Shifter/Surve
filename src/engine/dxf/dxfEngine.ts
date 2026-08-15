@@ -57,6 +57,17 @@ export function parseDWG(buffer: ArrayBuffer | Uint8Array): DXFParseResult {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
+  // 0. Sniff if the file is actually ASCII DXF format (e.g. renamed or exported with .dwg extension)
+  try {
+    const textSnippet = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, 1024));
+    if (textSnippet.includes('SECTION') && (textSnippet.includes('HEADER') || textSnippet.includes('ENTITIES') || textSnippet.includes('BLOCKS') || textSnippet.includes('TABLES'))) {
+      const fullText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+      return parseDXF(fullText);
+    }
+  } catch {
+    // Continue binary parsing
+  }
+
   // 1. Sniff 6-byte magic header
   let magic = '';
   for (let i = 0; i < Math.min(6, bytes.length); i++) {
@@ -68,18 +79,18 @@ export function parseDWG(buffer: ArrayBuffer | Uint8Array): DXFParseResult {
   const importedParcels: Parcel[] = [];
   const layersFoundSet = new Set<string>(['0', 'DEFPOINTS', 'SURVEY']);
 
-  // 2. Extract ASCII & UTF-16 text entities (beacon IDs, plot numbers, layer names)
+  // 2. Extract ASCII (1-byte) & UTF-16LE (2-byte) text entities (beacon IDs, plot numbers, layer names)
   const extractedStrings: string[] = [];
-  let currentAscii = '';
 
+  // Pass 1: ASCII string extractor
+  let currentAscii = '';
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
     if ((b >= 32 && b <= 126) || b === 9) {
       currentAscii += String.fromCharCode(b);
     } else {
-      if (currentAscii.length >= 2 && currentAscii.length <= 48) {
+      if (currentAscii.length >= 2 && currentAscii.length <= 64) {
         const trimmed = currentAscii.trim();
-        // Check if looks like a beacon ID, plot label, or layer
         if (trimmed && !/^[\x00-\x1F\x7F]+$/.test(trimmed)) {
           extractedStrings.push(trimmed);
           if (trimmed.toUpperCase().includes('LAYER') || trimmed.toUpperCase().includes('BEACON') || trimmed.toUpperCase().includes('PARCEL') || trimmed.toUpperCase().includes('BOUNDARY') || trimmed.toUpperCase().includes('LOT')) {
@@ -91,11 +102,31 @@ export function parseDWG(buffer: ArrayBuffer | Uint8Array): DXFParseResult {
     }
   }
 
+  // Pass 2: UTF-16LE string extractor (AutoCAD 2007 through 2024: AC1021, AC1024, AC1027, AC1032)
+  let currentUtf16 = '';
+  for (let i = 0; i < bytes.length - 1; i += 2) {
+    const code = bytes[i] | (bytes[i + 1] << 8);
+    if ((code >= 32 && code <= 126) || code === 9) {
+      currentUtf16 += String.fromCharCode(code);
+    } else {
+      if (currentUtf16.length >= 2 && currentUtf16.length <= 64) {
+        const trimmed = currentUtf16.trim();
+        if (trimmed && !/^[\x00-\x1F\x7F]+$/.test(trimmed)) {
+          extractedStrings.push(trimmed);
+          if (trimmed.toUpperCase().includes('LAYER') || trimmed.toUpperCase().includes('BEACON') || trimmed.toUpperCase().includes('PARCEL') || trimmed.toUpperCase().includes('BOUNDARY') || trimmed.toUpperCase().includes('LOT')) {
+            layersFoundSet.add(trimmed);
+          }
+        }
+      }
+      currentUtf16 = '';
+    }
+  }
+
   // 3. Scan IEEE-754 64-bit float coordinate pairs (Easting, Northing, Elevation)
-  // Look for realistic geographic/cadastral coordinates (100.0 <= E <= 10,000,000.0, 100.0 <= N <= 10,000,000.0)
+  // Step by 2 bytes to catch unaligned and packed coordinates in compressed DWG records
   const coordCandidates: Array<{ easting: number; northing: number; elevation?: number; offset: number }> = [];
 
-  for (let i = 0; i < bytes.byteLength - 16; i += 4) {
+  for (let i = 0; i <= bytes.byteLength - 16; i += 2) {
     try {
       const v1 = dataView.getFloat64(i, true);
       const v2 = dataView.getFloat64(i + 8, true);
@@ -103,14 +134,15 @@ export function parseDWG(buffer: ArrayBuffer | Uint8Array): DXFParseResult {
       if (
         isFinite(v1) && !isNaN(v1) &&
         isFinite(v2) && !isNaN(v2) &&
-        v1 > 10 && v1 < 10000000 &&
-        v2 > 10 && v2 < 10000000 &&
-        Math.abs(v1 - v2) > 0.001 // Not identical placeholder floats
+        Math.abs(v1) < 100000000 &&
+        Math.abs(v2) < 100000000 &&
+        (Math.abs(v1) > 0.0001 || Math.abs(v2) > 0.0001) &&
+        Math.abs(v1 - v2) > 0.00001
       ) {
         let elev: number | undefined = undefined;
         if (i + 24 <= bytes.byteLength) {
           const v3 = dataView.getFloat64(i + 16, true);
-          if (isFinite(v3) && !isNaN(v3) && Math.abs(v3) < 10000) {
+          if (isFinite(v3) && !isNaN(v3) && Math.abs(v3) < 20000) {
             elev = Math.round(v3 * 1000) / 1000;
           }
         }

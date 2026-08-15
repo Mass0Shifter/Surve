@@ -56,7 +56,7 @@ interface HeaderProps {
   onRequestUpgrade?: (featureId: FeatureId) => void;
   onLogout: () => void;
 
-  activeView?: 'workspace' | 'cad_studio';
+  activeView?: 'workspace' | 'cad_studio' | 'tdp_studio';
   isLeftVisible: boolean;
   isRightVisible: boolean;
   onToggleLeft: () => void;
@@ -333,6 +333,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           className="btn-tdp-highlight"
+          style={activeView === 'tdp_studio' ? { color: '#10b981', borderColor: 'rgba(16,185,129,0.5)', background: 'rgba(16,185,129,0.18)' } : undefined}
           title="Generate Official Title Deed Plan (PDF / Print)"
           onClick={onOpenTdp}
         >

@@ -5603,3 +5603,43 @@ input.auth-input.no-icon,
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   TDP Studio Full Page Workstation & Plot Isolation Styles
+   ========================================================================== */
+.tdp-studio-page-container {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #060a14;
+  overflow: hidden;
+}
+
+.tdp-studio-viewport {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tdp-studio-viewport.tdp-studio-fullview {
+  background: #060a14;
+}
+
+.tdp-plot-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+

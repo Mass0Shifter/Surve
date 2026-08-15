@@ -132,7 +132,6 @@ export const App: React.FC = () => {
   const [isCogoOpen, setIsCogoOpen] = useState<boolean>(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isRenumberOpen, setIsRenumberOpen] = useState<boolean>(false);
-  const [isTdpOpen, setIsTdpOpen] = useState<boolean>(false);
   const [isTraverseOpen, setIsTraverseOpen] = useState<boolean>(false);
   const [isLevelingOpen, setIsLevelingOpen] = useState<boolean>(false);
   const [isTachOpen, setIsTachOpen] = useState<boolean>(false);
@@ -148,7 +147,7 @@ export const App: React.FC = () => {
   const [isSurvpackOpen, setIsSurvpackOpen] = useState<boolean>(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState<boolean>(false);
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState<boolean>(false);
-  const [activeView, setActiveView] = useState<'workspace' | 'cad_studio'>('workspace');
+  const [activeView, setActiveView] = useState<'workspace' | 'cad_studio' | 'tdp_studio'>('workspace');
   const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
   const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
   const [currentLoadedProjectId, setCurrentLoadedProjectId] = useState<string | null>('proj_seed_abuja_001');
@@ -772,7 +771,7 @@ export const App: React.FC = () => {
           onLoadSample={handleLoadSample}
           onOpenCogo={() => setIsCogoOpen(true)}
           onOpenRenumber={() => setIsRenumberOpen(true)}
-          onOpenTdp={() => checkFeatureOrRun('TDP_PRINT_STUDIO', () => setIsTdpOpen(true))}
+          onOpenTdp={() => checkFeatureOrRun('TDP_PRINT_STUDIO', () => setActiveView(v => v === 'tdp_studio' ? 'workspace' : 'tdp_studio'))}
           onOpenTraverse={() => checkFeatureOrRun('TRAVERSE_BALANCING', () => setIsTraverseOpen(true))}
           onOpenLeveling={() => checkFeatureOrRun('LEVELING_STUDIO', () => setIsLevelingOpen(true))}
           onOpenTacheometry={() => checkFeatureOrRun('TACHEOMETRY_DTM', () => setIsTachOpen(true))}
@@ -810,7 +809,7 @@ export const App: React.FC = () => {
           onToggleMaximize={handleToggleMaximizeCanvas}
         />
 
-      {/* 2. Main Workstation Body: Survey Workspace OR AutoCAD DWG/DXF Studio Full View */}
+      {/* 2. Main Workstation Body: Survey Workspace OR AutoCAD DWG/DXF Studio Full View OR TDP Studio Full View */}
       {activeView === 'cad_studio' ? (
         <CadStudioModal
           isOpen={true}
@@ -826,6 +825,17 @@ export const App: React.FC = () => {
             setPoints(syncedPoints);
             setParcels(syncedParcels);
           }}
+        />
+      ) : activeView === 'tdp_studio' ? (
+        <TitleDeedPlanModal
+          isOpen={true}
+          isViewMode={true}
+          onClose={() => setActiveView('workspace')}
+          project={project}
+          points={points}
+          parcels={parcels}
+          currentUser={currentUser}
+          activeOrg={activeOrg}
         />
       ) : (
         <>
@@ -984,17 +994,6 @@ export const App: React.FC = () => {
         isOpen={isRenumberOpen}
         onClose={() => setIsRenumberOpen(false)}
         onApplyRenumber={handleApplyRenumber}
-      />
-
-      {/* Title Deed Plan (TDP) Print Studio Modal */}
-      <TitleDeedPlanModal
-        project={project}
-        points={points}
-        parcels={parcels}
-        currentUser={currentUser}
-        activeOrg={activeOrg}
-        isOpen={isTdpOpen}
-        onClose={() => setIsTdpOpen(false)}
       />
 
       {/* Traverse Loop Balancing Studio Modal */}

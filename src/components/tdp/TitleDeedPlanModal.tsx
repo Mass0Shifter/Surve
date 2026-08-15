@@ -46,6 +46,7 @@ import {
   RotateCw,
   Sparkles,
   Search,
+  ChevronLeft,
   X
 } from 'lucide-react';
 
@@ -56,6 +57,7 @@ interface TitleDeedPlanModalProps {
   currentUser?: UserProfile | null;
   activeOrg?: Organization | null;
   isOpen: boolean;
+  isViewMode?: boolean;
   onClose: () => void;
 }
 
@@ -66,10 +68,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   currentUser,
   activeOrg,
   isOpen,
+  isViewMode = false,
   onClose
 }) => {
   // Navigation Tabs: 'specs' (Plan Specs & Layout) | 'design' (Design & Template Studio) | 'layers' (Element Layers Inspector)
   const [activeTab, setActiveTab] = useState<'specs' | 'design' | 'layers'>('specs');
+  const [selectedPlotFilter, setSelectedPlotFilter] = useState<string>('ALL');
 
   const [planType, setPlanType] = useState<'single_plot' | 'selected_plots' | 'layout'>('single_plot');
   const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
@@ -119,8 +123,12 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     roadFrontageLegIndices: [0]
   }));
 
-  // Preview Zoom Level (default 0.68 for perfect A4 portrait fit)
+  // Viewport Zoom & Pan State (linked to mouse wheel & drag)
   const [previewZoom, setPreviewZoom] = useState<number>(0.68);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanningStage, setIsPanningStage] = useState<boolean>(false);
+  const [panStartMouse, setPanStartMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [panStartOffset, setPanStartOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Element Transforms (Position, Rotation, Scale, Visibility, Lock)
   const [elementTransforms, setElementTransforms] = useState<Record<string, TdpElementTransform>>({});
@@ -344,23 +352,122 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     setTransformMode(null);
   }, []);
 
+  // Viewport Mouse Wheel Zooming
+  const handleStageWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomDelta = e.deltaY > 0 ? -0.06 : 0.06;
+    setPreviewZoom(z => Math.max(0.25, Math.min(3.0, parseFloat((z + zoomDelta).toFixed(2)))));
+  }, []);
+
+  // Stage Mouse Down for Viewport Panning (Middle Click or clicking stage background)
+  const handleStageMouseDown = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const isBackground = target.classList?.contains('tdp-preview-stage') ||
+                         target.classList?.contains('tdp-canvas-scaler');
+    if (e.button === 1 || (e.button === 0 && isBackground)) {
+      setIsPanningStage(true);
+      setPanStartMouse({ x: e.clientX, y: e.clientY });
+      setPanStartOffset({ ...panOffset });
+    }
+  }, [panOffset]);
+
+  const handleStageMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanningStage) {
+      const dx = e.clientX - panStartMouse.x;
+      const dy = e.clientY - panStartMouse.y;
+      setPanOffset({
+        x: Math.round(panStartOffset.x + dx),
+        y: Math.round(panStartOffset.y + dy)
+      });
+    }
+  }, [isPanningStage, panStartMouse, panStartOffset]);
+
+  const handleStageMouseUp = useCallback(() => {
+    setIsPanningStage(false);
+  }, []);
+
+  const handleResetView = useCallback(() => {
+    setPreviewZoom(0.68);
+    setPanOffset({ x: 0, y: 0 });
+  }, []);
+
+  // Batch Plot Element Hiding / Showing Logic
+  const handleTogglePlotElements = useCallback((parcelId: string, hide: boolean) => {
+    const targetParcel = parcels.find(p => p.id === parcelId);
+    if (!targetParcel) return;
+
+    const parcelPtIds = new Set(targetParcel.pointIds.map(id => id.toUpperCase()));
+    const otherVisibleParcels = parcels.filter(p => p.id !== parcelId && !getTransform(`parcel_${p.id}`).hidden);
+    const otherPtIds = new Set<string>();
+    otherVisibleParcels.forEach(p => p.pointIds.forEach(id => otherPtIds.add(id.toUpperCase())));
+
+    setElementTransforms(prev => {
+      const next = { ...prev };
+
+      // 1. Toggle Parcel Badge
+      const badgeKey = `parcel_${parcelId}`;
+      next[badgeKey] = { ...(next[badgeKey] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, locked: false }), hidden: hide };
+
+      // 2. Toggle Boundary Leg Dimensions belonging to this parcel
+      resolvedLayout.boundaryDimensions.forEach(dim => {
+        const fromMatch = parcelPtIds.has(dim.fromPointId.toUpperCase());
+        const toMatch = parcelPtIds.has(dim.toPointId.toUpperCase());
+        if (fromMatch && toMatch) {
+          const dimKey = `dim_${dim.key}`;
+          next[dimKey] = { ...(next[dimKey] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, locked: false }), hidden: hide };
+        }
+      });
+
+      // 3. Toggle Beacons belonging exclusively to this parcel
+      targetParcel.pointIds.forEach(ptId => {
+        const isShared = otherPtIds.has(ptId.toUpperCase());
+        if (!hide || !isShared) {
+          const beaconKey = `beacon_${ptId}`;
+          next[beaconKey] = { ...(next[beaconKey] || { dx: 0, dy: 0, scale: 1.0, rotation: 0, locked: false }), hidden: hide };
+        }
+      });
+
+      return next;
+    });
+  }, [parcels, resolvedLayout.boundaryDimensions, getTransform]);
+
   const filteredParcels = useMemo(() => {
-    if (!layerSearchTerm.trim()) return targetParcels;
+    let list = targetParcels;
+    if (selectedPlotFilter !== 'ALL') {
+      list = list.filter(p => p.id === selectedPlotFilter);
+    }
+    if (!layerSearchTerm.trim()) return list;
     const term = layerSearchTerm.toLowerCase();
-    return targetParcels.filter(p => (p.plotNumber || '').toLowerCase().includes(term) || (p.ownerName || '').toLowerCase().includes(term));
-  }, [targetParcels, layerSearchTerm]);
+    return list.filter(p => (p.plotNumber || '').toLowerCase().includes(term) || (p.ownerName || '').toLowerCase().includes(term));
+  }, [targetParcels, selectedPlotFilter, layerSearchTerm]);
 
   const filteredPoints = useMemo(() => {
-    if (!layerSearchTerm.trim()) return targetPoints;
+    let list = targetPoints;
+    if (selectedPlotFilter !== 'ALL') {
+      const selectedPcl = parcels.find(p => p.id === selectedPlotFilter);
+      if (selectedPcl) {
+        const idSet = new Set(selectedPcl.pointIds.map(id => id.toUpperCase()));
+        list = list.filter(pt => idSet.has(pt.id.toUpperCase()));
+      }
+    }
+    if (!layerSearchTerm.trim()) return list;
     const term = layerSearchTerm.toLowerCase();
-    return targetPoints.filter(pt => (pt.id || '').toLowerCase().includes(term));
-  }, [targetPoints, layerSearchTerm]);
+    return list.filter(pt => (pt.id || '').toLowerCase().includes(term));
+  }, [targetPoints, parcels, selectedPlotFilter, layerSearchTerm]);
 
   const filteredDimensions = useMemo(() => {
-    if (!layerSearchTerm.trim()) return resolvedLayout.boundaryDimensions;
+    let list = resolvedLayout.boundaryDimensions;
+    if (selectedPlotFilter !== 'ALL') {
+      const selectedPcl = parcels.find(p => p.id === selectedPlotFilter);
+      if (selectedPcl) {
+        const idSet = new Set(selectedPcl.pointIds.map(id => id.toUpperCase()));
+        list = list.filter(d => idSet.has(d.fromPointId.toUpperCase()) && idSet.has(d.toPointId.toUpperCase()));
+      }
+    }
+    if (!layerSearchTerm.trim()) return list;
     const term = layerSearchTerm.toLowerCase();
-    return resolvedLayout.boundaryDimensions.filter(d => (d.bearingStr || '').toLowerCase().includes(term) || (d.distStr || '').toLowerCase().includes(term));
-  }, [resolvedLayout.boundaryDimensions, layerSearchTerm]);
+    return list.filter(d => (d.bearingStr || '').toLowerCase().includes(term) || (d.distStr || '').toLowerCase().includes(term));
+  }, [resolvedLayout.boundaryDimensions, parcels, selectedPlotFilter, layerSearchTerm]);
 
   const handleApplyTheme = (presetKey: string) => {
     if (TDP_THEME_PRESETS[presetKey]) {
@@ -473,45 +580,68 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="modal-overlay">
-      <div className="modal-content tdp-modal-studio">
-        {/* Modal Top Header */}
-        <div className="modal-header">
-          <div className="modal-title">
+  const studioContent = (
+    <div className={`tdp-studio-viewport ${isViewMode ? 'tdp-studio-fullview' : ''}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      {/* Top Header */}
+      <div className="modal-header tdp-header-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: 'rgba(15, 23, 42, 0.95)', borderBottom: '1px solid rgba(56, 189, 248, 0.2)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {isViewMode && (
+            <button
+              className="btn-secondary-sm"
+              onClick={onClose}
+              title="Return to Survey Workspace"
+              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <ChevronLeft size={14} />
+              <span>Back to Workspace</span>
+            </button>
+          )}
+          <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={18} className="text-emerald" />
-            <span>Title Deed Plan (TDP) Print Studio & Cadastral Suite</span>
-          </div>
-          <div className="header-actions-group">
-            <button
-              className="btn-secondary-sm"
-              onClick={handlePrintCoordinateSchedule}
-              title="Print Standalone A4 Beacon Coordinate Schedule"
-              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
-            >
-              <Table size={14} className="text-cyan" />
-              <span>Print Schedule</span>
-            </button>
-            <button
-              className="btn-secondary-sm"
-              onClick={handleExportCoordinateSchedule}
-              title="Export Standalone A4 Beacon Coordinate Schedule PDF"
-              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
-            >
-              <Download size={14} />
-              <span>Schedule PDF</span>
-            </button>
-            <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan (Pure Vector Clean White)">
-              <Printer size={14} />
-              <span>Print Plan</span>
-            </button>
-            <button className="btn-primary-sm" onClick={handleDownloadPDF} title="Download Vector PDF (SURCON / FCDA Print-Ready)">
-              <Download size={14} />
-              <span>Export PDF</span>
-            </button>
-            <button className="icon-btn" onClick={onClose}>✕</button>
+            <span style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: '14px' }}>
+              Title Deed Plan (TDP) Print Studio &amp; Cadastral Suite
+            </span>
+            <span className="badge-pill-cyan" style={{ fontSize: '11px' }}>
+              {pageSize.toUpperCase()} {orientation === 'portrait' ? 'Portrait' : 'Landscape'}
+            </span>
+            <span className="badge-pill-emerald" style={{ fontSize: '11px' }}>
+              1:{effectiveScaleRatio}
+            </span>
           </div>
         </div>
+
+        <div className="header-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            className="btn-secondary-sm"
+            onClick={handlePrintCoordinateSchedule}
+            title="Print Standalone A4 Beacon Coordinate Schedule"
+            style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            <Table size={14} className="text-cyan" />
+            <span>Print Schedule</span>
+          </button>
+          <button
+            className="btn-secondary-sm"
+            onClick={handleExportCoordinateSchedule}
+            title="Export Standalone A4 Beacon Coordinate Schedule PDF"
+            style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            <Download size={14} />
+            <span>Schedule PDF</span>
+          </button>
+          <button className="btn-secondary-sm" onClick={handlePrint} title="Print Plan (Pure Vector Clean White)">
+            <Printer size={14} />
+            <span>Print Plan</span>
+          </button>
+          <button className="btn-primary-sm" onClick={handleDownloadPDF} title="Download Vector PDF (SURCON / FCDA Print-Ready)">
+            <Download size={14} />
+            <span>Export PDF</span>
+          </button>
+          {!isViewMode && (
+            <button className="icon-btn" onClick={onClose}>✕</button>
+          )}
+        </div>
+      </div>
 
         <div className="tdp-studio-body">
           {/* Left Controls Customizer Sidebar */}
@@ -1364,6 +1494,62 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   <span>Cartographic Entity Layers</span>
                 </div>
 
+                {/* Plot Isolation / Filter Bar */}
+                <div className="tdp-plot-filter-header" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 10px',
+                  background: 'rgba(30, 41, 59, 0.6)',
+                  border: '1px solid rgba(56, 189, 248, 0.15)',
+                  borderRadius: '6px',
+                  marginBottom: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Layers size={13} className="text-emerald" />
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc' }}>Plot Filter:</span>
+                  </div>
+                  <select
+                    className="form-select-xs"
+                    value={selectedPlotFilter}
+                    onChange={(e) => setSelectedPlotFilter(e.target.value)}
+                    style={{
+                      fontSize: '11px',
+                      padding: '2px 8px',
+                      background: '#0f172a',
+                      color: '#38bdf8',
+                      border: '1px solid rgba(56, 189, 248, 0.2)',
+                      borderRadius: '4px',
+                      maxWidth: '140px'
+                    }}
+                  >
+                    <option value="ALL">All Plots ({parcels.length})</option>
+                    {parcels.map(p => (
+                      <option key={p.id} value={p.id}>{p.plotNumber}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Per-Plot Batch Actions */}
+                {selectedPlotFilter !== 'ALL' && (
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                    <button
+                      className="btn-secondary-xs"
+                      onClick={() => handleTogglePlotElements(selectedPlotFilter, false)}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    >
+                      <Eye size={12} className="text-emerald" /> <span>Show Plot Elements</span>
+                    </button>
+                    <button
+                      className="btn-secondary-xs"
+                      onClick={() => handleTogglePlotElements(selectedPlotFilter, true)}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    >
+                      <EyeOff size={12} className="text-rose" /> <span>Hide Plot Elements</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Search Bar */}
                 <div className="tdp-layer-search-box">
                   <Search size={13} className="text-muted" />
@@ -1410,6 +1596,16 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             ) : null}
                           </div>
                           <div className="tdp-layer-item-actions">
+                            <button
+                              className="tdp-layer-btn"
+                              title="Toggle all labels & dimensions in this plot"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTogglePlotElements(p.id, !tf.hidden);
+                              }}
+                            >
+                              {tf.hidden ? <EyeOff size={12} className="text-rose" /> : <Eye size={12} className="text-emerald" />}
+                            </button>
                             <button
                               className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
                               title={tf.locked ? 'Unlock element' : 'Lock element position'}
@@ -1629,29 +1825,37 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             )}
           </div>
 
-          {/* Right Live Print Preview Stage with Zoom Scale Controls */}
-          <div className="tdp-preview-stage">
+          {/* Right Live Print Preview Stage with Mouse-Linked Zoom & Pan Controls */}
+          <div
+            className="tdp-preview-stage"
+            onWheel={handleStageWheel}
+            onMouseDown={handleStageMouseDown}
+            onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}
+            onMouseLeave={handleStageMouseUp}
+            style={{ cursor: isPanningStage ? 'grabbing' : 'default', overflow: 'hidden', userSelect: isPanningStage ? 'none' : 'auto' }}
+          >
             {/* Preview Zoom Controls Floating Bar */}
             <div className="preview-zoom-bar">
               <button
                 className="icon-btn"
-                title="Zoom Out Preview"
-                onClick={() => setPreviewZoom(z => Math.max(0.4, z - 0.1))}
+                title="Zoom Out Preview (or Scroll Down)"
+                onClick={() => setPreviewZoom(z => Math.max(0.25, parseFloat((z - 0.1).toFixed(2))))}
               >
                 <ZoomOut size={13} />
               </button>
               <span className="zoom-text">{(previewZoom * 100).toFixed(0)}%</span>
               <button
                 className="icon-btn"
-                title="Zoom In Preview"
-                onClick={() => setPreviewZoom(z => Math.min(1.5, z + 0.1))}
+                title="Zoom In Preview (or Scroll Up)"
+                onClick={() => setPreviewZoom(z => Math.min(3.0, parseFloat((z + 0.1).toFixed(2))))}
               >
                 <ZoomIn size={13} />
               </button>
               <button
                 className="btn-secondary-xs"
-                title="Fit Page to View"
-                onClick={() => setPreviewZoom(0.68)}
+                title="Fit Page to View & Center"
+                onClick={handleResetView}
               >
                 <Maximize2 size={12} className="inline-icon" />
                 <span>Fit</span>
@@ -1744,6 +1948,20 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   <EyeOff size={11} />
                   <span>Hide</span>
                 </button>
+                {selectedElementId.startsWith('parcel_') && (
+                  <button
+                    className="tdp-quick-btn"
+                    title="Hide all labels & dimensions in this plot"
+                    onClick={() => {
+                      const parcelId = selectedElementId.replace('parcel_', '');
+                      handleTogglePlotElements(parcelId, true);
+                    }}
+                    style={{ color: '#fb7185' }}
+                  >
+                    <EyeOff size={11} />
+                    <span>Hide Plot</span>
+                  </button>
+                )}
                 <button
                   className="tdp-quick-btn"
                   title="Reset Element Transform"
@@ -1761,7 +1979,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               </div>
             )}
 
-            <div className="tdp-canvas-scaler" style={{ transform: `scale(${previewZoom})` }}>
+            <div
+              className="tdp-canvas-scaler"
+              style={{
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${previewZoom})`,
+                transition: isPanningStage ? 'none' : 'transform 0.08s ease-out',
+                transformOrigin: 'center center'
+              }}
+            >
               <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
                 {/* Outer Double Neatline */}
                 <div className="tdp-neatline-outer">
@@ -2594,6 +2819,21 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             </div>
           </div>
         </div>
+      </div>
+    );
+
+  if (isViewMode) {
+    return (
+      <div className="tdp-studio-page-container" style={{ width: '100%', height: '100%', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#060a14' }}>
+        {studioContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content tdp-modal-studio" style={{ maxWidth: '1280px', width: '96vw', height: '90vh' }}>
+        {studioContent}
       </div>
     </div>
   );

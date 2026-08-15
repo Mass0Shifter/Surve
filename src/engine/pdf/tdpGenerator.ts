@@ -538,6 +538,11 @@ export function generateTitleDeedPlanPDF(
   const elemTransforms = options.elementTransforms || {};
   const getTransform = (key: string): TdpElementTransform => {
     if (elemTransforms[key]) return elemTransforms[key];
+    // Case-insensitive key lookup fallback
+    const lowerKey = key.toLowerCase();
+    for (const [k, v] of Object.entries(elemTransforms)) {
+      if (k.toLowerCase() === lowerKey) return v;
+    }
     const offset = (options.manualOffsets || {})[key];
     return { dx: offset?.dx || 0, dy: offset?.dy || 0, scale: 1.0, rotation: 0, hidden: false, locked: false };
   };
@@ -653,12 +658,21 @@ export function generateTitleDeedPlanPDF(
 
     // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
     for (const leg of comp.legs) {
-      const edgeKey = [leg.fromPoint.id, leg.toPoint.id].sort().join('__');
-      if (renderedEdges.has(edgeKey)) continue;
-      renderedEdges.add(edgeKey);
+      const p1Id = leg.fromPoint.id;
+      const p2Id = leg.toPoint.id;
+      const edgeKeyDash = [p1Id, p2Id].sort().join('--');
+      const edgeKeyUnderscore = [p1Id, p2Id].sort().join('__');
 
-      const dimTf = getTransform(`dim_${edgeKey}`);
-      if (dimTf.hidden) continue;
+      if (renderedEdges.has(edgeKeyDash)) continue;
+      renderedEdges.add(edgeKeyDash);
+
+      // Check all canonical key representations: double dash, double underscore, raw endpoints
+      const dimTf = getTransform(`dim_${edgeKeyDash}`) ||
+                    getTransform(`dim_${edgeKeyUnderscore}`) ||
+                    getTransform(`dim_${p1Id}_${p2Id}`) ||
+                    getTransform(`dim_${p2Id}_${p1Id}`);
+
+      if (dimTf?.hidden) continue;
 
       const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
       const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
