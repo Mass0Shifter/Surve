@@ -882,6 +882,7 @@ export const App: React.FC = () => {
           parcels={parcels}
           currentUser={currentUser}
           activeOrg={activeOrg}
+          initialSelectedParcelId={selectedParcelId || undefined}
         />
       ) : (
         <>

@@ -18,6 +18,8 @@ import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
 import { computeParcel, computeExtents } from '../../engine/cogo';
 import { computeCollisionFreeLayout } from '../../engine/cadastral/collisionEngine';
+import { generateTdpAutoCADScript } from '../../engine/exporters/scrExporter';
+import { downloadFile } from '../../engine/exporters/csvExporter';
 import { UserProfile } from '../../engine/auth/authTypes';
 import { Organization } from '../../engine/organization/orgTypes';
 import {
@@ -48,6 +50,7 @@ import {
   Sparkles,
   Search,
   ChevronLeft,
+  Code2,
   X
 } from 'lucide-react';
 
@@ -59,6 +62,7 @@ interface TitleDeedPlanModalProps {
   activeOrg?: Organization | null;
   isOpen: boolean;
   isViewMode?: boolean;
+  initialSelectedParcelId?: string;
   onClose: () => void;
 }
 
@@ -70,6 +74,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   activeOrg,
   isOpen,
   isViewMode = false,
+  initialSelectedParcelId,
   onClose
 }) => {
   // Navigation Tabs: 'specs' (Plan Specs & Layout) | 'design' (Design & Template Studio) | 'layers' (Element Layers Inspector)
@@ -79,7 +84,20 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const [planType, setPlanType] = useState<'single_plot' | 'selected_plots' | 'layout'>('single_plot');
   const [pageSize, setPageSize] = useState<'a4' | 'a3' | 'legal'>('a4');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [selectedParcelId, setSelectedParcelId] = useState<string>(parcels[0]?.id || '');
+  const [selectedParcelId, setSelectedParcelId] = useState<string>(() => {
+    if (initialSelectedParcelId && parcels.some(p => p.id === initialSelectedParcelId)) {
+      return initialSelectedParcelId;
+    }
+    return parcels[0]?.id || '';
+  });
+
+  // Sync active plot selection whenever transitioning from CAD view or when initialSelectedParcelId changes
+  React.useEffect(() => {
+    if (initialSelectedParcelId && parcels.some(p => p.id === initialSelectedParcelId)) {
+      setSelectedParcelId(initialSelectedParcelId);
+      setPlanType('single_plot');
+    }
+  }, [initialSelectedParcelId, isOpen]);
   const [selectedParcelIds, setSelectedParcelIds] = useState<string[]>(() => parcels.slice(0, 2).map(p => p.id));
   const [scaleRatio, setScaleRatio] = useState<number>(project.scale || 1000);
   const [isCustomScale, setIsCustomScale] = useState<boolean>(false);
@@ -615,6 +633,26 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     window.open(blobUrl, '_blank');
   };
 
+  // Standalone Full SurvPack 3.0 Title Deed Plan Script (.SCR) Export Handler
+  const handleExportTdpScript = () => {
+    const scr = generateTdpAutoCADScript(
+      project,
+      points,
+      targetParcels,
+      {
+        pageSize,
+        orientation,
+        scaleRatio: effectiveScaleRatio,
+        showCoordinateTable,
+        showSealBox
+      },
+      currentUser,
+      activeOrg
+    );
+    const fileName = `${project.code || 'PLAN'}_TDP_${pageSize.toUpperCase()}_1to${effectiveScaleRatio}.SCR`;
+    downloadFile(scr, fileName, 'text/plain');
+  };
+
   if (!isOpen) return null;
 
   const studioContent = (
@@ -648,6 +686,15 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
         </div>
 
         <div className="header-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            className="btn-secondary-sm"
+            onClick={handleExportTdpScript}
+            title="Export Full SurvPack 3.0 AutoCAD Script (.SCR) with Sheet Border, Neatlines, Title Block & Coordinate Schedule"
+            style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            <Code2 size={14} className="text-amber" />
+            <span>TDP Script</span>
+          </button>
           <button
             className="btn-secondary-sm"
             onClick={handlePrintCoordinateSchedule}
