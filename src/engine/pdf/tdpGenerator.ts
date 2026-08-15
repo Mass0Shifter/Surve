@@ -5,6 +5,15 @@ import { getDatumBeltName } from '../datums';
 import { determineCadastralSheets } from '../cadastral/sheetIndex';
 import { computeCollisionFreeLayout } from '../cadastral/collisionEngine';
 
+export interface ParcelShadingStyle {
+  fillColor?: string; // Hex color e.g. '#10b981'
+  fillOpacity?: number; // 0 to 1.0 (e.g. 0.08, 0.25)
+  hatchPattern?: 'none' | 'tint' | 'diagonal' | 'cross' | 'solid';
+  boundaryColor?: string; // Hex color
+  boundaryLineWidth?: number; // mm in PDF
+  boundaryLineStyle?: 'solid' | 'dashed' | 'dashdot';
+}
+
 export interface TdpStyleConfig {
   // Typography (pt)
   titleFontSize: number;
@@ -17,15 +26,20 @@ export interface TdpStyleConfig {
   boundaryLineWidth: number; // mm in PDF
   boundaryLineStyle: 'solid' | 'dashed' | 'dashdot';
 
-  // Plot Fill / Shading
+  // Plot Fill / Shading (Global Default)
   fillColor: string; // Hex color
-  fillOpacity: number; // 0 to 0.4
-  hatchPattern: 'none' | 'tint' | 'diagonal' | 'cross';
+  fillOpacity: number; // 0 to 1.0
+  hatchPattern: 'none' | 'tint' | 'diagonal' | 'cross' | 'solid';
 
   // Beacon Markers
   beaconColor: string; // Hex color e.g. '#dc2626'
   controlColor: string; // Hex color e.g. '#f59e0b'
-  beaconSize: number; // radius mm
+  beaconSize: number; // radius mm (0.5 to 4.0mm)
+  beaconLineWidth?: number; // stroke width mm (0.1 to 1.5mm)
+  beaconSymbolStyle?: 'circle_cross' | 'filled_circle' | 'open_circle' | 'square' | 'triangle';
+
+  // Granular Per-Plot Overrides
+  parcelShadingOverrides?: Record<string, ParcelShadingStyle>;
 
   // Theme Preset
   themePreset?: 'federal_standard' | 'state_lands' | 'executive_deed' | 'cad_blueprint' | 'custom';
@@ -57,6 +71,9 @@ export const DEFAULT_TDP_STYLE: TdpStyleConfig = {
   beaconColor: '#dc2626',
   controlColor: '#f59e0b',
   beaconSize: 1.4,
+  beaconLineWidth: 0.3,
+  beaconSymbolStyle: 'circle_cross',
+  parcelShadingOverrides: {},
   themePreset: 'federal_standard'
 };
 
@@ -227,6 +244,7 @@ export interface TdpRenderOptions {
   layout?: TdpLayoutArrangement;
   manualOffsets?: Record<string, { dx: number; dy: number }>;
   elementTransforms?: Record<string, TdpElementTransform>;
+  parcelShadingOverrides?: Record<string, ParcelShadingStyle>;
   enableCollisionDeconfliction?: boolean;
 }
 
@@ -531,7 +549,6 @@ export function generateTitleDeedPlanPDF(
   // 7. Draw Parcels (Shaded Polygons, Boundaries, Centroid & Line Dimensions)
   const renderedEdges = new Set<string>();
   const bRgb = hexToRgb(style.boundaryColor);
-  const fillRgb = hexToRgb(style.fillColor);
   const beaconRgb = hexToRgb(style.beaconColor);
   const controlRgb = hexToRgb(style.controlColor);
 
@@ -580,10 +597,22 @@ export function generateTitleDeedPlanPDF(
 
     const mapVerts = comp.vertices.map(v => ({ x: toMapX(v.easting), y: toMapY(v.northing) }));
 
-    // Plot Shading / Hatching
-    if (style.fillOpacity > 0) {
-      if (style.hatchPattern === 'diagonal' || style.hatchPattern === 'cross') {
-        doc.setDrawColor(fillRgb.r, fillRgb.g, fillRgb.b);
+    // Granular Per-Plot Styling Resolution (Override vs Global Default)
+    const customPlotStyle = (options.parcelShadingOverrides?.[parcel.id]) || (style.parcelShadingOverrides?.[parcel.id]);
+    const plotFillColor = customPlotStyle?.fillColor || style.fillColor;
+    const plotFillOpacity = customPlotStyle?.fillOpacity !== undefined ? customPlotStyle.fillOpacity : style.fillOpacity;
+    const plotHatchPattern = customPlotStyle?.hatchPattern || style.hatchPattern;
+    const plotBoundaryColor = customPlotStyle?.boundaryColor || style.boundaryColor;
+    const plotBoundaryLineWidth = customPlotStyle?.boundaryLineWidth || style.boundaryLineWidth || 0.6;
+    const plotBoundaryLineStyle = customPlotStyle?.boundaryLineStyle || style.boundaryLineStyle || 'solid';
+
+    const pFillRgb = hexToRgb(plotFillColor);
+    const pBoundRgb = hexToRgb(plotBoundaryColor);
+
+    // Plot Shading / Hatching with Granular Override
+    if (plotFillOpacity > 0 && plotHatchPattern !== 'none') {
+      if (plotHatchPattern === 'diagonal' || plotHatchPattern === 'cross') {
+        doc.setDrawColor(pFillRgb.r, pFillRgb.g, pFillRgb.b);
         doc.setLineWidth(0.18);
         doc.setLineDashPattern([1.5, 1.5], 0);
 
@@ -596,7 +625,7 @@ export function generateTitleDeedPlanPDF(
         for (let x = pMinX - (pMaxY - pMinY); x <= pMaxX; x += hatchStep) {
           doc.line(Math.max(pMinX, x), pMinY, Math.min(pMaxX, x + (pMaxY - pMinY)), pMaxY);
         }
-        if (style.hatchPattern === 'cross') {
+        if (plotHatchPattern === 'cross') {
           for (let x = pMaxX + (pMaxY - pMinY); x >= pMinX; x -= hatchStep) {
             doc.line(Math.min(pMaxX, x), pMinY, Math.max(pMinX, x - (pMaxY - pMinY)), pMaxY);
           }
@@ -605,12 +634,12 @@ export function generateTitleDeedPlanPDF(
       }
     }
 
-    // Boundary Polyline
-    doc.setDrawColor(bRgb.r, bRgb.g, bRgb.b);
-    doc.setLineWidth(style.boundaryLineWidth || 0.6);
-    if (style.boundaryLineStyle === 'dashed') {
+    // Boundary Polyline with Granular Override
+    doc.setDrawColor(pBoundRgb.r, pBoundRgb.g, pBoundRgb.b);
+    doc.setLineWidth(plotBoundaryLineWidth);
+    if (plotBoundaryLineStyle === 'dashed') {
       doc.setLineDashPattern([2.5, 1.5], 0);
-    } else if (style.boundaryLineStyle === 'dashdot') {
+    } else if (plotBoundaryLineStyle === 'dashdot') {
       doc.setLineDashPattern([2.5, 1.2, 0.6, 1.2], 0);
     }
 
@@ -722,6 +751,8 @@ export function generateTitleDeedPlanPDF(
 
   // 8. Draw Concrete Beacon Symbols & De-conflicted Labels
   const bRadius = style.beaconSize || 1.4;
+  const bLineWidth = style.beaconLineWidth || 0.3;
+  const bSymbol = style.beaconSymbolStyle || 'circle_cross';
   const beaconLabelMap = new Map(resolvedLayout.beaconLabels.map(l => [l.pointId, l]));
 
   for (const pt of targetPoints) {
@@ -730,16 +761,34 @@ export function generateTitleDeedPlanPDF(
     const beaconTf = getTransform(`beacon_${pt.id}`);
 
     if (!beaconTf.hidden) {
+      const scale = beaconTf.scale || 1.0;
+      const r = bRadius * scale;
+
       if (pt.isControl) {
         doc.setDrawColor(controlRgb.r, controlRgb.g, controlRgb.b);
-        doc.setLineWidth(0.4);
-        doc.triangle(sx, sy - (bRadius * 1.5), sx + (bRadius * 1.5), sy + (bRadius * 1.1), sx - (bRadius * 1.5), sy + (bRadius * 1.1));
+        doc.setLineWidth(bLineWidth * 1.3);
+        doc.triangle(sx, sy - (r * 1.5), sx + (r * 1.5), sy + (r * 1.1), sx - (r * 1.5), sy + (r * 1.1));
       } else {
         doc.setDrawColor(beaconRgb.r, beaconRgb.g, beaconRgb.b);
-        doc.setLineWidth(0.3);
-        doc.circle(sx, sy, bRadius);
-        doc.line(sx - bRadius, sy, sx + bRadius, sy);
-        doc.line(sx, sy - bRadius, sx, sy + bRadius);
+        doc.setLineWidth(bLineWidth);
+
+        if (bSymbol === 'filled_circle') {
+          doc.setFillColor(beaconRgb.r, beaconRgb.g, beaconRgb.b);
+          doc.circle(sx, sy, r, 'F');
+        } else if (bSymbol === 'open_circle') {
+          doc.circle(sx, sy, r);
+        } else if (bSymbol === 'square') {
+          doc.rect(sx - r, sy - r, r * 2, r * 2);
+          doc.line(sx - r, sy - r, sx + r, sy + r);
+          doc.line(sx - r, sy + r, sx + r, sy - r);
+        } else if (bSymbol === 'triangle') {
+          doc.triangle(sx, sy - (r * 1.3), sx + (r * 1.3), sy + (r * 0.9), sx - (r * 1.3), sy + (r * 0.9));
+        } else {
+          // 'circle_cross' (Standard SURCON Federal Monument)
+          doc.circle(sx, sy, r);
+          doc.line(sx - r, sy, sx + r, sy);
+          doc.line(sx, sy - r, sx, sy + r);
+        }
       }
 
       // Beacon ID Label (De-conflicted position)
@@ -963,7 +1012,8 @@ export function generateTitleDeedPlanPDF(
 }
 
 /**
- * Generates an official Standalone A4 Beacon Coordinate Schedule & Boundary Traverse Report PDF.
+ * Generates an official Standalone A4 Beacon Coordinate Schedule & Boundary Traverse Report PDF
+ * with Plot-by-Plot boundary grouping and automatic multi-page pagination.
  */
 export function generateCoordinateSchedulePDF(
   project: ProjectMetadata,
@@ -982,187 +1032,323 @@ export function generateCoordinateSchedulePDF(
   const pageW = 210;
   const pageH = 297;
   const margin = 12;
-
-  // Outer Border Box
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.7);
-  doc.rect(margin, margin, pageW - 2 * margin, pageH - 2 * margin);
-
-  // Inner Subtle Neatline
-  doc.setLineWidth(0.2);
-  doc.rect(margin + 1.5, margin + 1.5, pageW - 2 * margin - 3, pageH - 2 * margin - 3);
-
-  let currentY = margin + 8;
-
-  // 1. Official Header
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(15, 23, 42);
-  doc.text('BEACON COORDINATE & BOUNDARY SCHEDULE', pageW / 2, currentY, { align: 'center' });
-
-  currentY += 5;
-  doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(51, 65, 85);
-  doc.text((activeOrg?.name || project.surveyFirm || 'CADASTRAL SURVEY SERVICES').toUpperCase(), pageW / 2, currentY, { align: 'center' });
-
-  currentY += 4;
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text(`PROJECT: ${project.title.toUpperCase()} | LOCATION: ${project.location.toUpperCase()}`, pageW / 2, currentY, { align: 'center' });
-
-  currentY += 4;
-  doc.text(`DATUM: MINNA GRID (CLARKE 1880) | PLAN NO: ${project.code || 'PLAN-001'} | DATE: ${project.date || new Date().toISOString().split('T')[0]}`, pageW / 2, currentY, { align: 'center' });
-
-  currentY += 4;
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.3);
-  doc.line(margin + 4, currentY, pageW - margin - 4, currentY);
-
-  currentY += 6;
-
-  // 2. Beacon Coordinate Schedule Table
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(15, 23, 42);
-  doc.text('1. BEACON COORDINATE SCHEDULE', margin + 4, currentY);
-
-  currentY += 3.5;
-
   const tableX = margin + 4;
   const tableW = pageW - 2 * margin - 8;
-  const cols = [
+  const maxContentY = pageH - margin - 12;
+
+  let currentY = margin + 8;
+  let pageNum = 1;
+
+  // Draw Page Neatlines and Running Header
+  const drawPageNeatlinesAndHeader = (isContinuation: boolean = false) => {
+    // Outer Border Box
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.7);
+    doc.rect(margin, margin, pageW - 2 * margin, pageH - 2 * margin);
+
+    // Inner Subtle Neatline
+    doc.setLineWidth(0.2);
+    doc.rect(margin + 1.5, margin + 1.5, pageW - 2 * margin - 3, pageH - 2 * margin - 3);
+
+    let hY = margin + 7;
+
+    if (!isContinuation) {
+      // Primary Title Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('BEACON COORDINATE & BOUNDARY SCHEDULE', pageW / 2, hY, { align: 'center' });
+
+      hY += 4.5;
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text((activeOrg?.name || project.surveyFirm || 'CADASTRAL SURVEY SERVICES').toUpperCase(), pageW / 2, hY, { align: 'center' });
+
+      hY += 3.8;
+      doc.setFontSize(7.2);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`PROJECT: ${project.title.toUpperCase()} | LOCATION: ${project.location.toUpperCase()}`, pageW / 2, hY, { align: 'center' });
+
+      hY += 3.5;
+      doc.text(`DATUM: MINNA GRID (CLARKE 1880) | PLAN NO: ${project.code || 'PLAN-001'} | DATE: ${project.date || new Date().toISOString().split('T')[0]}`, pageW / 2, hY, { align: 'center' });
+
+      hY += 3.5;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(tableX, hY, tableX + tableW, hY);
+
+      currentY = hY + 5;
+    } else {
+      // Continuation Header on Subsequent Pages
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('BEACON COORDINATE & BOUNDARY SCHEDULE (CONTINUATION)', pageW / 2, hY, { align: 'center' });
+
+      hY += 3.8;
+      doc.setFontSize(6.8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`PROJECT: ${project.title.toUpperCase()} • PLAN NO: ${project.code || 'PLAN-001'} • DATUM: MINNA GRID`, pageW / 2, hY, { align: 'center' });
+
+      hY += 3.5;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(tableX, hY, tableX + tableW, hY);
+
+      currentY = hY + 5;
+    }
+  };
+
+  // Virtual Multi-Page Flow Manager
+  const ensureSpace = (neededHeight: number, onPageBreak?: () => void) => {
+    if (currentY + neededHeight > maxContentY) {
+      doc.addPage();
+      pageNum++;
+      drawPageNeatlinesAndHeader(true);
+      if (onPageBreak) onPageBreak();
+    }
+  };
+
+  // 1. Initialize First Page
+  drawPageNeatlinesAndHeader(false);
+
+  // Table Column Specifications for Plot Boundary Traverse
+  const plotCols = [
     { header: 'S/N', w: 10 },
-    { header: 'BEACON ID', w: 32 },
-    { header: 'EASTING (m)', w: 38 },
-    { header: 'NORTHING (m)', w: 38 },
-    { header: 'HEIGHT (m)', w: 26 },
-    { header: 'MONUMENT TYPE', w: 36 }
+    { header: 'BEACON ID', w: 30 },
+    { header: 'EASTING (m)', w: 34 },
+    { header: 'NORTHING (m)', w: 34 },
+    { header: 'HEIGHT (m)', w: 18 },
+    { header: 'BEARING TO NEXT', w: 28 },
+    { header: 'DISTANCE (m)', w: 24 }
   ];
 
-  // Table Header Background
-  doc.setFillColor(241, 245, 249);
-  doc.rect(tableX, currentY, tableW, 6, 'F');
-  doc.setDrawColor(203, 213, 225);
-  doc.rect(tableX, currentY, tableW, 6, 'S');
+  const rowHeight = 4.6;
 
-  doc.setFontSize(6.8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-
-  let hX = tableX;
-  for (const c of cols) {
-    doc.text(c.header, hX + 2, currentY + 4.2);
-    hX += c.w;
-  }
-
-  currentY += 6;
-
-  // Table Rows
-  const sortedPoints = [...points].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.8);
-  doc.setTextColor(15, 23, 42);
-
-  const rowHeight = 4.8;
-  sortedPoints.forEach((pt, index) => {
-    // Alternating Row Background
-    if (index % 2 === 1) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(tableX, currentY, tableW, rowHeight, 'F');
-    }
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(tableX, currentY, tableW, rowHeight, 'S');
-
-    let rX = tableX;
-    doc.text(String(index + 1), rX + 2, currentY + 3.4);
-    rX += cols[0].w;
-
-    doc.setFont('helvetica', pt.isControl ? 'bold' : 'normal');
-    doc.text(pt.id, rX + 2, currentY + 3.4);
-    doc.setFont('helvetica', 'normal');
-    rX += cols[1].w;
-
-    doc.text(pt.easting.toFixed(3), rX + 2, currentY + 3.4);
-    rX += cols[2].w;
-
-    doc.text(pt.northing.toFixed(3), rX + 2, currentY + 3.4);
-    rX += cols[3].w;
-
-    doc.text(pt.elevation !== undefined ? pt.elevation.toFixed(3) : '-', rX + 2, currentY + 3.4);
-    rX += cols[4].w;
-
-    doc.text(pt.isControl ? 'PRIMARY CONTROL PILLAR' : 'BURIED CONCRETE BEACON', rX + 2, currentY + 3.4);
-
-    currentY += rowHeight;
-  });
-
-  currentY += 6;
-
-  // 3. Parcel Area & Perimeter Schedule Table
-  if (parcels.length > 0 && currentY < pageH - 75) {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text('2. PARCEL COMPUTATION SUMMARY', margin + 4, currentY);
-
-    currentY += 3.5;
-
-    const pCols = [
-      { header: 'PLOT NO', w: 32 },
-      { header: 'OWNER / ALLOTTEE', w: 48 },
-      { header: 'AREA (SQ.M)', w: 36 },
-      { header: 'AREA (HECTARES)', w: 34 },
-      { header: 'PERIMETER (m)', w: 30 }
-    ];
-
+  // Helper to render Plot Table Header Row
+  const renderPlotTableHeader = () => {
     doc.setFillColor(241, 245, 249);
-    doc.rect(tableX, currentY, tableW, 6, 'F');
+    doc.rect(tableX, currentY, tableW, 5.2, 'F');
     doc.setDrawColor(203, 213, 225);
-    doc.rect(tableX, currentY, tableW, 6, 'S');
+    doc.setLineWidth(0.25);
+    doc.rect(tableX, currentY, tableW, 5.2, 'S');
 
-    doc.setFontSize(6.8);
+    doc.setFontSize(6.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
 
-    let phX = tableX;
-    for (const c of pCols) {
-      doc.text(c.header, phX + 2, currentY + 4.2);
-      phX += c.w;
+    let hX = tableX;
+    for (const c of plotCols) {
+      doc.text(c.header, hX + 2, currentY + 3.6);
+      hX += c.w;
     }
+    currentY += 5.2;
+  };
 
-    currentY += 6;
+  // Target Parcels & Points
+  const targetParcels = parcels.length > 0 ? parcels : [];
+  const assignedPointIds = new Set<string>();
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
+  // ==========================================
+  // SECTION 1: PLOT-BY-PLOT BOUNDARY TRAVERSES
+  // ==========================================
+  if (targetParcels.length > 0) {
+    ensureSpace(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
     doc.setTextColor(15, 23, 42);
+    doc.text('1. CADASTRAL BOUNDARY TRAVERSES & PLOT SCHEDULES', tableX, currentY);
+    currentY += 4.5;
 
-    parcels.forEach((pcl, pIdx) => {
-      const comp = computeParcel(pcl, points);
-      if (pIdx % 2 === 1) {
-        doc.setFillColor(248, 250, 252);
+    targetParcels.forEach(parcel => {
+      const comp = computeParcel(parcel, points);
+      if (!comp || comp.vertices.length < 3) return;
+
+      // Track assigned point IDs
+      parcel.pointIds.forEach(id => assignedPointIds.add(id.toUpperCase()));
+
+      // Ensure space for Plot Banner + Table Header + at least 2 rows (28mm)
+      ensureSpace(26);
+
+      // Plot Header Banner
+      doc.setFillColor(248, 250, 252);
+      doc.rect(tableX, currentY, tableW, 7, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.rect(tableX, currentY, tableW, 7, 'S');
+
+      // Left Accent Bar (Cadastral Green)
+      doc.setFillColor(16, 185, 129);
+      doc.rect(tableX, currentY, 2.5, 7, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      const plotTitle = `PLOT ${parcel.plotNumber} ${parcel.ownerName ? `• ALLOTTEE: ${parcel.ownerName.toUpperCase()}` : ''}`;
+      doc.text(plotTitle, tableX + 5, currentY + 4.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(71, 85, 105);
+      const metricsText = `Area: ${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha) | Perimeter: ${comp.perimeter.toFixed(2)} m`;
+      doc.text(metricsText, tableX + tableW - 3, currentY + 4.5, { align: 'right' });
+
+      currentY += 7.5;
+
+      // Render Plot Table Header
+      renderPlotTableHeader();
+
+      // Render Boundary Vertices in Clockwise Sequential Order
+      comp.vertices.forEach((v, vIdx) => {
+        ensureSpace(rowHeight, renderPlotTableHeader);
+
+        // Alternating background
+        if (vIdx % 2 === 1) {
+          doc.setFillColor(250, 250, 250);
+          doc.rect(tableX, currentY, tableW, rowHeight, 'F');
+        }
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.rect(tableX, currentY, tableW, rowHeight, 'S');
+
+        const leg = comp.legs[vIdx];
+        const pt = points.find(p => p.id.toUpperCase() === v.id.toUpperCase()) || v;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(15, 23, 42);
+
+        let rX = tableX;
+
+        // 1. S/N
+        doc.text(String(vIdx + 1), rX + 2, currentY + 3.2);
+        rX += plotCols[0].w;
+
+        // 2. Beacon ID
+        doc.setFont('helvetica', pt.isControl ? 'bold' : 'normal');
+        doc.text(pt.id, rX + 2, currentY + 3.2);
+        doc.setFont('helvetica', 'normal');
+        rX += plotCols[1].w;
+
+        // 3. Easting
+        doc.text(pt.easting.toFixed(3), rX + 2, currentY + 3.2);
+        rX += plotCols[2].w;
+
+        // 4. Northing
+        doc.text(pt.northing.toFixed(3), rX + 2, currentY + 3.2);
+        rX += plotCols[3].w;
+
+        // 5. Height / Elevation
+        doc.text(pt.elevation !== undefined ? pt.elevation.toFixed(3) : '-', rX + 2, currentY + 3.2);
+        rX += plotCols[4].w;
+
+        // 6. Bearing to Next
+        if (leg) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(30, 41, 59);
+          doc.text(leg.bearing.formatted, rX + 2, currentY + 3.2);
+        } else {
+          doc.text('-', rX + 2, currentY + 3.2);
+        }
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(15, 23, 42);
+        rX += plotCols[5].w;
+
+        // 7. Distance
+        if (leg) {
+          doc.text(`${leg.distance.toFixed(2)}m`, rX + 2, currentY + 3.2);
+        } else {
+          doc.text('-', rX + 2, currentY + 3.2);
+        }
+
+        currentY += rowHeight;
+      });
+
+      currentY += 4;
+    });
+  }
+
+  // ====================================================
+  // SECTION 2: PRIMARY GEODETIC CONTROL & REFERENCE PILLARS
+  // ====================================================
+  const controlPoints = points.filter(p => p.isControl || !assignedPointIds.has(p.id.toUpperCase()));
+  const controlCols = [
+    { header: 'S/N', w: 10 },
+    { header: 'STATION / PILLAR ID', w: 38 },
+    { header: 'EASTING (m)', w: 38 },
+    { header: 'NORTHING (m)', w: 38 },
+    { header: 'HEIGHT (m)', w: 20 },
+    { header: 'MONUMENT TYPE & DESCRIPTION', w: 34 }
+  ];
+
+  const renderControlTableHeader = () => {
+    doc.setFillColor(241, 245, 249);
+    doc.rect(tableX, currentY, tableW, 5.2, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.25);
+    doc.rect(tableX, currentY, tableW, 5.2, 'S');
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+
+    let hX = tableX;
+    for (const c of controlCols) {
+      doc.text(c.header, hX + 2, currentY + 3.6);
+      hX += c.w;
+    }
+    currentY += 5.2;
+  };
+
+  if (controlPoints.length > 0) {
+    ensureSpace(20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. PRIMARY GEODETIC CONTROL & REFERENCE STATIONS', tableX, currentY);
+    currentY += 4.5;
+
+    renderControlTableHeader();
+
+    const sortedControl = [...controlPoints].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+
+    sortedControl.forEach((pt, index) => {
+      ensureSpace(rowHeight, renderControlTableHeader);
+
+      if (index % 2 === 1) {
+        doc.setFillColor(250, 250, 250);
         doc.rect(tableX, currentY, tableW, rowHeight, 'F');
       }
       doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.2);
       doc.rect(tableX, currentY, tableW, rowHeight, 'S');
 
-      let prX = tableX;
-      doc.setFont('helvetica', 'bold');
-      doc.text(pcl.plotNumber, prX + 2, currentY + 3.4);
       doc.setFont('helvetica', 'normal');
-      prX += pCols[0].w;
+      doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
 
-      doc.text(pcl.ownerName || 'UNASSIGNED', prX + 2, currentY + 3.4);
-      prX += pCols[1].w;
+      let rX = tableX;
+      doc.text(String(index + 1), rX + 2, currentY + 3.2);
+      rX += controlCols[0].w;
 
-      doc.text(comp ? `${comp.areaSquareMeters.toFixed(2)} m²` : '-', prX + 2, currentY + 3.4);
-      prX += pCols[2].w;
+      doc.setFont('helvetica', 'bold');
+      doc.text(pt.id, rX + 2, currentY + 3.2);
+      doc.setFont('helvetica', 'normal');
+      rX += controlCols[1].w;
 
-      doc.text(comp ? `${comp.areaHectares.toFixed(4)} Ha` : '-', prX + 2, currentY + 3.4);
-      prX += pCols[3].w;
+      doc.text(pt.easting.toFixed(3), rX + 2, currentY + 3.2);
+      rX += controlCols[2].w;
 
-      doc.text(comp ? `${comp.perimeter.toFixed(2)} m` : '-', prX + 2, currentY + 3.4);
+      doc.text(pt.northing.toFixed(3), rX + 2, currentY + 3.2);
+      rX += controlCols[3].w;
+
+      doc.text(pt.elevation !== undefined ? pt.elevation.toFixed(3) : '-', rX + 2, currentY + 3.2);
+      rX += controlCols[4].w;
+
+      doc.text(pt.isControl ? 'PRIMARY CONTROL PILLAR' : 'BOUNDARY REFERENCE BEACON', rX + 2, currentY + 3.2);
 
       currentY += rowHeight;
     });
@@ -1170,10 +1356,16 @@ export function generateCoordinateSchedulePDF(
     currentY += 6;
   }
 
-  // 4. Surveyor's Official Certification Block (Pinned to bottom of page)
-  const sealBlockY = pageH - margin - 42;
-  const sealBlockW = tableW;
+  // ====================================================
+  // SECTION 3: SURVEYOR'S STATUTORY CERTIFICATION BLOCK
+  // ====================================================
   const sealBlockH = 38;
+  const sealBlockW = tableW;
+
+  // Ensure adequate clearance for certification block on final page
+  ensureSpace(sealBlockH + 6);
+
+  const sealBlockY = currentY;
 
   doc.setDrawColor(203, 213, 225);
   doc.setFillColor(250, 250, 250);
@@ -1187,7 +1379,7 @@ export function generateCoordinateSchedulePDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.2);
   doc.setTextColor(71, 85, 105);
-  const certText = `I hereby certify that the coordinates and measurements stated in this schedule have been computed and checked in accordance with the Survey Regulations of the Federal Republic of Nigeria and the Surveyors Council of Nigeria (SURCON).`;
+  const certText = `I hereby certify that the coordinates and boundary measurements stated in this schedule have been computed and checked in accordance with the Survey Regulations of the Federal Republic of Nigeria and the Surveyors Council of Nigeria (SURCON).`;
   doc.text(certText, tableX + 4, sealBlockY + 9.5, { maxWidth: sealBlockW - 40 });
 
   const survTitle = currentUser?.title || options.surveyorTitle ? `${currentUser?.title || options.surveyorTitle} ` : 'SURV. ';
@@ -1240,6 +1432,19 @@ export function generateCoordinateSchedulePDF(
     doc.setFontSize(6);
     doc.setTextColor(148, 163, 184);
     doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
+  }
+
+  // ====================================================
+  // TWO-PASS RUNNING FOOTER WITH TOTAL PAGE NUMBERING
+  // ====================================================
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(6.2);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('BEACON COORDINATE & BOUNDARY SCHEDULE • PRODUCED BY SURVE CADASTRAL INFRASTRUCTURE', tableX, pageH - margin + 3.5);
+    doc.text(`Page ${p} of ${totalPages}`, tableX + tableW, pageH - margin + 3.5, { align: 'right' });
   }
 
   return doc;

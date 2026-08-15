@@ -5,6 +5,7 @@ import {
   generateCoordinateSchedulePDF,
   TdpRenderOptions,
   TdpStyleConfig,
+  ParcelShadingStyle,
   TdpAdjoiningConfig,
   TdpLayoutArrangement,
   TdpElementTransform,
@@ -99,6 +100,36 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     }
     return DEFAULT_TDP_STYLE;
   });
+
+  // Active Plot Selection for Granular Shading Customization ('global' | parcelId)
+  const [selectedShadingPlotId, setSelectedShadingPlotId] = useState<string>('global');
+
+  // Helper to update per-plot shading override
+  const handleUpdatePlotShading = useCallback((parcelId: string, patch: Partial<ParcelShadingStyle> | null) => {
+    setStyleConfig(prev => {
+      const currentOverrides = { ...(prev.parcelShadingOverrides || {}) };
+      if (patch === null) {
+        delete currentOverrides[parcelId];
+      } else {
+        currentOverrides[parcelId] = {
+          ...(currentOverrides[parcelId] || {
+            fillColor: prev.fillColor,
+            fillOpacity: prev.fillOpacity,
+            hatchPattern: prev.hatchPattern,
+            boundaryColor: prev.boundaryColor,
+            boundaryLineWidth: prev.boundaryLineWidth,
+            boundaryLineStyle: prev.boundaryLineStyle
+          }),
+          ...patch
+        };
+      }
+      return {
+        ...prev,
+        parcelShadingOverrides: currentOverrides,
+        themePreset: 'custom'
+      };
+    });
+  }, []);
 
   // CAD Layout & Sheet Arrangement State
   const [layoutArrangement, setLayoutArrangement] = useState<TdpLayoutArrangement>(() => {
@@ -1211,86 +1242,76 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   </div>
                 </div>
 
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Line Width</label>
-                    <select
-                      value={styleConfig.boundaryLineWidth}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineWidth: parseFloat(e.target.value) || 0.6, themePreset: 'custom' })}
-                    >
-                      <option value={0.3}>0.3 mm (Fine)</option>
-                      <option value={0.6}>0.6 mm (Standard)</option>
-                      <option value={0.8}>0.8 mm (Bold)</option>
-                      <option value={1.2}>1.2 mm (Heavy)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Line Style</label>
-                    <select
-                      value={styleConfig.boundaryLineStyle}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineStyle: e.target.value as any, themePreset: 'custom' })}
-                    >
-                      <option value="solid">Solid Line</option>
-                      <option value="dashed">Dashed</option>
-                      <option value="dashdot">Dash-Dot</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Plot Shading & Hatching */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                  <Palette size={14} className="text-amber" />
-                  <span>Plot Shading & Hatching</span>
-                </div>
-
                 <div className="form-group">
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Shading Fill Opacity</span>
-                    <span>{(styleConfig.fillOpacity * 100).toFixed(0)}%</span>
+                    <span>Line Width</span>
+                    <span>{(styleConfig.boundaryLineWidth || 0.6).toFixed(2)} mm</span>
                   </div>
                   <input
                     type="range"
-                    min={0}
-                    max={0.35}
-                    step={0.02}
-                    value={styleConfig.fillOpacity}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, fillOpacity: parseFloat(e.target.value) || 0, themePreset: 'custom' })}
+                    min={0.1}
+                    max={2.5}
+                    step={0.05}
+                    value={styleConfig.boundaryLineWidth || 0.6}
+                    onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineWidth: parseFloat(e.target.value) || 0.6, themePreset: 'custom' })}
                   />
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                    {[0.3, 0.6, 0.8, 1.2].map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        className="btn-secondary-xs"
+                        style={{
+                          flex: 1,
+                          fontSize: '10px',
+                          padding: '2px 0',
+                          background: styleConfig.boundaryLineWidth === w ? 'rgba(16,185,129,0.15)' : undefined,
+                          borderColor: styleConfig.boundaryLineWidth === w ? 'rgba(16,185,129,0.4)' : undefined,
+                          color: styleConfig.boundaryLineWidth === w ? '#10b981' : undefined
+                        }}
+                        onClick={() => setStyleConfig({ ...styleConfig, boundaryLineWidth: w, themePreset: 'custom' })}
+                      >
+                        {w}mm
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Hatch Pattern</label>
-                    <select
-                      value={styleConfig.hatchPattern}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, hatchPattern: e.target.value as any, themePreset: 'custom' })}
-                    >
-                      <option value="none">None / Wireframe</option>
-                      <option value="tint">Solid Tint</option>
-                      <option value="diagonal">45° Diagonal Hatch</option>
-                      <option value="cross">Crosshatch Grid</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Fill Tint Color</label>
-                    <input
-                      type="color"
-                      value={styleConfig.fillColor}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, fillColor: e.target.value, themePreset: 'custom' })}
-                      style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
-                    />
-                  </div>
+                <div className="form-group">
+                  <label>Line Style</label>
+                  <select
+                    value={styleConfig.boundaryLineStyle}
+                    onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineStyle: e.target.value as any, themePreset: 'custom' })}
+                  >
+                    <option value="solid">Solid Line (Continuous)</option>
+                    <option value="dashed">Dashed Line</option>
+                    <option value="dashdot">Dash-Dot (Boundary Standard)</option>
+                  </select>
                 </div>
 
                 {/* Beacon Marker Styling */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
+                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
                   <ShieldCheck size={14} className="text-rose-400" />
                   <span>Beacon & Pillar Markers</span>
                 </div>
 
+                <div className="form-group">
+                  <label>Beacon Marker Symbol</label>
+                  <select
+                    value={styleConfig.beaconSymbolStyle || 'circle_cross'}
+                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconSymbolStyle: e.target.value as any, themePreset: 'custom' })}
+                  >
+                    <option value="circle_cross">SURCON Monument (Circle with Crosshairs)</option>
+                    <option value="filled_circle">Filled Concrete Pillar (Dot)</option>
+                    <option value="open_circle">Open Ring Marker</option>
+                    <option value="square">Square Boundary Beacon</option>
+                    <option value="triangle">Triangulation Benchmark</option>
+                  </select>
+                </div>
+
                 <div className="form-row-2">
                   <div className="form-group">
-                    <label>Beacon Marker Color</label>
+                    <label>Beacon Color</label>
                     <input
                       type="color"
                       value={styleConfig.beaconColor}
@@ -1299,17 +1320,251 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                     />
                   </div>
                   <div className="form-group">
-                    <label>Marker Radius</label>
-                    <select
-                      value={styleConfig.beaconSize}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, beaconSize: parseFloat(e.target.value) || 1.4, themePreset: 'custom' })}
-                    >
-                      <option value={1.0}>1.0 mm (Small)</option>
-                      <option value={1.4}>1.4 mm (Standard)</option>
-                      <option value={1.8}>1.8 mm (Large)</option>
-                    </select>
+                    <label>Control Stn Color</label>
+                    <input
+                      type="color"
+                      value={styleConfig.controlColor || '#f59e0b'}
+                      onChange={(e) => setStyleConfig({ ...styleConfig, controlColor: e.target.value, themePreset: 'custom' })}
+                      style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                    />
                   </div>
                 </div>
+
+                <div className="form-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                    <span>Marker Radius</span>
+                    <span>{(styleConfig.beaconSize || 1.4).toFixed(1)} mm</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={4.0}
+                    step={0.1}
+                    value={styleConfig.beaconSize || 1.4}
+                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconSize: parseFloat(e.target.value) || 1.4, themePreset: 'custom' })}
+                  />
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                    {[1.0, 1.4, 1.8, 2.5].map(r => (
+                      <button
+                        key={r}
+                        type="button"
+                        className="btn-secondary-xs"
+                        style={{
+                          flex: 1,
+                          fontSize: '10px',
+                          padding: '2px 0',
+                          background: styleConfig.beaconSize === r ? 'rgba(244,63,94,0.15)' : undefined,
+                          borderColor: styleConfig.beaconSize === r ? 'rgba(244,63,94,0.4)' : undefined,
+                          color: styleConfig.beaconSize === r ? '#fb7185' : undefined
+                        }}
+                        onClick={() => setStyleConfig({ ...styleConfig, beaconSize: r, themePreset: 'custom' })}
+                      >
+                        {r}mm
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                    <span>Marker Line Stroke</span>
+                    <span>{(styleConfig.beaconLineWidth || 0.3).toFixed(2)} mm</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1.2}
+                    step={0.05}
+                    value={styleConfig.beaconLineWidth || 0.3}
+                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconLineWidth: parseFloat(e.target.value) || 0.3, themePreset: 'custom' })}
+                  />
+                </div>
+
+                {/* Granular Plot Shading & Styling */}
+                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
+                  <Palette size={14} className="text-amber" />
+                  <span>Granular Plot Shading & Styles</span>
+                </div>
+
+                {/* Plot Selector */}
+                <div className="form-group">
+                  <label>Target Plot to Style</label>
+                  <select
+                    value={selectedShadingPlotId}
+                    onChange={(e) => setSelectedShadingPlotId(e.target.value)}
+                    style={{ fontWeight: selectedShadingPlotId === 'global' ? 'normal' : 'bold', color: selectedShadingPlotId === 'global' ? undefined : '#38bdf8' }}
+                  >
+                    <option value="global">🌐 Global Default (All Plots)</option>
+                    {parcels.map(p => {
+                      const hasOverride = !!styleConfig.parcelShadingOverrides?.[p.id];
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''} {hasOverride ? '• [Custom Styled]' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Controls for Global Default */}
+                {selectedShadingPlotId === 'global' ? (
+                  <div style={{ padding: '8px', background: 'rgba(15,23,42,0.4)', borderRadius: '6px', border: '1px solid rgba(148,163,184,0.1)' }}>
+                    <div className="form-group">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                        <span>Global Shading Opacity</span>
+                        <span>{((styleConfig.fillOpacity || 0) * 100).toFixed(0)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={0.5}
+                        step={0.02}
+                        value={styleConfig.fillOpacity}
+                        onChange={(e) => setStyleConfig({ ...styleConfig, fillOpacity: parseFloat(e.target.value) || 0, themePreset: 'custom' })}
+                      />
+                    </div>
+
+                    <div className="form-row-2">
+                      <div className="form-group">
+                        <label>Hatch Pattern</label>
+                        <select
+                          value={styleConfig.hatchPattern}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, hatchPattern: e.target.value as any, themePreset: 'custom' })}
+                        >
+                          <option value="none">None / Wireframe</option>
+                          <option value="tint">Solid Tint</option>
+                          <option value="diagonal">45° Diagonal Hatch</option>
+                          <option value="cross">Crosshatch Grid</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Fill Tint Color</label>
+                        <input
+                          type="color"
+                          value={styleConfig.fillColor}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, fillColor: e.target.value, themePreset: 'custom' })}
+                          style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Controls for Specific Plot Override */
+                  (() => {
+                    const targetPlot = parcels.find(p => p.id === selectedShadingPlotId);
+                    const override = styleConfig.parcelShadingOverrides?.[selectedShadingPlotId];
+                    const isCustomEnabled = !!override;
+                    const plotFillCol = override?.fillColor || styleConfig.fillColor;
+                    const plotFillOp = override?.fillOpacity !== undefined ? override.fillOpacity : styleConfig.fillOpacity;
+                    const plotHatch = override?.hatchPattern || styleConfig.hatchPattern;
+                    const plotBoundCol = override?.boundaryColor || styleConfig.boundaryColor;
+                    const plotBoundWidth = override?.boundaryLineWidth || styleConfig.boundaryLineWidth || 0.6;
+
+                    return (
+                      <div style={{ padding: '8px', background: 'rgba(56,189,248,0.04)', borderRadius: '6px', border: '1px solid rgba(56,189,248,0.2)' }}>
+                        <label className="checkbox-label" style={{ marginBottom: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isCustomEnabled}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                handleUpdatePlotShading(selectedShadingPlotId, {
+                                  fillColor: styleConfig.fillColor,
+                                  fillOpacity: styleConfig.fillOpacity,
+                                  hatchPattern: styleConfig.hatchPattern,
+                                  boundaryColor: styleConfig.boundaryColor,
+                                  boundaryLineWidth: styleConfig.boundaryLineWidth
+                                });
+                              } else {
+                                handleUpdatePlotShading(selectedShadingPlotId, null);
+                              }
+                            }}
+                          />
+                          <span style={{ fontWeight: 'bold', color: '#38bdf8' }}>
+                            Enable Custom Style for {targetPlot?.plotNumber || 'this plot'}
+                          </span>
+                        </label>
+
+                        {isCustomEnabled && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div className="form-row-2">
+                              <div className="form-group">
+                                <label>Plot Fill Color</label>
+                                <input
+                                  type="color"
+                                  value={plotFillCol}
+                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillColor: e.target.value })}
+                                  style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                                />
+                              </div>
+                              <div className="form-group">
+                                <label>Hatch Pattern</label>
+                                <select
+                                  value={plotHatch}
+                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { hatchPattern: e.target.value as any })}
+                                >
+                                  <option value="none">None / Wireframe</option>
+                                  <option value="tint">Solid Tint</option>
+                                  <option value="diagonal">45° Diagonal Hatch</option>
+                                  <option value="cross">Crosshatch Grid</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="form-group">
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                                <span>Plot Fill Opacity</span>
+                                <span>{(plotFillOp * 100).toFixed(0)}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={0.6}
+                                step={0.02}
+                                value={plotFillOp}
+                                onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillOpacity: parseFloat(e.target.value) || 0 })}
+                              />
+                            </div>
+
+                            <div className="form-row-2">
+                              <div className="form-group">
+                                <label>Border Color</label>
+                                <input
+                                  type="color"
+                                  value={plotBoundCol}
+                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { boundaryColor: e.target.value })}
+                                  style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                                />
+                              </div>
+                              <div className="form-group">
+                                <label>Border Width</label>
+                                <select
+                                  value={plotBoundWidth}
+                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { boundaryLineWidth: parseFloat(e.target.value) || 0.6 })}
+                                >
+                                  <option value={0.3}>0.3 mm (Fine)</option>
+                                  <option value={0.6}>0.6 mm (Standard)</option>
+                                  <option value={0.9}>0.9 mm (Bold)</option>
+                                  <option value={1.4}>1.4 mm (Heavy)</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="btn-secondary-xs"
+                              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: '#fb7185', borderColor: 'rgba(251,113,133,0.3)', marginTop: '4px' }}
+                              onClick={() => handleUpdatePlotShading(selectedShadingPlotId, null)}
+                            >
+                              <RotateCcw size={11} />
+                              <span>Reset {targetPlot?.plotNumber} to Global Default</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                )}
 
                 {/* CAD Layout & Sheet Block Arrangement */}
                 <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
@@ -1949,18 +2204,33 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   <span>Hide</span>
                 </button>
                 {selectedElementId.startsWith('parcel_') && (
-                  <button
-                    className="tdp-quick-btn"
-                    title="Hide all labels & dimensions in this plot"
-                    onClick={() => {
-                      const parcelId = selectedElementId.replace('parcel_', '');
-                      handleTogglePlotElements(parcelId, true);
-                    }}
-                    style={{ color: '#fb7185' }}
-                  >
-                    <EyeOff size={11} />
-                    <span>Hide Plot</span>
-                  </button>
+                  <>
+                    <button
+                      className="tdp-quick-btn"
+                      title="Customize Shading & Style for this Plot"
+                      onClick={() => {
+                        const parcelId = selectedElementId.replace('parcel_', '');
+                        setSelectedShadingPlotId(parcelId);
+                        setActiveTab('design');
+                      }}
+                      style={{ color: '#38bdf8' }}
+                    >
+                      <Palette size={11} />
+                      <span>Style Plot</span>
+                    </button>
+                    <button
+                      className="tdp-quick-btn"
+                      title="Hide all labels & dimensions in this plot"
+                      onClick={() => {
+                        const parcelId = selectedElementId.replace('parcel_', '');
+                        handleTogglePlotElements(parcelId, true);
+                      }}
+                      style={{ color: '#fb7185' }}
+                    >
+                      <EyeOff size={11} />
+                      <span>Hide Plot</span>
+                    </button>
+                  </>
                 )}
                 <button
                   className="tdp-quick-btn"
@@ -2029,13 +2299,33 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           onMouseLeave={handleSvgMouseUp}
                         >
                           <defs>
+                            {/* Global Pattern Defaults */}
                             <pattern id="svg-diag-hatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
-                              <line x1="0" y1="0" x2="0" y2="8" stroke={styleConfig.fillColor} strokeWidth="1.2" opacity={Math.max(0.2, styleConfig.fillOpacity * 2.5)} />
+                              <line x1="0" y1="0" x2="0" y2="8" stroke={styleConfig.fillColor} strokeWidth="1.2" opacity={Math.max(0.2, (styleConfig.fillOpacity || 0.04) * 2.5)} />
                             </pattern>
                             <pattern id="svg-cross-hatch" width="8" height="8" patternUnits="userSpaceOnUse">
-                              <line x1="0" y1="0" x2="8" y2="0" stroke={styleConfig.fillColor} strokeWidth="1" opacity={Math.max(0.2, styleConfig.fillOpacity * 2.5)} />
-                              <line x1="0" y1="0" x2="0" y2="8" stroke={styleConfig.fillColor} strokeWidth="1" opacity={Math.max(0.2, styleConfig.fillOpacity * 2.5)} />
+                              <line x1="0" y1="0" x2="8" y2="0" stroke={styleConfig.fillColor} strokeWidth="1" opacity={Math.max(0.2, (styleConfig.fillOpacity || 0.04) * 2.5)} />
+                              <line x1="0" y1="0" x2="0" y2="8" stroke={styleConfig.fillColor} strokeWidth="1" opacity={Math.max(0.2, (styleConfig.fillOpacity || 0.04) * 2.5)} />
                             </pattern>
+
+                            {/* Dynamic Granular Per-Plot Pattern Overrides */}
+                            {targetParcels.map(p => {
+                              const override = styleConfig.parcelShadingOverrides?.[p.id];
+                              if (!override) return null;
+                              const pCol = override.fillColor || styleConfig.fillColor;
+                              const pOp = override.fillOpacity !== undefined ? override.fillOpacity : styleConfig.fillOpacity;
+                              return (
+                                <React.Fragment key={`defs-parcel-${p.id}`}>
+                                  <pattern id={`svg-diag-hatch-${p.id}`} width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                                    <line x1="0" y1="0" x2="0" y2="8" stroke={pCol} strokeWidth="1.2" opacity={Math.max(0.2, pOp * 2.5)} />
+                                  </pattern>
+                                  <pattern id={`svg-cross-hatch-${p.id}`} width="8" height="8" patternUnits="userSpaceOnUse">
+                                    <line x1="0" y1="0" x2="8" y2="0" stroke={pCol} strokeWidth="1" opacity={Math.max(0.2, pOp * 2.5)} />
+                                    <line x1="0" y1="0" x2="0" y2="8" stroke={pCol} strokeWidth="1" opacity={Math.max(0.2, pOp * 2.5)} />
+                                  </pattern>
+                                </React.Fragment>
+                              );
+                            })}
                           </defs>
 
                           {/* 1. Grid Crosses */}
@@ -2226,38 +2516,46 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             </g>
                           )}
 
-                          {/* 2. Parcel Vector Polygons & Shading */}
-                          {(() => {
-                            const strokeDash = styleConfig.boundaryLineStyle === 'dashed' ? '6 4' : styleConfig.boundaryLineStyle === 'dashdot' ? '6 3 2 3' : undefined;
-                            const fillStyle = styleConfig.fillOpacity > 0
-                              ? (styleConfig.hatchPattern === 'diagonal' ? 'url(#svg-diag-hatch)' : styleConfig.hatchPattern === 'cross' ? 'url(#svg-cross-hatch)' : styleConfig.fillColor)
+                          {/* 2. Parcel Vector Polygons & Granular Shading */}
+                          {targetParcels.map(parcel => {
+                            const comp = computeParcel(parcel, points);
+                            if (!comp || comp.vertices.length < 3) return null;
+
+                            const override = styleConfig.parcelShadingOverrides?.[parcel.id];
+                            const pCol = override?.fillColor || styleConfig.fillColor;
+                            const pOp = override?.fillOpacity !== undefined ? override.fillOpacity : styleConfig.fillOpacity;
+                            const pHatch = override?.hatchPattern || styleConfig.hatchPattern;
+                            const pBoundCol = override?.boundaryColor || styleConfig.boundaryColor;
+                            const pBoundWidth = (override?.boundaryLineWidth || styleConfig.boundaryLineWidth || 0.6) * 2.8;
+                            const pBoundStyle = override?.boundaryLineStyle || styleConfig.boundaryLineStyle || 'solid';
+
+                            const strokeDash = pBoundStyle === 'dashed' ? '6 4' : pBoundStyle === 'dashdot' ? '6 3 2 3' : undefined;
+                            const fillStyle = pOp > 0
+                              ? (pHatch === 'diagonal' ? `url(#${override ? `svg-diag-hatch-${parcel.id}` : 'svg-diag-hatch'})`
+                                : pHatch === 'cross' ? `url(#${override ? `svg-cross-hatch-${parcel.id}` : 'svg-cross-hatch'})`
+                                : pCol)
                               : 'none';
-                            const fillOpacityVal = styleConfig.hatchPattern === 'diagonal' || styleConfig.hatchPattern === 'cross' ? 1.0 : styleConfig.fillOpacity;
+                            const fillOpacityVal = pHatch === 'diagonal' || pHatch === 'cross' ? 1.0 : pOp;
 
-                            return targetParcels.map(parcel => {
-                              const comp = computeParcel(parcel, points);
-                              if (!comp || comp.vertices.length < 3) return null;
+                            const polyPoints = comp.vertices
+                              .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
+                              .join(' ');
 
-                              const polyPoints = comp.vertices
-                                .map(v => `${toSvgX(v.easting)},${toSvgY(v.northing)}`)
-                                .join(' ');
-
-                              return (
-                                <g key={parcel.id} className="svg-parcel-polygon-group">
-                                  {/* Shaded Polygon Fill & Stroke */}
-                                  <polygon
-                                    points={polyPoints}
-                                    fill={fillStyle}
-                                    fillOpacity={fillOpacityVal}
-                                    stroke={styleConfig.boundaryColor}
-                                    strokeWidth={(styleConfig.boundaryLineWidth || 0.6) * 2.8}
-                                    strokeDasharray={strokeDash}
-                                    strokeLinejoin="round"
-                                  />
-                                </g>
-                              );
-                            });
-                          })()}
+                            return (
+                              <g key={parcel.id} className="svg-parcel-polygon-group">
+                                {/* Shaded Polygon Fill & Stroke */}
+                                <polygon
+                                  points={polyPoints}
+                                  fill={fillStyle}
+                                  fillOpacity={fillOpacityVal}
+                                  stroke={pBoundCol}
+                                  strokeWidth={pBoundWidth}
+                                  strokeDasharray={strokeDash}
+                                  strokeLinejoin="round"
+                                />
+                              </g>
+                            );
+                          })}
 
                           {/* 3. De-Conflicted Parcel Centroid Badges (Interactive Drag & Transform) */}
                           {resolvedLayout.parcelBadges.map(badge => {
@@ -2484,14 +2782,46 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     points={`${bx},${by - (bRad * 1.5)} ${bx + (bRad * 1.2)},${by + (bRad * 0.9)} ${bx - (bRad * 1.2)},${by + (bRad * 0.9)}`}
                                     fill={styleConfig.controlColor || '#f59e0b'}
                                     stroke="#ffffff"
-                                    strokeWidth="1"
+                                    strokeWidth="1.2"
                                   />
                                 ) : (
-                                  <>
-                                    <circle cx={bx} cy={by} r={bRad} fill={styleConfig.beaconColor || '#dc2626'} stroke="#ffffff" strokeWidth="0.8" />
-                                    <line x1={bx - bRad} y1={by} x2={bx + bRad} y2={by} stroke="#ffffff" strokeWidth="0.6" />
-                                    <line x1={bx} y1={by - bRad} x2={bx} y2={by + bRad} stroke="#ffffff" strokeWidth="0.6" />
-                                  </>
+                                  (() => {
+                                    const sym = styleConfig.beaconSymbolStyle || 'circle_cross';
+                                    const col = styleConfig.beaconColor || '#dc2626';
+                                    const strokeW = Math.max(0.6, (styleConfig.beaconLineWidth || 0.3) * 2.5);
+
+                                    if (sym === 'filled_circle') {
+                                      return <circle cx={bx} cy={by} r={bRad} fill={col} stroke="#ffffff" strokeWidth="1" />;
+                                    } else if (sym === 'open_circle') {
+                                      return <circle cx={bx} cy={by} r={bRad} fill="#ffffff" stroke={col} strokeWidth={strokeW} />;
+                                    } else if (sym === 'square') {
+                                      return (
+                                        <>
+                                          <rect x={bx - bRad} y={by - bRad} width={bRad * 2} height={bRad * 2} fill={col} stroke="#ffffff" strokeWidth="1" />
+                                          <line x1={bx - bRad} y1={by - bRad} x2={bx + bRad} y2={by + bRad} stroke="#ffffff" strokeWidth={strokeW * 0.7} />
+                                          <line x1={bx - bRad} y1={by + bRad} x2={bx + bRad} y2={by - bRad} stroke="#ffffff" strokeWidth={strokeW * 0.7} />
+                                        </>
+                                      );
+                                    } else if (sym === 'triangle') {
+                                      return (
+                                        <polygon
+                                          points={`${bx},${by - (bRad * 1.3)} ${bx + (bRad * 1.3)},${by + (bRad * 0.9)} ${bx - (bRad * 1.3)},${by + (bRad * 0.9)}`}
+                                          fill={col}
+                                          stroke="#ffffff"
+                                          strokeWidth="1"
+                                        />
+                                      );
+                                    } else {
+                                      // 'circle_cross' (Standard SURCON Federal Monument)
+                                      return (
+                                        <>
+                                          <circle cx={bx} cy={by} r={bRad} fill={col} stroke="#ffffff" strokeWidth="0.8" />
+                                          <line x1={bx - bRad} y1={by} x2={bx + bRad} y2={by} stroke="#ffffff" strokeWidth={strokeW * 0.7} />
+                                          <line x1={bx} y1={by - bRad} x2={bx} y2={by + bRad} stroke="#ffffff" strokeWidth={strokeW * 0.7} />
+                                        </>
+                                      );
+                                    }
+                                  })()
                                 )}
 
                                 {lbl && (
