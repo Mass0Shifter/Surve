@@ -1,5 +1,7 @@
 import { CoordinatePoint, Parcel, ProjectMetadata } from '../types';
 import { computeParcel, computeExtents } from '../cogo';
+import { determineCadastralSheets, CadastralSheetInfo } from '../cadastral/sheetIndex';
+import { getDatumBeltName } from '../datums';
 
 /**
  * Generates an AutoCAD Script (.SCR) file that precisely automates the creation of
@@ -113,6 +115,7 @@ export function generateParcelsSCR(
 
 /**
  * Generates a full Title Deed Plan (.SCR) script matching SurvPack 3.0 standards.
+ * Calibrated for 100% mathematical and visual parity with the Vector PDF engine:
  * - MODEL SPACE (TILEMODE 1): 1:1 Geodetic Survey Entities (Easting/Northing in meters)
  *   Only scoped points belonging to target parcels are drawn. Bearings & distances align parallel to legs.
  * - PAPER SPACE (TILEMODE 0 / Layout 1): True Paper Millimeters (1 unit = 1 mm)
@@ -142,11 +145,8 @@ export function generateTdpAutoCADScript(
   const activePoints = relevantPoints.length > 0 ? relevantPoints : points;
 
   const extents = computeExtents(activePoints);
-  const cx = extents.minX + extents.width / 2;
-  const cy = extents.minY + extents.height / 2;
-
-  const scaleRatio = options.scaleRatio || project.scale || 1000;
-  const scaleFactor = scaleRatio / 1000; // In Model Space, 1mm on paper = scaleFactor meters
+  const centE = extents.centerX;
+  const centN = extents.centerY;
 
   // Paper Dimensions in Millimeters
   const pageSize = options.pageSize || 'a4';
@@ -172,6 +172,28 @@ export function generateTdpAutoCADScript(
     paperH_mm = Math.max(tmp, paperH_mm);
   }
 
+  // Exact Drawing Window Dimensions in mm (Matching tdpGenerator.ts)
+  const drawAreaW = paperW_mm - 32;
+  const drawAreaH = paperH_mm - 110;
+
+  // Compute Auto-Fit Scale Ratio (Identical to PDF engine)
+  const autoScale = Math.min((drawAreaW - 20) / Math.max(10, extents.width), (drawAreaH - 20) / Math.max(10, extents.height));
+  const autoFitRatio = Math.round(1000 / (autoScale > 0 ? autoScale : 1));
+  const effectiveScale = (options.scaleRatio && options.scaleRatio > 0) ? options.scaleRatio : autoFitRatio;
+  const scaleFactor = effectiveScale / 1000; // In Model Space, 1mm on paper = scaleFactor meters
+
+  // Cadastral Sheet Index
+  const centPoint = activePoints[0] || { easting: 294312, northing: 992100 };
+  const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
+  const primarySheet = sheetIndices.find((s: CadastralSheetInfo) => s.scale === effectiveScale) || sheetIndices[0];
+
+  // Header Titles
+  const selectedParcel = parcels[0];
+  const planSub = selectedParcel
+    ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+    : `SURVEY PLAN OF ${(project.title || 'THE PROPERTY').toUpperCase()}`;
+  const locText = `SITUATED AT: ${(project.location || 'NIGERIA').toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
+
   const lines: string[] = [];
 
   // ==========================================
@@ -179,6 +201,8 @@ export function generateTdpAutoCADScript(
   // ==========================================
   lines.push('TILEMODE 1');
   lines.push('UCS W');
+  lines.push('MEASUREMENT 1');
+  lines.push('INSUNITS 4');
   lines.push('OSMODE 0');
   lines.push('LUNITS 2');
   lines.push('LUPREC 4');
@@ -188,20 +212,22 @@ export function generateTdpAutoCADScript(
   lines.push('ANGDIR 0');
   lines.push('PDMODE 32');
   lines.push('PDSIZE 0.5');
+  lines.push('PLTSCALE 1');
+  lines.push('PSLTSCALE 0');
   lines.push('SETVAR REMEMBERFOLDERS 0');
   lines.push('-STYLE STANDARD Arial 0.0 1.0 0.0 N N');
 
   // Batch Create All SurvPack TDP Layers
   lines.push('-LAYER N TDP_GRID,TDP_BEACONS,TDP_ANNOTATIONS,TDP_BOUNDARY,TDP_BEARINGS,TDP_BORDER,TDP_NEATLINE,TDP_TITLEBLOCK,TDP_TABLE,TDP_CERTIFICATION,TDP_VIEWPORT C 8 TDP_GRID C 1 TDP_BEACONS C 3 TDP_ANNOTATIONS C 2 TDP_BOUNDARY C 4 TDP_BEARINGS C 7 TDP_BORDER C 7 TDP_NEATLINE C 7 TDP_TITLEBLOCK C 7 TDP_TABLE C 7 TDP_CERTIFICATION C 7 TDP_VIEWPORT ');
 
-  // 1. Geodetic Grid Crosses (50m or 100m survey grid)
+  // 1. Geodetic Grid Crosses (Matching PDF step)
   lines.push('CLAYER TDP_GRID');
+  const gridStep = effectiveScale <= 250 ? 10 : effectiveScale <= 500 ? 25 : effectiveScale <= 1000 ? 50 : 100;
   const buffer = Math.max(25, extents.width * 0.2);
   const minE = Math.floor(extents.minX - buffer);
   const maxE = Math.ceil(extents.maxX + buffer);
   const minN = Math.floor(extents.minY - buffer);
   const maxN = Math.ceil(extents.maxY + buffer);
-  const gridStep = Math.max(50, Math.round(extents.width / 5 / 50) * 50);
   const startE = Math.ceil(minE / gridStep) * gridStep;
   const endE = Math.floor(maxE / gridStep) * gridStep;
   const startN = Math.ceil(minN / gridStep) * gridStep;
@@ -237,17 +263,17 @@ export function generateTdpAutoCADScript(
     lines.push(`PLINE ${coordsStr} C`);
 
     // Centroid Area Text
-    const centE = comp.vertices.reduce((s, v) => s + v.easting, 0) / comp.vertices.length;
-    const centN = comp.vertices.reduce((s, v) => s + v.northing, 0) / comp.vertices.length;
+    const centPlotE = comp.vertices.reduce((s, v) => s + v.easting, 0) / comp.vertices.length;
+    const centPlotN = comp.vertices.reduce((s, v) => s + v.northing, 0) / comp.vertices.length;
 
-    lines.push(`TEXT J MC ${centE.toFixed(3)},${centN.toFixed(3)} ${(2.4 * scaleFactor).toFixed(2)} 0 ${parcel.plotNumber}`);
+    lines.push(`TEXT J MC ${centPlotE.toFixed(3)},${centPlotN.toFixed(3)} ${(2.4 * scaleFactor).toFixed(2)} 0 ${parcel.plotNumber}`);
     if (parcel.ownerName) {
-      lines.push(`TEXT J MC ${centE.toFixed(3)},${(centN - 3.2 * scaleFactor).toFixed(3)} ${(1.6 * scaleFactor).toFixed(2)} 0 ${parcel.ownerName}`);
+      lines.push(`TEXT J MC ${centPlotE.toFixed(3)},${(centPlotN - 3.2 * scaleFactor).toFixed(3)} ${(1.6 * scaleFactor).toFixed(2)} 0 ${parcel.ownerName}`);
     }
-    lines.push(`TEXT J MC ${centE.toFixed(3)},${(centN - 5.8 * scaleFactor).toFixed(3)} ${(1.4 * scaleFactor).toFixed(2)} 0 Area: ${comp.areaSquareMeters.toFixed(2)} sq.m`);
+    lines.push(`TEXT J MC ${centPlotE.toFixed(3)},${(centPlotN - 5.8 * scaleFactor).toFixed(3)} ${(1.4 * scaleFactor).toFixed(2)} 0 Area: ${comp.areaSquareMeters.toFixed(2)} sq.m`);
   }
 
-  // 5. Boundary Leg Bearings & Distances (Aligned parallel to line segment, no upside-down text)
+  // 5. Boundary Leg Bearings & Distances (Aligned parallel to line segment, cartographic readability)
   lines.push('CLAYER TDP_BEARINGS');
   for (const parcel of parcels) {
     for (let i = 0; i < parcel.pointIds.length; i++) {
@@ -296,91 +322,97 @@ export function generateTdpAutoCADScript(
   lines.push('ZOOM E');
 
   // ==========================================
-  // B. PAPER SPACE (LAYOUT 1): True Paper Millimeters
+  // B. PAPER SPACE (LAYOUT 1): True Paper Millimeters (1:1 Parity with PDF)
   // ==========================================
   lines.push('TILEMODE 0');
   lines.push('PSPACE');
 
-  // Viewport Frame dimensions in paper mm
-  const vpMinX = 14;
-  const vpMaxX = paperW_mm - 14;
-  const vpMinY = 44;
-  const vpMaxY = paperH_mm - 48;
+  // Exact Viewport Boundaries matching PDF drawing area
+  const vpMinX = 16;
+  const vpMaxX = paperW_mm - 16;
+  const vpMinY = 70;
+  const vpMaxY = paperH_mm - 40;
 
   // Create & Scale Floating Viewport (MVIEW)
   lines.push('CLAYER TDP_VIEWPORT');
   lines.push(`MVIEW ${vpMinX},${vpMinY} ${vpMaxX},${vpMaxY}`);
   lines.push('MSPACE');
-  lines.push(`ZOOM C ${cx.toFixed(3)},${cy.toFixed(3)} ${(1000 / scaleRatio).toFixed(4)}XP`);
+  lines.push(`ZOOM C ${centE.toFixed(3)},${centN.toFixed(3)} ${(1000 / effectiveScale).toFixed(4)}XP`);
   lines.push('PSPACE');
+  lines.push('MVIEW L ON ALL '); // Lock Viewport Scale to prevent accidental zooming
 
   // 1. Sheet Outer Border & Double Neatlines (in mm)
   lines.push('CLAYER TDP_BORDER');
-  lines.push(`RECTANG 0,0 ${paperW_mm},${paperH_mm}`);
+  lines.push(`RECTANG 12,12 ${paperW_mm - 12},${paperH_mm - 12}`);
 
   lines.push('CLAYER TDP_NEATLINE');
-  lines.push(`RECTANG 10,10 ${paperW_mm - 10},${paperH_mm - 10}`);
-  lines.push(`RECTANG 11.5,11.5 ${paperW_mm - 11.5},${paperH_mm - 11.5}`);
+  lines.push(`RECTANG 13.5,13.5 ${paperW_mm - 13.5},${paperH_mm - 13.5}`);
 
   // 2. Title Block & Header (Top of Paper Space in mm)
   lines.push('CLAYER TDP_TITLEBLOCK');
   const midPaperX = paperW_mm / 2;
-  const headerTopY = paperH_mm - 15;
+  const headerTopY = paperH_mm - 16;
 
-  lines.push(`TEXT J MC ${midPaperX},${headerTopY} 3.5 0 PLAN SHOWING PROPERTY OF`);
-  lines.push(`TEXT J MC ${midPaperX},${headerTopY - 6} 4.5 0 ${(project.clientName || 'THE ALLOTTEE').toUpperCase()}`);
-  lines.push(`TEXT J MC ${midPaperX},${headerTopY - 12} 2.6 0 SITUATE AT ${(project.location || 'NIGERIA').toUpperCase()}`);
-  lines.push(`TEXT J MC ${midPaperX},${headerTopY - 17} 2.2 0 SCALE 1:${scaleRatio}  |  ORIGIN: MINNA DATUM (NIGERIAN NATIONAL GRID)`);
+  lines.push(`TEXT J MC ${midPaperX},${headerTopY} 4.0 0 TITLE DEED PLAN`);
+  lines.push(`TEXT J MC ${midPaperX},${headerTopY - 6} 3.2 0 ${planSub.toUpperCase()}`);
+  lines.push(`TEXT J MC ${midPaperX},${headerTopY - 11.5} 2.4 0 ${locText.toUpperCase()}`);
+  lines.push(`LINE 15,${headerTopY - 16} ${paperW_mm - 15},${headerTopY - 16} `);
+
+  // Top-Right Sheet Metadata
+  lines.push(`TEXT J MR ${paperW_mm - 16},${headerTopY} 2.4 0 SHEET NO: ${primarySheet.sheetNumber}`);
+  lines.push(`TEXT J MR ${paperW_mm - 16},${headerTopY - 5} 2.4 0 SCALE 1:${effectiveScale}`);
+  lines.push(`TEXT J MR ${paperW_mm - 16},${headerTopY - 10} 2.4 0 JOB NO: ${project.code || 'SURV/TDP/001'}`);
 
   // 3. Tabulated Coordinate Schedule Table (Bottom-Left in mm)
   if (options.showCoordinateTable !== false && activePoints.length > 0) {
     lines.push('CLAYER TDP_TABLE');
-    const tableX = 14;
-    const tableTopY = 40;
-    const rowH = 4.0;
-    const colW1 = 18;
-    const colW2 = 25;
-    const colW3 = 25;
+    const tableX = 16;
+    const tableTopY = 64;
+    const rowH = 4.5;
+    const colW1 = 20;
+    const colW2 = 35;
+    const colW3 = 35;
     const totalW = colW1 + colW2 + colW3;
 
     // Header box
     lines.push(`RECTANG ${tableX},${tableTopY - rowH} ${tableX + totalW},${tableTopY}`);
-    lines.push(`TEXT J MC ${tableX + colW1 / 2},${tableTopY - rowH / 2} 1.5 0 BEACON`);
-    lines.push(`TEXT J MC ${tableX + colW1 + colW2 / 2},${tableTopY - rowH / 2} 1.5 0 EASTING (m)`);
-    lines.push(`TEXT J MC ${tableX + colW1 + colW2 + colW3 / 2},${tableTopY - rowH / 2} 1.5 0 NORTHING (m)`);
+    lines.push(`TEXT J MC ${tableX + colW1 / 2},${tableTopY - rowH / 2} 1.6 0 BEACON`);
+    lines.push(`TEXT J MC ${tableX + colW1 + colW2 / 2},${tableTopY - rowH / 2} 1.6 0 EASTING (m)`);
+    lines.push(`TEXT J MC ${tableX + colW1 + colW2 + colW3 / 2},${tableTopY - rowH / 2} 1.6 0 NORTHING (m)`);
 
-    const ptsToShow = activePoints.slice(0, 6);
+    const ptsToShow = activePoints.slice(0, 9);
     ptsToShow.forEach((pt, idx) => {
       const y = tableTopY - (idx + 2) * rowH;
       lines.push(`RECTANG ${tableX},${y} ${tableX + totalW},${y + rowH}`);
-      lines.push(`TEXT J MC ${tableX + colW1 / 2},${y + rowH / 2} 1.3 0 ${pt.id}`);
-      lines.push(`TEXT J MC ${tableX + colW1 + colW2 / 2},${y + rowH / 2} 1.3 0 ${pt.easting.toFixed(3)}`);
-      lines.push(`TEXT J MC ${tableX + colW1 + colW2 + colW3 / 2},${y + rowH / 2} 1.3 0 ${pt.northing.toFixed(3)}`);
+      lines.push(`TEXT J MC ${tableX + colW1 / 2},${y + rowH / 2} 1.4 0 ${pt.id}`);
+      lines.push(`TEXT J MC ${tableX + colW1 + colW2 / 2},${y + rowH / 2} 1.4 0 ${pt.easting.toFixed(3)}`);
+      lines.push(`TEXT J MC ${tableX + colW1 + colW2 + colW3 / 2},${y + rowH / 2} 1.4 0 ${pt.northing.toFixed(3)}`);
     });
   }
 
   // 4. Surveyor Certification Block & Seal Box (Bottom-Right in mm)
   if (options.showSealBox !== false) {
     lines.push('CLAYER TDP_CERTIFICATION');
-    const certW = 75;
-    const certH = 26;
-    const certX = paperW_mm - 14 - certW;
-    const certY = 14;
+    const certW = 85;
+    const certH = 48;
+    const certX = paperW_mm - 16 - certW;
+    const certY = 16;
 
     lines.push(`RECTANG ${certX},${certY} ${certX + certW},${certY + certH}`);
-    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 4} 1.6 0 SURVEYED & CERTIFIED BY:`);
+    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 5} 1.8 0 SURVEYED & CERTIFIED BY:`);
     
     const survTitle = (currentUser?.title ? currentUser.title + ' ' : 'SURV. ') + (currentUser?.name || project.surveyorName || 'REGISTERED SURVEYOR');
-    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 9} 2.0 0 ${survTitle.toUpperCase()}`);
-    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 14} 1.4 0 SURCON REG. NO: ${currentUser?.surconNumber || project.surveyorNumber || 'SURCON/REG/2026'}`);
-    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 19} 1.3 0 DATE: ${project.date || new Date().toLocaleDateString()}`);
-    lines.push(`TEXT J MC ${certX + certW / 2},${certY + 3} 1.2 0 [ OFFICIAL SURVEYOR SEAL ]`);
+    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 12} 2.4 0 ${survTitle.toUpperCase()}`);
+    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 18} 1.6 0 SURCON REG. NO: ${currentUser?.surconNumber || project.surveyorNumber || 'SURCON/REG/2026'}`);
+    lines.push(`TEXT J MC ${certX + certW / 2},${certY + certH - 24} 1.5 0 DATE: ${project.date || new Date().toLocaleDateString()}`);
+    lines.push(`RECTANG ${certX + 10},${certY + 4} ${certX + certW - 10},${certY + 20}`);
+    lines.push(`TEXT J MC ${certX + certW / 2},${certY + 12} 1.3 0 [ OFFICIAL SURVEYOR SEAL ]`);
   }
 
   // 5. Vector North Arrow Symbol (Top-Right in mm)
   lines.push('CLAYER TDP_TITLEBLOCK');
-  const naX = paperW_mm - 22;
-  const naY = paperH_mm - 28;
+  const naX = paperW_mm - 25;
+  const naY = paperH_mm - 55;
   const naH = 14;
 
   lines.push(`LINE ${naX},${naY - naH / 2} ${naX},${naY + naH / 2} `);
