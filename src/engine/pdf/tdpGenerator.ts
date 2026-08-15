@@ -159,6 +159,18 @@ export interface TdpLayoutArrangement {
   sealBoxPosition: 'bottom_right' | 'bottom_left' | 'bottom_center' | 'right_column';
   scaleBarPosition: 'bottom_right' | 'bottom_left' | 'top_left';
   northArrowPosition: 'top_right' | 'top_left' | 'bottom_right';
+  northArrowMode?: 'corner' | 'origin_beacon' | 'both';
+  trueNorthStyle?: 'UN' | 'TN' | 'N';
+  originBeaconId?: string;
+  trueNorthMaskParcel?: boolean;
+  trueNorthLengthNorth?: number;
+  trueNorthLengthSouth?: number;
+  trueNorthLengthEast?: number;
+  trueNorthLengthWest?: number;
+  trueNorthColor?: string;
+  trueNorthStrokeWidth?: number;
+  trueNorthFontSize?: number;
+  trueNorthTextOffset?: number;
   customTitleText?: string;
   customSubtitleText?: string;
   customLocationText?: string;
@@ -173,6 +185,17 @@ export const DEFAULT_TDP_LAYOUT: TdpLayoutArrangement = {
   sealBoxPosition: 'bottom_right',
   scaleBarPosition: 'bottom_left',
   northArrowPosition: 'top_right',
+  northArrowMode: 'origin_beacon',
+  trueNorthStyle: 'UN',
+  trueNorthMaskParcel: true,
+  trueNorthLengthNorth: 45,
+  trueNorthLengthSouth: 18,
+  trueNorthLengthEast: 45,
+  trueNorthLengthWest: 12,
+  trueNorthColor: '#0f172a',
+  trueNorthStrokeWidth: 0.25,
+  trueNorthFontSize: 7.0,
+  trueNorthTextOffset: 0.8,
 };
 
 export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
@@ -184,6 +207,17 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
     northArrowPosition: 'top_right',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+    trueNorthLengthNorth: 45,
+    trueNorthLengthSouth: 18,
+    trueNorthLengthEast: 45,
+    trueNorthLengthWest: 12,
+    trueNorthColor: '#0f172a',
+    trueNorthStrokeWidth: 0.25,
+    trueNorthFontSize: 7.0,
+    trueNorthTextOffset: 0.8,
   },
   state_lands_boxed: {
     preset: 'state_lands_boxed',
@@ -193,6 +227,17 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
     northArrowPosition: 'top_right',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+    trueNorthLengthNorth: 45,
+    trueNorthLengthSouth: 18,
+    trueNorthLengthEast: 45,
+    trueNorthLengthWest: 12,
+    trueNorthColor: '#0f172a',
+    trueNorthStrokeWidth: 0.25,
+    trueNorthFontSize: 7.0,
+    trueNorthTextOffset: 0.8,
   },
   right_sidebar: {
     preset: 'right_sidebar',
@@ -202,6 +247,17 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     sealBoxPosition: 'right_column',
     scaleBarPosition: 'bottom_left',
     northArrowPosition: 'top_left',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+    trueNorthLengthNorth: 45,
+    trueNorthLengthSouth: 18,
+    trueNorthLengthEast: 45,
+    trueNorthLengthWest: 12,
+    trueNorthColor: '#0f172a',
+    trueNorthStrokeWidth: 0.25,
+    trueNorthFontSize: 7.0,
+    trueNorthTextOffset: 0.8,
   },
   compact_split: {
     preset: 'compact_split',
@@ -211,6 +267,17 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
     northArrowPosition: 'top_left',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+    trueNorthLengthNorth: 45,
+    trueNorthLengthSouth: 18,
+    trueNorthLengthEast: 45,
+    trueNorthLengthWest: 12,
+    trueNorthColor: '#0f172a',
+    trueNorthStrokeWidth: 0.25,
+    trueNorthFontSize: 7.0,
+    trueNorthTextOffset: 0.8,
   }
 };
 
@@ -897,30 +964,144 @@ export function generateTitleDeedPlanPDF(
     }
   }
 
-  // 9. Vector North Arrow
-  let naX = drawAreaX + drawAreaW - 14;
-  let naY = drawAreaY + 14;
-  if (layout.northArrowPosition === 'top_left') {
-    naX = drawAreaX + 14;
-    naY = drawAreaY + 14;
-  } else if (layout.northArrowPosition === 'bottom_right') {
-    naX = drawAreaX + drawAreaW - 14;
-    naY = drawAreaY + drawAreaH - 18;
+  // 9. True North / Origin Meridian Grid Cross on Starting Beacon (Bi-Directional 4-Way)
+  const showOriginMeridian = layout.northArrowMode === 'origin_beacon' || layout.northArrowMode === 'both' || !layout.northArrowMode;
+  const showCornerNorthArrow = layout.northArrowMode === 'corner' || layout.northArrowMode === 'both';
+
+  if (showOriginMeridian) {
+    const originPt = (layout.originBeaconId ? targetPoints.find(p => p.id === layout.originBeaconId) || points.find(p => p.id === layout.originBeaconId) : null) || targetPoints[0] || points[0];
+    if (originPt) {
+      const ox = toMapX(originPt.easting);
+      const oy = toMapY(originPt.northing);
+
+      const lenN = layout.trueNorthLengthNorth ?? 45;
+      const lenS = layout.trueNorthLengthSouth ?? 18;
+      const lenE = layout.trueNorthLengthEast ?? 45;
+      const lenW = layout.trueNorthLengthWest ?? 12;
+      const maskInterior = layout.trueNorthMaskParcel !== false;
+
+      const topY = Math.max(drawAreaY + 12, oy - lenN);
+      const bottomY = Math.min(drawAreaY + drawAreaH - 6, oy + lenS);
+      const leftX = Math.max(drawAreaX + 6, ox - lenW);
+      const rightX = Math.min(drawAreaX + drawAreaW - 6, ox + lenE);
+
+      const tnColor = hexToRgb(layout.trueNorthColor || '#0f172a');
+      const tnLineWidth = layout.trueNorthStrokeWidth ?? 0.25;
+      const tnFontSize = layout.trueNorthFontSize ?? 7.0;
+
+      const radius = 3.6;
+      const circleCy = topY + 4;
+      const needleTipY = topY - 5;
+      const needleStartY = circleCy - radius;
+      const stemStopY = circleCy + radius;
+
+      // 1. Vertical Meridian Leg (North Stem)
+      doc.setDrawColor(tnColor.r, tnColor.g, tnColor.b);
+      doc.setLineWidth(tnLineWidth);
+      doc.line(ox, oy, ox, stemStopY); // Northward stem stops cleanly at bottom edge of circle
+
+      // Vertical Meridian Leg (South Stem with Interior Masking)
+      if (maskInterior) {
+        const parcelMaxY = Math.max(...targetPoints.map(p => toMapY(p.northing)));
+        const jumpStartY = Math.max(oy + 6, parcelMaxY + 6);
+        const jumpEndY = Math.min(drawAreaY + drawAreaH - 4, Math.max(jumpStartY + 10, oy + lenS));
+        if (jumpEndY > jumpStartY + 3) {
+          doc.line(ox, jumpStartY, ox, jumpEndY);
+        }
+      } else {
+        doc.line(ox, oy, ox, bottomY);
+      }
+
+      // 2. True North Badge
+      const symStyle = layout.trueNorthStyle || 'UN';
+      const symLabel = symStyle === 'UN' ? 'U  N' : symStyle === 'TN' ? 'T  N' : 'N';
+
+      // Solid pure white filled circle to prevent linework cutting through U N
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(tnColor.r, tnColor.g, tnColor.b);
+      doc.setLineWidth(tnLineWidth + 0.1);
+      doc.circle(ox, circleCy, radius, 'FD');
+
+      // Needle extending from top edge of circle to tip
+      doc.setLineWidth(tnLineWidth);
+      doc.line(ox, needleStartY, ox, needleTipY);
+      doc.setFillColor(tnColor.r, tnColor.g, tnColor.b);
+      doc.triangle(ox, needleTipY, ox - 1.2, needleTipY + 3, ox + 1.2, needleTipY + 3, 'FD');
+
+      // Centered label inside circle with precise vertical baseline compensation
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.2);
+      doc.setTextColor(tnColor.r, tnColor.g, tnColor.b);
+      doc.text(symLabel, ox, circleCy + 0.8, { align: 'center' });
+
+      // Vertical Easting Text along North stem (Deterministic Vector Projection)
+      const eastingText = `${originPt.easting.toFixed(3)} m E`;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(tnFontSize);
+      doc.setTextColor(tnColor.r, tnColor.g, tnColor.b);
+      const textWidth = doc.getTextWidth(eastingText);
+      const midVertY = (oy + stemStopY) / 2;
+      const textGap = (layout.trueNorthTextOffset ?? 0.8) + (tnLineWidth / 2);
+      const startX = ox - textGap;
+      const startY = midVertY + (textWidth / 2);
+      doc.text(eastingText, startX, startY, { angle: 90 });
+
+      // 3. Horizontal Parallel Leg (West & East with Interior Masking)
+      doc.setDrawColor(tnColor.r, tnColor.g, tnColor.b);
+      doc.setLineWidth(tnLineWidth);
+      doc.line(leftX, oy, ox, oy); // Westward stem to beacon
+
+      if (maskInterior) {
+        // Jump past the easternmost boundary of the parcel
+        const parcelMaxX = Math.max(...targetPoints.map(p => toMapX(p.easting)));
+        const jumpStartX = Math.max(ox + 6, parcelMaxX + 8);
+        const jumpEndX = Math.min(drawAreaX + drawAreaW - 6, Math.max(jumpStartX + 15, ox + lenE));
+        if (jumpEndX > jumpStartX) {
+          doc.line(jumpStartX, oy, jumpEndX, oy);
+          const northingText = `${originPt.northing.toFixed(3)} m N`;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(tnFontSize);
+          doc.setTextColor(tnColor.r, tnColor.g, tnColor.b);
+          doc.text(northingText, (jumpStartX + jumpEndX) / 2, oy - 1.5, { align: 'center' });
+        }
+      } else {
+        // Solid line straight through
+        doc.line(ox, oy, rightX, oy);
+        const northingText = `${originPt.northing.toFixed(3)} m N`;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(tnFontSize);
+        doc.setTextColor(tnColor.r, tnColor.g, tnColor.b);
+        doc.text(northingText, (ox + rightX) / 2, oy - 1.5, { align: 'center' });
+      }
+    }
   }
 
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.4);
-  doc.line(naX, naY + 10, naX, naY - 10);
-  doc.triangle(naX, naY - 10, naX - 2.5, naY - 4, naX, naY - 6, 'FD');
-  doc.triangle(naX, naY - 10, naX + 2.5, naY - 4, naX, naY - 6, 'S');
+  // 10. Floating Corner North Arrow (if selected)
+  if (showCornerNorthArrow) {
+    let naX = drawAreaX + drawAreaW - 14;
+    let naY = drawAreaY + 14;
+    if (layout.northArrowPosition === 'top_left') {
+      naX = drawAreaX + 14;
+      naY = drawAreaY + 14;
+    } else if (layout.northArrowPosition === 'bottom_right') {
+      naX = drawAreaX + drawAreaW - 14;
+      naY = drawAreaY + drawAreaH - 18;
+    }
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(15, 23, 42);
-  doc.text('N', naX, naY - 12, { align: 'center' });
-  doc.setFontSize(5.5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('GRID NORTH', naX, naY + 13, { align: 'center' });
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.4);
+    doc.line(naX, naY + 10, naX, naY - 10);
+    doc.triangle(naX, naY - 10, naX - 2.5, naY - 4, naX, naY - 6, 'FD');
+    doc.triangle(naX, naY - 10, naX + 2.5, naY - 4, naX, naY - 6, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text('N', naX, naY - 12, { align: 'center' });
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text('GRID NORTH', naX, naY + 13, { align: 'center' });
+  }
 
   // 10. Metric Bar Scale (Dynamically Scaled for Generous Spacing)
   let sbX = drawAreaX + 6;

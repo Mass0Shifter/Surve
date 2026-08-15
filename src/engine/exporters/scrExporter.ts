@@ -132,6 +132,17 @@ export function generateTdpAutoCADScript(
     scaleRatio?: number;
     showCoordinateTable?: boolean;
     showSealBox?: boolean;
+    northArrowMode?: 'corner' | 'origin_beacon' | 'both';
+    trueNorthStyle?: 'UN' | 'TN' | 'N';
+    originBeaconId?: string;
+    trueNorthMaskParcel?: boolean;
+    trueNorthLengthNorth?: number;
+    trueNorthLengthSouth?: number;
+    trueNorthLengthEast?: number;
+    trueNorthLengthWest?: number;
+    trueNorthColor?: string;
+    trueNorthStrokeWidth?: number;
+    trueNorthTextOffset?: number;
   } = {},
   currentUser?: { name?: string; surconNumber?: string; title?: string } | null,
   _activeOrg?: any
@@ -218,7 +229,7 @@ export function generateTdpAutoCADScript(
   lines.push('-STYLE STANDARD Arial 0.0 1.0 0.0 N N');
 
   // Batch Create All SurvPack TDP Layers
-  lines.push('-LAYER N TDP_GRID,TDP_BEACONS,TDP_ANNOTATIONS,TDP_BOUNDARY,TDP_BEARINGS,TDP_BORDER,TDP_NEATLINE,TDP_TITLEBLOCK,TDP_TABLE,TDP_CERTIFICATION,TDP_VIEWPORT C 8 TDP_GRID C 1 TDP_BEACONS C 3 TDP_ANNOTATIONS C 2 TDP_BOUNDARY C 4 TDP_BEARINGS C 7 TDP_BORDER C 7 TDP_NEATLINE C 7 TDP_TITLEBLOCK C 7 TDP_TABLE C 7 TDP_CERTIFICATION C 7 TDP_VIEWPORT ');
+  lines.push('-LAYER N TDP_GRID,TDP_BEACONS,TDP_ANNOTATIONS,TDP_BOUNDARY,TDP_BEARINGS,TDP_TRUENORTH,TDP_BORDER,TDP_NEATLINE,TDP_TITLEBLOCK,TDP_TABLE,TDP_CERTIFICATION,TDP_VIEWPORT C 8 TDP_GRID C 1 TDP_BEACONS C 3 TDP_ANNOTATIONS C 2 TDP_BOUNDARY C 4 TDP_BEARINGS C 7 TDP_TRUENORTH C 7 TDP_BORDER C 7 TDP_NEATLINE C 7 TDP_TITLEBLOCK C 7 TDP_TABLE C 7 TDP_CERTIFICATION C 7 TDP_VIEWPORT ');
 
   // 1. Geodetic Grid Crosses (Matching PDF step)
   lines.push('CLAYER TDP_GRID');
@@ -319,6 +330,80 @@ export function generateTdpAutoCADScript(
     }
   }
 
+  // 6. True North / Origin Meridian Grid Cross on Starting Beacon (Bi-Directional 4-Way)
+  const showOriginMeridian = options.northArrowMode === 'origin_beacon' || options.northArrowMode === 'both' || !options.northArrowMode;
+  if (showOriginMeridian) {
+    const tnAci = (() => {
+      const hex = (options.trueNorthColor || '#0f172a').replace('#', '').toLowerCase();
+      if (hex.startsWith('ff0000') || hex.startsWith('ef4444') || hex.startsWith('dc2626')) return 1;
+      if (hex.startsWith('ffff00') || hex.startsWith('eab308')) return 2;
+      if (hex.startsWith('00ff00') || hex.startsWith('10b981') || hex.startsWith('22c55e')) return 3;
+      if (hex.startsWith('00ffff') || hex.startsWith('06b6d4') || hex.startsWith('38bdf8')) return 4;
+      if (hex.startsWith('0000ff') || hex.startsWith('2563eb') || hex.startsWith('3b82f6') || hex.startsWith('1d4ed8')) return 5;
+      if (hex.startsWith('ff00ff') || hex.startsWith('ec4899') || hex.startsWith('a855f7')) return 6;
+      return 7;
+    })();
+
+    lines.push(`-LAYER C ${tnAci} TDP_TRUENORTH `);
+    lines.push('CLAYER TDP_TRUENORTH');
+    const originPt = (options.originBeaconId ? pointMap.get(options.originBeaconId) : null) || activePoints[0];
+    if (originPt) {
+      const oE = originPt.easting;
+      const oN = originPt.northing;
+
+      const lenN_m = (options.trueNorthLengthNorth ?? 45) * scaleFactor;
+      const lenS_m = (options.trueNorthLengthSouth ?? 18) * scaleFactor;
+      const lenE_m = (options.trueNorthLengthEast ?? 45) * scaleFactor;
+      const lenW_m = (options.trueNorthLengthWest ?? 12) * scaleFactor;
+      const maskInterior = options.trueNorthMaskParcel !== false;
+
+      const topN = oN + lenN_m;
+      const botN = oN - lenS_m;
+      const leftE = oE - lenW_m;
+      const circleR = 3.6 * scaleFactor;
+      const circleCy = topN;
+      const needleTipN = topN + 6 * scaleFactor;
+      const stemStopN = circleCy - circleR;
+
+      const symStyle = options.trueNorthStyle || 'UN';
+      const symLabel = symStyle === 'UN' ? 'U N' : symStyle === 'TN' ? 'T N' : 'N';
+
+      // Vertical Meridian (North Stem)
+      lines.push(`LINE ${oE.toFixed(3)},${oN.toFixed(3)} ${oE.toFixed(3)},${stemStopN.toFixed(3)} `);
+      const textGap_m = (options.trueNorthTextOffset ?? 0.8) * scaleFactor;
+      lines.push(`TEXT J BC ${(oE - textGap_m).toFixed(3)},${((oN + stemStopN) / 2).toFixed(3)} ${(1.4 * scaleFactor).toFixed(2)} 90 ${oE.toFixed(3)} m E`);
+
+      // Vertical Meridian (South Stem with Masking)
+      if (maskInterior) {
+        const jumpStartN = extents.minY - 6 * scaleFactor;
+        const jumpEndN = Math.min(jumpStartN - 15 * scaleFactor, oN - lenS_m);
+        lines.push(`LINE ${oE.toFixed(3)},${jumpStartN.toFixed(3)} ${oE.toFixed(3)},${jumpEndN.toFixed(3)} `);
+      } else {
+        lines.push(`LINE ${oE.toFixed(3)},${botN.toFixed(3)} ${oE.toFixed(3)},${oN.toFixed(3)} `);
+      }
+
+      // Horizontal Parallel (Westward stem)
+      lines.push(`LINE ${leftE.toFixed(3)},${oN.toFixed(3)} ${oE.toFixed(3)},${oN.toFixed(3)} `);
+
+      // Horizontal Parallel (Eastward stem with Masking)
+      if (maskInterior) {
+        const jumpStartE = extents.maxX + 8 * scaleFactor;
+        const jumpEndE = Math.max(jumpStartE + 20 * scaleFactor, oE + lenE_m);
+        lines.push(`LINE ${jumpStartE.toFixed(3)},${oN.toFixed(3)} ${jumpEndE.toFixed(3)},${oN.toFixed(3)} `);
+        lines.push(`TEXT J BL ${((jumpStartE + jumpEndE) / 2).toFixed(3)},${(oN + 1.2 * scaleFactor).toFixed(3)} ${(1.4 * scaleFactor).toFixed(2)} 0 ${oN.toFixed(3)} m N`);
+      } else {
+        const rightE = oE + lenE_m;
+        lines.push(`LINE ${oE.toFixed(3)},${oN.toFixed(3)} ${rightE.toFixed(3)},${oN.toFixed(3)} `);
+        lines.push(`TEXT J BL ${((oE + rightE) / 2).toFixed(3)},${(oN + 1.2 * scaleFactor).toFixed(3)} ${(1.4 * scaleFactor).toFixed(2)} 0 ${oN.toFixed(3)} m N`);
+      }
+
+      // Universal North / True North Symbol at top of meridian
+      lines.push(`CIRCLE ${oE.toFixed(3)},${circleCy.toFixed(3)} ${circleR.toFixed(2)}`);
+      lines.push(`LINE ${oE.toFixed(3)},${(circleCy + circleR).toFixed(3)} ${oE.toFixed(3)},${needleTipN.toFixed(3)} `);
+      lines.push(`TEXT J MC ${oE.toFixed(3)},${circleCy.toFixed(3)} ${(1.8 * scaleFactor).toFixed(2)} 0 ${symLabel}`);
+    }
+  }
+
   lines.push('ZOOM E');
 
   // ==========================================
@@ -409,17 +494,20 @@ export function generateTdpAutoCADScript(
     lines.push(`TEXT J MC ${certX + certW / 2},${certY + 12} 1.3 0 [ OFFICIAL SURVEYOR SEAL ]`);
   }
 
-  // 5. Vector North Arrow Symbol (Top-Right in mm)
-  lines.push('CLAYER TDP_TITLEBLOCK');
-  const naX = paperW_mm - 25;
-  const naY = paperH_mm - 55;
-  const naH = 14;
+  // 5. Vector North Arrow Symbol (Top-Right in mm, if corner arrow enabled)
+  const showCornerNorth = options.northArrowMode === 'corner' || options.northArrowMode === 'both';
+  if (showCornerNorth) {
+    lines.push('CLAYER TDP_TITLEBLOCK');
+    const naX = paperW_mm - 25;
+    const naY = paperH_mm - 55;
+    const naH = 14;
 
-  lines.push(`LINE ${naX},${naY - naH / 2} ${naX},${naY + naH / 2} `);
-  lines.push(`LINE ${naX},${naY + naH / 2} ${naX - 2.5},${naY + naH / 2 - 4} `);
-  lines.push(`LINE ${naX},${naY + naH / 2} ${naX + 2.5},${naY + naH / 2 - 4} `);
-  lines.push(`LINE ${naX - 2.5},${naY + naH / 2 - 4} ${naX + 2.5},${naY + naH / 2 - 4} `);
-  lines.push(`TEXT J BC ${naX},${naY + naH / 2 + 1.5} 2.8 0 N`);
+    lines.push(`LINE ${naX},${naY - naH / 2} ${naX},${naY + naH / 2} `);
+    lines.push(`LINE ${naX},${naY + naH / 2} ${naX - 2.5},${naY + naH / 2 - 4} `);
+    lines.push(`LINE ${naX},${naY + naH / 2} ${naX + 2.5},${naY + naH / 2 - 4} `);
+    lines.push(`LINE ${naX - 2.5},${naY + naH / 2 - 4} ${naX + 2.5},${naY + naH / 2 - 4} `);
+    lines.push(`TEXT J BC ${naX},${naY + naH / 2 + 1.5} 2.8 0 N`);
+  }
 
   lines.push('ZOOM E');
 

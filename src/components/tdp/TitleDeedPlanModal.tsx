@@ -644,7 +644,18 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
         orientation,
         scaleRatio: effectiveScaleRatio,
         showCoordinateTable,
-        showSealBox
+        showSealBox,
+        northArrowMode: layoutArrangement.northArrowMode,
+        trueNorthStyle: layoutArrangement.trueNorthStyle,
+        originBeaconId: layoutArrangement.originBeaconId,
+        trueNorthMaskParcel: layoutArrangement.trueNorthMaskParcel,
+        trueNorthLengthNorth: layoutArrangement.trueNorthLengthNorth,
+        trueNorthLengthSouth: layoutArrangement.trueNorthLengthSouth,
+        trueNorthLengthEast: layoutArrangement.trueNorthLengthEast,
+        trueNorthLengthWest: layoutArrangement.trueNorthLengthWest,
+        trueNorthColor: layoutArrangement.trueNorthColor,
+        trueNorthStrokeWidth: layoutArrangement.trueNorthStrokeWidth,
+        trueNorthTextOffset: layoutArrangement.trueNorthTextOffset
       },
       currentUser,
       activeOrg
@@ -1703,7 +1714,162 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   </div>
 
                   <div className="form-group">
-                    <label>North Arrow Position</label>
+                    <label>True North &amp; Meridian Mode</label>
+                    <select
+                      value={layoutArrangement.northArrowMode || 'origin_beacon'}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowMode: e.target.value as any, preset: 'custom_free' })}
+                    >
+                      <option value="origin_beacon">Origin Meridian on Beacon</option>
+                      <option value="corner">Floating Corner North Arrow</option>
+                      <option value="both">Both (Origin Cross + Corner)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Dedicated Full-Width True North Styling & Extents Card */}
+                {(layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both' || !layoutArrangement.northArrowMode) && (
+                  <div style={{ background: 'rgba(15, 23, 42, 0.55)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.25)', marginTop: '8px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#38bdf8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Compass size={13} />
+                      <span>True North &amp; Origin Meridian Specs</span>
+                    </div>
+
+                    <div className="form-row-2" style={{ marginBottom: '8px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label>North Symbol</label>
+                        <select
+                          value={layoutArrangement.trueNorthStyle || 'UN'}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStyle: e.target.value as any, preset: 'custom_free' })}
+                        >
+                          <option value="UN">U N (Universal North)</option>
+                          <option value="TN">T N (True North)</option>
+                          <option value="N">N (Grid North)</option>
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label>Origin Beacon</label>
+                        <select
+                          value={layoutArrangement.originBeaconId || targetPoints[0]?.id || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originBeaconId: e.target.value, preset: 'custom_free' })}
+                        >
+                          {targetPoints.map(p => (
+                            <option key={p.id} value={p.id}>{p.id}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Color & Stroke Width Customization */}
+                    <div className="form-row-2" style={{ marginBottom: '8px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label>Entity Color</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(30, 41, 59, 0.6)', padding: '3px 8px', borderRadius: '4px', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+                          <input
+                            type="color"
+                            value={layoutArrangement.trueNorthColor || '#0f172a'}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthColor: e.target.value, preset: 'custom_free' })}
+                            style={{ width: '24px', height: '22px', padding: 0, border: 'none', cursor: 'pointer', background: 'transparent', borderRadius: '2px' }}
+                          />
+                          <span style={{ fontSize: '11px', color: '#e2e8f0', fontFamily: 'monospace' }}>{layoutArrangement.trueNorthColor || '#0f172a'}</span>
+                        </div>
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label>Stroke Width</label>
+                        <select
+                          value={layoutArrangement.trueNorthStrokeWidth ?? 0.25}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStrokeWidth: Number(e.target.value), preset: 'custom_free' })}
+                        >
+                          <option value="0.15">Fine (0.15mm)</option>
+                          <option value="0.25">Standard (0.25mm)</option>
+                          <option value="0.35">Medium (0.35mm)</option>
+                          <option value="0.50">Bold (0.50mm)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Easting Text Gap Micro-Adjustment */}
+                    <div className="form-group" style={{ marginBottom: '8px' }}>
+                      <label style={{ fontSize: '10px', color: '#94a3b8' }}>Easting Text Gap: {layoutArrangement.trueNorthTextOffset ?? 0.8}mm</label>
+                      <input
+                        type="range"
+                        min="0.2"
+                        max="3.0"
+                        step="0.1"
+                        value={layoutArrangement.trueNorthTextOffset ?? 0.8}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthTextOffset: Number(e.target.value), preset: 'custom_free' })}
+                        style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                      />
+                    </div>
+
+                    {/* Mask Parcel Interior Toggle */}
+                    <div className="form-group" style={{ marginBottom: '8px', background: 'rgba(30, 41, 59, 0.4)', padding: '6px 8px', borderRadius: '4px' }}>
+                      <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                        <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Mask Parcel Interior (Clean Plot)</span>
+                        <input
+                          type="checkbox"
+                          checked={layoutArrangement.trueNorthMaskParcel !== false}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthMaskParcel: e.target.checked, preset: 'custom_free' })}
+                          style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                        />
+                      </label>
+                    </div>
+
+                    {/* Length Extent Sliders */}
+                    <div className="form-row-2" style={{ gap: '8px', marginBottom: '6px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>North (Up): {layoutArrangement.trueNorthLengthNorth ?? 45}mm</label>
+                        <input
+                          type="range"
+                          min="20"
+                          max="120"
+                          value={layoutArrangement.trueNorthLengthNorth ?? 45}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthNorth: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>South (Down): {layoutArrangement.trueNorthLengthSouth ?? 18}mm</label>
+                        <input
+                          type="range"
+                          min="5"
+                          max="80"
+                          value={layoutArrangement.trueNorthLengthSouth ?? 18}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthSouth: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row-2" style={{ gap: '8px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>East (Right): {layoutArrangement.trueNorthLengthEast ?? 45}mm</label>
+                        <input
+                          type="range"
+                          min="15"
+                          max="120"
+                          value={layoutArrangement.trueNorthLengthEast ?? 45}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthEast: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>West (Left): {layoutArrangement.trueNorthLengthWest ?? 12}mm</label>
+                        <input
+                          type="range"
+                          min="5"
+                          max="80"
+                          value={layoutArrangement.trueNorthLengthWest ?? 12}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthWest: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {(layoutArrangement.northArrowMode === 'corner' || layoutArrangement.northArrowMode === 'both') && (
+                  <div className="form-group">
+                    <label>Corner Arrow Position</label>
                     <select
                       value={layoutArrangement.northArrowPosition}
                       onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowPosition: e.target.value as any, preset: 'custom_free' })}
@@ -1713,7 +1879,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                       <option value="bottom_right">Bottom-Right</option>
                     </select>
                   </div>
-                </div>
+                )}
 
                 {/* Custom Text Overrides */}
                 <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
@@ -2955,6 +3121,149 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                               </g>
                             );
                           })}
+
+                          {/* Origin Meridian Grid Cross on Starting Beacon (Bi-Directional 4-Way U N / T N) */}
+                          {(!layoutArrangement.northArrowMode || layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both') && (() => {
+                            const originPt = (layoutArrangement.originBeaconId ? targetPoints.find(p => p.id === layoutArrangement.originBeaconId) : null) || targetPoints[0] || points[0];
+                            if (!originPt) return null;
+                            const ox = toSvgX(originPt.easting);
+                            const oy = toSvgY(originPt.northing);
+
+                            const lenN_px = (layoutArrangement.trueNorthLengthNorth ?? 45) * 2.94;
+                            const lenS_px = (layoutArrangement.trueNorthLengthSouth ?? 18) * 2.94;
+                            const lenE_px = (layoutArrangement.trueNorthLengthEast ?? 45) * 2.94;
+                            const lenW_px = (layoutArrangement.trueNorthLengthWest ?? 12) * 2.94;
+                            const maskInterior = layoutArrangement.trueNorthMaskParcel !== false;
+
+                            const topY = Math.max(20, oy - lenN_px);
+                            const bottomY = Math.min(svgHeight - 10, oy + lenS_px);
+                            const leftX = Math.max(10, ox - lenW_px);
+                            const rightX = Math.min(svgWidth - 10, ox + lenE_px);
+
+                            const symStyle = layoutArrangement.trueNorthStyle || 'UN';
+                            const symLabel = symStyle === 'UN' ? 'U  N' : symStyle === 'TN' ? 'T  N' : 'N';
+
+                            const tnColor = layoutArrangement.trueNorthColor || '#0f172a';
+                            const tnStrokeWidth = (layoutArrangement.trueNorthStrokeWidth ?? 0.25) * 4.0;
+                            const circleRadius = 10;
+                            const circleCy = topY + 12;
+                            const needleTipY = topY - 10;
+                            const needleStartY = circleCy - circleRadius;
+                            const stemStopY = circleCy + circleRadius;
+
+                            return (
+                              <g className="origin-true-north-group" style={{ pointerEvents: 'none' }}>
+                                {/* Vertical Meridian Line (North Stem) */}
+                                <line x1={ox} y1={oy} x2={ox} y2={stemStopY} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+
+                                {/* Vertical Meridian Line (South Stem with Masking) */}
+                                {maskInterior ? (() => {
+                                  const parcelMaxSvgY = Math.max(...targetPoints.map(p => toSvgY(p.northing)));
+                                  const jumpStartSvgY = Math.max(oy + 16, parcelMaxSvgY + 18);
+                                  const jumpEndSvgY = Math.min(svgHeight - 10, Math.max(jumpStartSvgY + 30, oy + lenS_px));
+                                  if (jumpEndSvgY > jumpStartSvgY + 8) {
+                                    return <line x1={ox} y1={jumpStartSvgY} x2={ox} y2={jumpEndSvgY} stroke={tnColor} strokeWidth={tnStrokeWidth} />;
+                                  }
+                                  return null;
+                                })() : (
+                                  <line x1={ox} y1={oy} x2={ox} y2={bottomY} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+                                )}
+
+                                {/* Universal North / True North Symbol */}
+                                <circle cx={ox} cy={circleCy} r={circleRadius} fill="#ffffff" stroke={tnColor} strokeWidth={tnStrokeWidth + 0.4} />
+                                <line x1={ox} y1={needleStartY} x2={ox} y2={needleTipY} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+                                <polygon points={`${ox},${needleTipY} ${ox - 4},${needleTipY + 7} ${ox + 4},${needleTipY + 7}`} fill={tnColor} />
+                                <text
+                                  x={ox}
+                                  y={circleCy + 3.5}
+                                  textAnchor="middle"
+                                  fontSize="9"
+                                  fontWeight="bold"
+                                  fill={tnColor}
+                                >
+                                  {symLabel}
+                                </text>
+
+                                {/* Vertical Easting Annotation along North Meridian Stem (Snug Alignment) */}
+                                <g transform={`translate(${ox - (((layoutArrangement.trueNorthTextOffset ?? 0.8) + (layoutArrangement.trueNorthStrokeWidth ?? 0.25) / 2) * 2.94)}, ${(oy + stemStopY) / 2}) rotate(-90)`}>
+                                  <text
+                                    x="0"
+                                    y="0"
+                                    textAnchor="middle"
+                                    fontSize="10"
+                                    fontWeight="bold"
+                                    fill={tnColor}
+                                    style={{
+                                      paintOrder: 'stroke fill',
+                                      stroke: '#ffffff',
+                                      strokeWidth: '3.5px',
+                                      strokeLinecap: 'round',
+                                      strokeLinejoin: 'round'
+                                    }}
+                                  >
+                                    {`${originPt.easting.toFixed(3)} m E`}
+                                  </text>
+                                </g>
+
+                                {/* Horizontal Latitude Parallel Line (West Stem) */}
+                                <line x1={leftX} y1={oy} x2={ox} y2={oy} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+
+                                {/* Horizontal Latitude Parallel Line (East Stem with Masking) */}
+                                {maskInterior ? (() => {
+                                  const parcelMaxSvgX = Math.max(...targetPoints.map(p => toSvgX(p.easting)));
+                                  const jumpStartSvgX = Math.max(ox + 20, parcelMaxSvgX + 24);
+                                  const jumpEndSvgX = Math.min(svgWidth - 10, Math.max(jumpStartSvgX + 60, ox + lenE_px));
+
+                                  if (jumpEndSvgX > jumpStartSvgX + 15) {
+                                    return (
+                                      <g>
+                                        <line x1={jumpStartSvgX} y1={oy} x2={jumpEndSvgX} y2={oy} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+                                        <text
+                                          x={(jumpStartSvgX + jumpEndSvgX) / 2}
+                                          y={oy - 5}
+                                          textAnchor="middle"
+                                          fontSize="10"
+                                          fontWeight="bold"
+                                          fill={tnColor}
+                                          style={{
+                                            paintOrder: 'stroke fill',
+                                            stroke: '#ffffff',
+                                            strokeWidth: '4px',
+                                            strokeLinecap: 'round',
+                                            strokeLinejoin: 'round'
+                                          }}
+                                        >
+                                          {`${originPt.northing.toFixed(3)} m N`}
+                                        </text>
+                                      </g>
+                                    );
+                                  }
+                                  return null;
+                                })() : (
+                                  <g>
+                                    <line x1={ox} y1={oy} x2={rightX} y2={oy} stroke={tnColor} strokeWidth={tnStrokeWidth} />
+                                    <text
+                                      x={(ox + rightX) / 2}
+                                      y={oy - 5}
+                                      textAnchor="middle"
+                                      fontSize="10"
+                                      fontWeight="bold"
+                                      fill={tnColor}
+                                      style={{
+                                        paintOrder: 'stroke fill',
+                                        stroke: '#ffffff',
+                                        strokeWidth: '4px',
+                                        strokeLinecap: 'round',
+                                        strokeLinejoin: 'round'
+                                      }}
+                                    >
+                                      {`${originPt.northing.toFixed(3)} m N`}
+                                    </text>
+                                  </g>
+                                )}
+                              </g>
+                            );
+                          })()}
                         </svg>
 
                         {/* Top-Right Floating Coordinate Table (when layout is compact_split) */}
@@ -2986,7 +3295,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         )}
 
                         {/* North Arrow with Dynamic Positioning */}
-                        {!getTransform('elem_north_arrow').hidden && (
+                        {(layoutArrangement.northArrowMode === 'corner' || layoutArrangement.northArrowMode === 'both') && !getTransform('elem_north_arrow').hidden && (
                           <div
                             className={`tdp-north-arrow ${selectedElementId === 'elem_north_arrow' ? 'selected' : ''}`}
                             onClick={() => setSelectedElementId('elem_north_arrow')}
