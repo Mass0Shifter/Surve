@@ -56,6 +56,12 @@ export interface BoundaryDimensionPlacement {
   angleDeg: number;
   normX: number;
   normY: number;
+  anchorX: number;
+  anchorY: number;
+  hasLeaderLine: boolean;
+  isShortLeg: boolean;
+  legDistance: number;
+  placementMode?: 'on_drawing' | 'in_schedule' | 'both';
 }
 
 export interface CollisionFreeLayout {
@@ -78,6 +84,7 @@ export interface CollisionLayoutInput {
   manualOffsets?: Record<string, { dx: number; dy: number }>;
   enableAutoDeconfliction?: boolean;
   unitScale?: 'mm' | 'px';
+  shortLegThresholdMeters?: number;
 }
 
 /**
@@ -331,6 +338,10 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
       const textCenterX = midX + normX * offsetPx + override.dx;
       const textCenterY = midY + normY * offsetPx + override.dy;
 
+      const thresholdMeters = input.shortLegThresholdMeters ?? 6.0;
+      const isShortLeg = leg.distance <= thresholdMeters || len < (bearingFontSize * 3.5);
+      const isDisplaced = Math.hypot(textCenterX - midX, textCenterY - midY) > (bearingFontSize * 1.5) || Math.hypot(override.dx, override.dy) > 4.0;
+
       boundaryDimensions.push({
         key: edgeKey,
         fromPointId: leg.fromPoint.id,
@@ -341,7 +352,12 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
         y: textCenterY,
         angleDeg,
         normX,
-        normY
+        normY,
+        anchorX: midX,
+        anchorY: midY,
+        hasLeaderLine: isDisplaced,
+        isShortLeg,
+        legDistance: leg.distance
       });
     }
   }

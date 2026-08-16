@@ -132,7 +132,7 @@ export function generateTdpAutoCADScript(
     scaleRatio?: number;
     showCoordinateTable?: boolean;
     showSealBox?: boolean;
-    northArrowMode?: 'corner' | 'origin_beacon' | 'both';
+    northArrowMode?: 'corner' | 'origin_beacon' | 'both' | 'fct_needle';
     trueNorthStyle?: 'UN' | 'TN' | 'N';
     originBeaconId?: string;
     trueNorthMaskParcel?: boolean;

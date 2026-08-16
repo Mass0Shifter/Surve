@@ -12,7 +12,9 @@ import {
   DEFAULT_TDP_STYLE,
   DEFAULT_TDP_LAYOUT,
   TDP_THEME_PRESETS,
-  TDP_LAYOUT_PRESETS
+  TDP_LAYOUT_PRESETS,
+  TdpCustomAnnotation,
+  getScheduledBoundaryLegs
 } from '../../engine/pdf/tdpGenerator';
 import { determineCadastralSheets } from '../../engine/cadastral/sheetIndex';
 import { computeParcelSetback } from '../../engine/cadastral/subdivision';
@@ -51,7 +53,11 @@ import {
   Search,
   ChevronLeft,
   Code2,
-  X
+  X,
+  Building2,
+  Droplets,
+  Zap,
+  Trash2
 } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
@@ -169,15 +175,11 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     showRoadCorridor: false,
     roadCorridorLabel: '12.00m ACCESS ROAD',
     roadCorridorWidth: 12,
+    roadSetbackMeters: 0,
+    roadExtensionMeters: 10,
+    roadGeometryMode: 'straight',
     roadFrontageLegIndices: [0]
   }));
-
-  // Viewport Zoom & Pan State (linked to mouse wheel & drag)
-  const [previewZoom, setPreviewZoom] = useState<number>(0.68);
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanningStage, setIsPanningStage] = useState<boolean>(false);
-  const [panStartMouse, setPanStartMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [panStartOffset, setPanStartOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Element Transforms (Position, Rotation, Scale, Visibility, Lock)
   const [elementTransforms, setElementTransforms] = useState<Record<string, TdpElementTransform>>({});
@@ -185,6 +187,63 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const [transformMode, setTransformMode] = useState<'move' | 'scale' | 'rotate' | null>(null);
   const [enableCollisionDeconfliction, setEnableCollisionDeconfliction] = useState<boolean>(false); // Opt-in default
   const [layerSearchTerm, setLayerSearchTerm] = useState<string>('');
+
+  // Custom Topographic Feature Annotations (Buildings, Drainage, Utilities, Text)
+  const [customAnnotations, setCustomAnnotations] = useState<TdpCustomAnnotation[]>(() => {
+    try {
+      const saved = localStorage.getItem('nsurvey_tdp_custom_annotations');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error loading saved TDP custom annotations', e);
+    }
+    return [];
+  });
+
+  const handleAddAnnotation = useCallback((type: 'building' | 'drainage' | 'utility' | 'text') => {
+    const defaultCenterE = points[0]?.easting || 294312;
+    const defaultCenterN = points[0]?.northing || 992100;
+    const newAnn: TdpCustomAnnotation = {
+      id: `ann_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      type,
+      easting: defaultCenterE + (Math.random() * 16 - 8),
+      northing: defaultCenterN + (Math.random() * 16 - 8),
+      width: type === 'building' ? 14 : type === 'drainage' ? 24 : 6,
+      height: type === 'building' ? 9 : 4,
+      rotation: 0,
+      label: type === 'building' ? 'EXISTING BUILDING' : type === 'drainage' ? 'DRAINAGE' : type === 'utility' ? 'IBEDC TRANSFORMER' : 'CUSTOM ADJOINING OWNER',
+      hatchPattern: type === 'building' ? 'diagonal' : 'none'
+    };
+    setCustomAnnotations(prev => {
+      const next = [...prev, newAnn];
+      try { localStorage.setItem('nsurvey_tdp_custom_annotations', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    setSelectedElementId(newAnn.id);
+  }, [points]);
+
+  const handleUpdateAnnotation = useCallback((id: string, patch: Partial<TdpCustomAnnotation>) => {
+    setCustomAnnotations(prev => {
+      const next = prev.map(a => a.id === id ? { ...a, ...patch } : a);
+      try { localStorage.setItem('nsurvey_tdp_custom_annotations', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  const handleDeleteAnnotation = useCallback((id: string) => {
+    setCustomAnnotations(prev => {
+      const next = prev.filter(a => a.id !== id);
+      try { localStorage.setItem('nsurvey_tdp_custom_annotations', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    setSelectedElementId(prev => prev === id ? null : prev);
+  }, []);
+
+  // Viewport Zoom & Pan State (linked to mouse wheel & drag)
+  const [previewZoom, setPreviewZoom] = useState<number>(0.68);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanningStage, setIsPanningStage] = useState<boolean>(false);
+  const [panStartMouse, setPanStartMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [panStartOffset, setPanStartOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [dragStartMouse, setDragStartMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragInitialOffset, setDragInitialOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
@@ -326,7 +385,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       bearingFontSize: styleConfig.bearingFontSize * 1.15,
       beaconFontSize: styleConfig.beaconFontSize * 1.25,
       manualOffsets: combinedOffsets,
-      enableAutoDeconfliction: enableCollisionDeconfliction
+      enableAutoDeconfliction: enableCollisionDeconfliction,
+      shortLegThresholdMeters: layoutArrangement.shortLegThresholdMeters ?? 6.0
     });
   }, [
     targetParcels,
@@ -336,6 +396,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     styleConfig,
     combinedOffsets,
     enableCollisionDeconfliction,
+    layoutArrangement.shortLegThresholdMeters,
     isSinglePlot
   ]);
 
@@ -518,6 +579,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     return list.filter(d => (d.bearingStr || '').toLowerCase().includes(term) || (d.distStr || '').toLowerCase().includes(term));
   }, [resolvedLayout.boundaryDimensions, parcels, selectedPlotFilter, layerSearchTerm]);
 
+  const scheduledLegs = useMemo(() => {
+    return getScheduledBoundaryLegs(targetParcels, points, layoutArrangement);
+  }, [targetParcels, points, layoutArrangement]);
+
+  const scheduledLegsSet = useMemo(() => {
+    return new Set(scheduledLegs.map(l => l.key));
+  }, [scheduledLegs]);
+
   const handleApplyTheme = (presetKey: string) => {
     if (TDP_THEME_PRESETS[presetKey]) {
       setStyleConfig({ ...TDP_THEME_PRESETS[presetKey] });
@@ -558,8 +627,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
       surveyorTitle: currentUser?.title,
       style: styleConfig,
-      adjoining: adjoiningConfig,
-      layout: layoutArrangement,
+      adjoining: {
+        ...adjoiningConfig,
+        customAnnotations
+      },
+      layout: {
+        ...layoutArrangement,
+        customAnnotations
+      },
       elementTransforms,
       enableCollisionDeconfliction,
       previewPixelsPerMeter: pixelsPerMeter
@@ -588,8 +663,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
       surveyorTitle: currentUser?.title,
       style: styleConfig,
-      adjoining: adjoiningConfig,
-      layout: layoutArrangement,
+      adjoining: {
+        ...adjoiningConfig,
+        customAnnotations
+      },
+      layout: {
+        ...layoutArrangement,
+        customAnnotations
+      },
       elementTransforms,
       enableCollisionDeconfliction,
       previewPixelsPerMeter: pixelsPerMeter
@@ -1041,13 +1122,101 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           return (
                             <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                               {/* Road label input */}
-                              <input
-                                type="text"
-                                value={adjoiningConfig.roadCorridorLabel}
-                                onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadCorridorLabel: e.target.value })}
-                                placeholder="e.g. 12.00m ACCESS ROAD"
-                                style={{ fontSize: '10px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                              />
+                              <div className="form-group" style={{ margin: 0 }}>
+                                <label style={{ fontSize: '9px' }}>Road Name / Label</label>
+                                <input
+                                  type="text"
+                                  value={adjoiningConfig.roadCorridorLabel}
+                                  onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadCorridorLabel: e.target.value })}
+                                  placeholder="e.g. 12.00m ACCESS ROAD or ABAYOMI STREET"
+                                  style={{ fontSize: '10px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                />
+                              </div>
+
+                              {/* Directional Route (From -> To) */}
+                              <div className="form-row-2" style={{ gap: '6px' }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label style={{ fontSize: '9px' }}>From (Origin)</label>
+                                  <input
+                                    type="text"
+                                    value={adjoiningConfig.roadDirectionFrom || ''}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadDirectionFrom: e.target.value })}
+                                    placeholder="e.g. ORANYAN"
+                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                  />
+                                </div>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label style={{ fontSize: '9px' }}>To (Destination)</label>
+                                  <input
+                                    type="text"
+                                    value={adjoiningConfig.roadDirectionTo || ''}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadDirectionTo: e.target.value })}
+                                    placeholder="e.g. BEYERUNKA"
+                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Road Setback Offset & Corridor Width Sliders */}
+                              <div className="form-row-2" style={{ gap: '6px' }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                                    <span>Setback Offset</span>
+                                    <span>{adjoiningConfig.roadSetbackMeters || 0}m</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={20}
+                                    step={1}
+                                    value={adjoiningConfig.roadSetbackMeters || 0}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadSetbackMeters: parseInt(e.target.value) || 0 })}
+                                  />
+                                </div>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                                    <span>Road Width</span>
+                                    <span>{adjoiningConfig.roadCorridorWidth || 12}m</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={6}
+                                    max={30}
+                                    step={1}
+                                    value={adjoiningConfig.roadCorridorWidth || 12}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadCorridorWidth: parseInt(e.target.value) || 12 })}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Corner Extension & Geometry Mode */}
+                              <div className="form-row-2" style={{ gap: '6px' }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                                    <span>Corner Ext.</span>
+                                    <span>{adjoiningConfig.roadExtensionMeters ?? 10}m</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={2}
+                                    max={25}
+                                    step={1}
+                                    value={adjoiningConfig.roadExtensionMeters ?? 10}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadExtensionMeters: parseInt(e.target.value) || 10 })}
+                                  />
+                                </div>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label style={{ fontSize: '9px' }}>Line Geometry</label>
+                                  <select
+                                    value={adjoiningConfig.roadGeometryMode || 'straight'}
+                                    onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadGeometryMode: e.target.value as any })}
+                                    style={{ fontSize: '9.5px', height: '26px' }}
+                                  >
+                                    <option value="straight">Straight Corridor</option>
+                                    <option value="curved">Curved / Arc Ticks</option>
+                                  </select>
+                                </div>
+                              </div>
 
                               {/* Multi-select road frontage legs */}
                               {focusLegs.length > 0 && (
@@ -1633,41 +1802,223 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                 {/* CAD Layout & Sheet Block Arrangement */}
                 <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
                   <Layout size={14} className="text-amber" />
-                  <span>CAD Layout & Block Arrangement</span>
+                  <span>Cadastral Layout & Regional Presets</span>
                 </div>
 
-                <div className="tdp-preset-grid">
+                <div className="tdp-preset-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                  <div
+                    className={`tdp-preset-card ${layoutArrangement.preset === 'fct_abuja_rofo' ? 'active' : ''}`}
+                    onClick={() => handleApplyLayoutPreset('fct_abuja_rofo')}
+                  >
+                    <div className="tdp-preset-title" style={{ color: '#10b981' }}>FCT Abuja R-of-O</div>
+                    <div className="tdp-preset-sub">Ministerial Header • Staff Grid</div>
+                  </div>
+
                   <div
                     className={`tdp-preset-card ${layoutArrangement.preset === 'surcon_standard' ? 'active' : ''}`}
                     onClick={() => handleApplyLayoutPreset('surcon_standard')}
                   >
-                    <div className="tdp-preset-title" style={{ color: '#10b981' }}>SURCON Standard</div>
-                    <div className="tdp-preset-sub">Center Title • Bottom Table & Seal</div>
+                    <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>SURCON Standard</div>
+                    <div className="tdp-preset-sub">Plan Shewing • 3-Box Footer</div>
+                  </div>
+
+                  <div
+                    className={`tdp-preset-card ${layoutArrangement.preset === 'lagos_lasg_cadastral' ? 'active' : ''}`}
+                    onClick={() => handleApplyLayoutPreset('lagos_lasg_cadastral')}
+                  >
+                    <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>Lagos State LASG</div>
+                    <div className="tdp-preset-sub">UTM Zone 31 • Dual Frame</div>
+                  </div>
+
+                  <div
+                    className={`tdp-preset-card ${layoutArrangement.preset === 'subdivision_layout' ? 'active' : ''}`}
+                    onClick={() => handleApplyLayoutPreset('subdivision_layout')}
+                  >
+                    <div className="tdp-preset-title" style={{ color: '#a855f7' }}>Estate Allotment</div>
+                    <div className="tdp-preset-sub">Being Plot X • Subdivided</div>
                   </div>
 
                   <div
                     className={`tdp-preset-card ${layoutArrangement.preset === 'state_lands_boxed' ? 'active' : ''}`}
                     onClick={() => handleApplyLayoutPreset('state_lands_boxed')}
                   >
-                    <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>State Lands Boxed</div>
-                    <div className="tdp-preset-sub">Left Banner • Boxed Schedule</div>
+                    <div className="tdp-preset-title" style={{ color: '#f59e0b' }}>State Lands Boxed</div>
+                    <div className="tdp-preset-sub">Left Banner • Boxed Table</div>
                   </div>
 
                   <div
                     className={`tdp-preset-card ${layoutArrangement.preset === 'right_sidebar' ? 'active' : ''}`}
                     onClick={() => handleApplyLayoutPreset('right_sidebar')}
                   >
-                    <div className="tdp-preset-title" style={{ color: '#d97706' }}>Right Sidebar</div>
-                    <div className="tdp-preset-sub">Vertical Meta Column • Wide Map</div>
+                    <div className="tdp-preset-title" style={{ color: '#ec4899' }}>Right Sidebar</div>
+                    <div className="tdp-preset-sub">Meta Column • Wide Canvas</div>
+                  </div>
+                </div>
+
+                {/* Framing & Regional Template Customization Fields */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.45)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.15)', marginTop: '8px' }}>
+                  <label className="checkbox-label" style={{ marginBottom: '8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={layoutArrangement.showNeatlineFrame !== false}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showNeatlineFrame: e.target.checked })}
+                    />
+                    <span>Draw Double Neatline Outer Border</span>
+                  </label>
+
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
+                    <label style={{ fontSize: '9px' }}>Header Template Archetype</label>
+                    <select
+                      value={layoutArrangement.headerTemplate || (layoutArrangement.preset === 'fct_abuja_rofo' ? 'fct_rofo' : layoutArrangement.preset === 'surcon_standard' ? 'shewing_property' : 'shewing_property')}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, headerTemplate: e.target.value as any })}
+                      style={{ fontSize: '10px', height: '26px' }}
+                    >
+                      <option value="fct_rofo">FCT Abuja Right of Occupancy (R-of-O)</option>
+                      <option value="shewing_property">SURCON Standard: Plan Shewing Property...</option>
+                      <option value="being_plot">Subdivision: Plan of Land Being Plot X...</option>
+                      <option value="custom">Standard / Custom Title Header</option>
+                    </select>
                   </div>
 
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'compact_split' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('compact_split')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>Compact Split</div>
-                    <div className="tdp-preset-sub">Floating Table • Bottom Seal</div>
-                  </div>
+                  {/* FCT Abuja Specific Metadata Fields */}
+                  {(layoutArrangement.headerTemplate === 'fct_rofo' || layoutArrangement.preset === 'fct_abuja_rofo') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px' }}>
+                      <div style={{ fontSize: '9.5px', fontWeight: 600, color: '#10b981' }}>FCT Right of Occupancy Parameters</div>
+                      <div className="form-row-2">
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>R-of-O Number</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.rOfONumber || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, rOfONumber: e.target.value }
+                            })}
+                            placeholder="FCT RLA/ 2002/ 016"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Allottee Name</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.allotteeName || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, allotteeName: e.target.value }
+                            })}
+                            placeholder="CHRIST THE KING CATHOLIC CHURCH"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-row-2">
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>District / Area</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.districtArea || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, districtArea: e.target.value }
+                            })}
+                            placeholder="GWAGWALADA"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Cadastral Zone</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.cadastralZone || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, cadastralZone: e.target.value }
+                            })}
+                            placeholder="CADASTRAL ZONE 04-07"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-row-2">
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Layout Name</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.layoutName || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, layoutName: e.target.value }
+                            })}
+                            placeholder="CKC EXT.   LAYOUT"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Full Beacon Number</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.fctConfig?.fullBeaconNumber || ''}
+                            onChange={(e) => setLayoutArrangement({
+                              ...layoutArrangement,
+                              fctConfig: { ...layoutArrangement.fctConfig, fullBeaconNumber: e.target.value }
+                            })}
+                            placeholder="FCT PB 6371"
+                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SURCON / State Lands Header & Location Fields */}
+                  {(layoutArrangement.headerTemplate === 'shewing_property' || layoutArrangement.preset === 'surcon_standard') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px' }}>
+                      <div style={{ fontSize: '9.5px', fontWeight: 600, color: '#0ea5e9' }}>SURCON Property & Locality Details</div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Owner / Client Name</label>
+                        <input
+                          type="text"
+                          value={layoutArrangement.clientName || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, clientName: e.target.value })}
+                          placeholder="e.g. MR. & MRS. TUNDE BAKARE"
+                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Locality (Line 1)</label>
+                        <input
+                          type="text"
+                          value={layoutArrangement.locationLocality || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLocality: e.target.value })}
+                          placeholder="e.g. AT OFF OLD IFE ROAD, KUMAPAYI AREA, OLODO"
+                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>LGA & State (Line 2)</label>
+                        <input
+                          type="text"
+                          value={layoutArrangement.locationLgaState || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLgaState: e.target.value })}
+                          placeholder="e.g. EGBEDA LOCAL GOVERNMENT, OYO STATE"
+                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Origin Datum Note</label>
+                        <input
+                          type="text"
+                          value={layoutArrangement.originDatumName || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originDatumName: e.target.value })}
+                          placeholder="e.g. ORIGIN: - OYO SOUTH BEACON (OSB 12T) NATIONAL CADASTRAL DATUM"
+                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Detailed Block Positions */}
@@ -1881,6 +2232,59 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   </div>
                 )}
 
+                {/* Short Legs & Dimension Schedule Table Routing */}
+                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
+                  <Table size={14} className="text-cyan" />
+                  <span>Non-Fitting / Short Legs Schedule Routing</span>
+                </div>
+
+                <div className="form-group">
+                  <label>Dimension Placement Strategy</label>
+                  <select
+                    value={layoutArrangement.shortLegScheduleMode || 'auto'}
+                    onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegScheduleMode: e.target.value as any, preset: 'custom_free' })}
+                    style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                  >
+                    <option value="auto">Auto Offload Short Legs to Table (Default)</option>
+                    <option value="all_on_drawing">Keep All on Drawing (Leader line if moved)</option>
+                    <option value="all_in_schedule">Move All to Schedule Table</option>
+                    <option value="manual">Manual Assignment (Layers Tab)</option>
+                  </select>
+                </div>
+
+                {(!layoutArrangement.shortLegScheduleMode || layoutArrangement.shortLegScheduleMode === 'auto') && (
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#cbd5e1', marginBottom: '3px' }}>
+                      <span>Short Leg Distance Cutoff</span>
+                      <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{layoutArrangement.shortLegThresholdMeters ?? 6.0}m</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1.0"
+                      max="20.0"
+                      step="0.5"
+                      value={layoutArrangement.shortLegThresholdMeters ?? 6.0}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegThresholdMeters: Number(e.target.value), preset: 'custom_free' })}
+                      style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                    />
+                    <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px' }}>
+                      Boundary segments shorter than this distance will be routed to the Beacon No. Distance Bearing schedule table.
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-group" style={{ background: 'rgba(30, 41, 59, 0.4)', padding: '6px 8px', borderRadius: '4px', marginBottom: '10px' }}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Show Scheduled Dimensions on Drawing</span>
+                    <input
+                      type="checkbox"
+                      checked={layoutArrangement.showScheduledDimensionsOnDrawing === true}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showScheduledDimensionsOnDrawing: e.target.checked, preset: 'custom_free' })}
+                      style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                    />
+                  </label>
+                </div>
+
                 {/* Custom Text Overrides */}
                 <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
                   <Type size={14} className="text-cyan" />
@@ -2040,6 +2444,122 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                   )}
                 </div>
 
+                {/* Custom Topographic & Adjoining Feature Annotations Manager */}
+                <div className="tdp-layer-group" style={{ marginBottom: '12px' }}>
+                  <div className="tdp-layer-group-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Building2 size={12} className="text-emerald" />
+                      <span>Custom Topographic Features</span>
+                    </div>
+                    <span className="tdp-layer-group-count">{customAnnotations.length}</span>
+                  </div>
+
+                  {/* Add Annotation Quick Buttons */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', padding: '6px', background: 'rgba(30,41,59,0.4)', borderRadius: '4px', margin: '4px 0' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary-xs"
+                      onClick={() => handleAddAnnotation('building')}
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', padding: '3px 6px' }}
+                    >
+                      <Building2 size={11} className="text-emerald" /> <span>+ Building</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary-xs"
+                      onClick={() => handleAddAnnotation('drainage')}
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', padding: '3px 6px' }}
+                    >
+                      <Droplets size={11} className="text-cyan" /> <span>+ Drainage</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary-xs"
+                      onClick={() => handleAddAnnotation('utility')}
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', padding: '3px 6px' }}
+                    >
+                      <Zap size={11} className="text-amber" /> <span>+ Transformer</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary-xs"
+                      onClick={() => handleAddAnnotation('text')}
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', padding: '3px 6px' }}
+                    >
+                      <Type size={11} className="text-purple" /> <span>+ Adjoining Text</span>
+                    </button>
+                  </div>
+
+                  {/* Annotation List */}
+                  {customAnnotations.length > 0 && (
+                    <div className="tdp-layer-list" style={{ maxHeight: '140px', overflowY: 'auto' }}>
+                      {customAnnotations.map(ann => {
+                        const isSelected = selectedElementId === ann.id;
+                        return (
+                          <div
+                            key={ann.id}
+                            className={`tdp-layer-item ${isSelected ? 'selected' : ''}`}
+                            onClick={() => setSelectedElementId(ann.id)}
+                            style={{ flexDirection: 'column', alignItems: 'stretch', gap: '4px', padding: '6px' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 600 }}>
+                                {ann.type === 'building' ? <Building2 size={12} className="text-emerald" /> :
+                                 ann.type === 'drainage' ? <Droplets size={12} className="text-cyan" /> :
+                                 ann.type === 'utility' ? <Zap size={12} className="text-amber" /> :
+                                 <Type size={12} className="text-purple" />}
+                                <span>{ann.label}</span>
+                              </div>
+                              <button
+                                type="button"
+                                className="tdp-layer-btn"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(ann.id); }}
+                                title="Delete annotation"
+                              >
+                                <Trash2 size={11} className="text-rose" />
+                              </button>
+                            </div>
+
+                            {isSelected && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(15,23,42,0.5)', padding: '6px', borderRadius: '4px' }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <input
+                                    type="text"
+                                    value={ann.label}
+                                    onChange={(e) => handleUpdateAnnotation(ann.id, { label: e.target.value })}
+                                    style={{ fontSize: '9px', padding: '2px 4px' }}
+                                    placeholder="Label..."
+                                  />
+                                </div>
+                                <div className="form-row-2" style={{ gap: '4px' }}>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '8px' }}>Width (m)</label>
+                                    <input
+                                      type="number"
+                                      value={ann.width || 10}
+                                      onChange={(e) => handleUpdateAnnotation(ann.id, { width: parseFloat(e.target.value) || 5 })}
+                                      style={{ fontSize: '9px', padding: '2px 4px' }}
+                                    />
+                                  </div>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '8px' }}>Rotation (°)</label>
+                                    <input
+                                      type="number"
+                                      value={ann.rotation || 0}
+                                      onChange={(e) => handleUpdateAnnotation(ann.id, { rotation: parseFloat(e.target.value) || 0 })}
+                                      style={{ fontSize: '9px', padding: '2px 4px' }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* Layer Group: Parcel Badges */}
                 <div className="tdp-layer-group">
                   <div className="tdp-layer-group-header">
@@ -2195,6 +2715,31 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             ) : null}
                           </div>
                           <div className="tdp-layer-item-actions">
+                            <button
+                              className={`tdp-layer-btn ${scheduledLegsSet.has(dim.key) ? 'active' : ''}`}
+                              title={scheduledLegsSet.has(dim.key) ? 'Currently routed to Schedule Table (Click to show on drawing)' : 'Currently on drawing (Click to route to Schedule Table)'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const currentOmitted = new Set(layoutArrangement.omittedLegKeys || []);
+                                if (currentOmitted.has(dim.key)) {
+                                  currentOmitted.delete(dim.key);
+                                } else {
+                                  currentOmitted.add(dim.key);
+                                }
+                                setLayoutArrangement({ ...layoutArrangement, omittedLegKeys: Array.from(currentOmitted), preset: 'custom_free' });
+                              }}
+                              style={{
+                                fontSize: '8px',
+                                color: scheduledLegsSet.has(dim.key) ? '#38bdf8' : '#94a3b8',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '2px',
+                                padding: '2px 4px'
+                              }}
+                            >
+                              <Table size={10} />
+                              <span>{scheduledLegsSet.has(dim.key) ? 'Table' : 'Draw'}</span>
+                            </button>
                             <button
                               className={`tdp-layer-btn ${tf.locked ? 'active' : ''}`}
                               title={tf.locked ? 'Unlock element' : 'Lock element position'}
@@ -2478,33 +3023,115 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
             >
               <div className={`tdp-sheet-canvas ${pageSize} ${orientation}`}>
                 {/* Outer Double Neatline */}
-                <div className="tdp-neatline-outer">
-                  <div className="tdp-neatline-inner">
-                    {/* Plan Header with Dynamic CAD Alignment */}
-                    <div
-                      className="tdp-plan-header"
-                      style={{
-                        textAlign: layoutArrangement.headerAlign === 'left' ? 'left' : layoutArrangement.headerAlign === 'split' ? 'left' : 'center',
-                        alignItems: layoutArrangement.headerAlign === 'left' ? 'flex-start' : layoutArrangement.headerAlign === 'split' ? 'flex-start' : 'center'
-                      }}
-                    >
-                      <div className="tdp-plan-title">
-                        {layoutArrangement.customTitleText || 'TITLE DEED PLAN'}
-                      </div>
-                      <div className="tdp-plan-subtitle">
-                        {layoutArrangement.customSubtitleText || (isSinglePlot && selectedParcel
-                          ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
-                          : `SURVEY PLAN OF ${project.title.toUpperCase()}`)}
-                      </div>
-                      <div className="tdp-plan-location">
-                        {layoutArrangement.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA GRID`}
-                      </div>
-                      <div className="tdp-header-right-meta">
-                        <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
-                        <div><strong>SCALE:</strong> 1:{effectiveScaleRatio}</div>
-                        <div><strong>PLAN NO:</strong> {layoutArrangement.customPlanNoText || project.code}</div>
-                      </div>
-                    </div>
+                <div
+                  className="tdp-neatline-outer"
+                  style={{
+                    border: layoutArrangement.showNeatlineFrame === false ? 'none' : undefined,
+                    padding: layoutArrangement.showNeatlineFrame === false ? '0' : undefined
+                  }}
+                >
+                  <div
+                    className="tdp-neatline-inner"
+                    style={{
+                      border: layoutArrangement.showNeatlineFrame === false ? 'none' : undefined
+                    }}
+                  >
+                    {/* Plan Header with Dynamic CAD Alignment & Regional Archetype Formatting */}
+                    {(() => {
+                      const tmpl = layoutArrangement.headerTemplate || (layoutArrangement.preset === 'fct_abuja_rofo' ? 'fct_rofo' : layoutArrangement.preset === 'surcon_standard' ? 'shewing_property' : 'shewing_property');
+
+                      if (tmpl === 'fct_rofo' || layoutArrangement.preset === 'fct_abuja_rofo') {
+                        const fct = layoutArrangement.fctConfig || {};
+                        const plotNo = targetParcels[0]?.plotNumber || '209';
+                        return (
+                          <div className="tdp-plan-header" style={{ textAlign: 'center', padding: '8px 12px 6px', borderBottom: 'none' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.08em', color: '#0f172a', textTransform: 'uppercase', fontFamily: 'serif' }}>
+                              FEDERAL CAPITAL TERRITORY
+                            </div>
+                            <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#0f172a', marginTop: '2px', letterSpacing: '0.04em' }}>
+                              RIGHT OF OCCUPANCY NO. {fct.rOfONumber || 'FCT RLA/ 2002/ 016'}
+                            </div>
+                            <div style={{ fontSize: '8.5px', fontWeight: 'bold', color: '#1e293b', marginTop: '2px' }}>
+                              PLAN SHEWING PLOT NO. {plotNo} {fct.districtArea || 'GWAGWALADA'} {fct.cadastralZone || 'CADASTRAL ZONE 04-07'}
+                            </div>
+                            <div style={{ fontSize: '8.5px', fontWeight: 600, color: '#334155', marginTop: '1px' }}>
+                              ALLOTTEE: {(fct.allotteeName || targetParcels[0]?.ownerName || 'CHRIST THE KING CATHOLIC CHURCH').toUpperCase()}
+                            </div>
+                            <div style={{ width: '100%', borderBottom: '1px solid #0f172a', margin: '4px 0 2px', position: 'relative' }}>
+                              <span style={{ position: 'absolute', top: '-7px', left: '50%', transform: 'translateX(-50%)', background: '#ffffff', padding: '0 8px', fontSize: '7.5px', fontWeight: 'bold', color: '#0f172a' }}>
+                                {fct.zonalSurveyorTitle || 'ZONAL LAND SURVEYOR GWAGWALADA'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      } else if (tmpl === 'shewing_property' || layoutArrangement.preset === 'surcon_standard') {
+                        const client = (layoutArrangement.clientName || targetParcels[0]?.ownerName || 'MR. & MRS. TUNDE BAKARE').toUpperCase();
+                        const loc1 = (layoutArrangement.locationLocality || project.location || 'AT OFF OLD IFE ROAD, KUMAPAYI AREA, OLODO').toUpperCase();
+                        const loc2 = (layoutArrangement.locationLgaState || 'EGBEDA LOCAL GOVERNMENT, OYO STATE').toUpperCase();
+                        const origin = layoutArrangement.originDatumName || 'ORIGIN: - OYO SOUTH BEACON (OSB 12T) NATIONAL CADASTRAL DATUM';
+                        return (
+                          <div className="tdp-plan-header" style={{ textAlign: 'center', padding: '6px 10px 4px', borderBottom: 'none' }}>
+                            <div style={{ fontSize: '10.5px', fontWeight: 'bold', letterSpacing: '0.06em', color: '#0f172a', textTransform: 'uppercase' }}>
+                              PLAN SHEWING PROPERTY SAID TO BELONG TO
+                            </div>
+                            <div style={{ fontSize: '12px', fontWeight: 900, color: '#0f172a', textDecoration: 'underline', marginTop: '2px', letterSpacing: '0.05em' }}>
+                              {client}
+                            </div>
+                            <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#1e293b', marginTop: '2px' }}>
+                              {loc1}
+                            </div>
+                            <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#1e293b' }}>
+                              {loc2}
+                            </div>
+                            <div style={{ fontSize: '7.5px', color: '#475569', marginTop: '2px', fontStyle: 'italic' }}>
+                              {origin}
+                            </div>
+                          </div>
+                        );
+                      } else if (tmpl === 'being_plot' || layoutArrangement.preset === 'subdivision_layout') {
+                        const plotNo = targetParcels[0]?.plotNumber || '1';
+                        return (
+                          <div className="tdp-plan-header" style={{ textAlign: 'center', padding: '6px 10px 4px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.06em', color: '#0f172a' }}>
+                              PLAN OF LAND
+                            </div>
+                            <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#0ea5e9', marginTop: '1px' }}>
+                              BEING PLOT {plotNo} {targetParcels[0]?.ownerName ? `(${targetParcels[0].ownerName.toUpperCase()})` : ''}
+                            </div>
+                            <div style={{ fontSize: '8.5px', color: '#334155', marginTop: '2px' }}>
+                              SITUATED AT: {(layoutArrangement.locationLocality || project.location).toUpperCase()}
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div
+                            className="tdp-plan-header"
+                            style={{
+                              textAlign: layoutArrangement.headerAlign === 'left' ? 'left' : layoutArrangement.headerAlign === 'split' ? 'left' : 'center',
+                              alignItems: layoutArrangement.headerAlign === 'left' ? 'flex-start' : layoutArrangement.headerAlign === 'split' ? 'flex-start' : 'center'
+                            }}
+                          >
+                            <div className="tdp-plan-title">
+                              {layoutArrangement.customTitleText || 'TITLE DEED PLAN'}
+                            </div>
+                            <div className="tdp-plan-subtitle">
+                              {layoutArrangement.customSubtitleText || (isSinglePlot && selectedParcel
+                                ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+                                : `SURVEY PLAN OF ${project.title.toUpperCase()}`)}
+                            </div>
+                            <div className="tdp-plan-location">
+                              {layoutArrangement.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA GRID`}
+                            </div>
+                            <div className="tdp-header-right-meta">
+                              <div><strong>SHEET:</strong> {activeSheet.sheetNumber}</div>
+                              <div><strong>SCALE:</strong> 1:{effectiveScaleRatio}</div>
+                              <div><strong>PLAN NO:</strong> {layoutArrangement.customPlanNoText || project.code}</div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
 
                     {/* Main Layout Body (Support for Right Sidebar Column) */}
                     <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -2667,13 +3294,20 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                   }
                                 })}
 
-                              {/* Road Corridors — one per selected frontage leg (multi-select) */}
+                              {/* Road Corridors — with setbacks, extension stubs, and directional routes */}
                               {adjoiningConfig.showRoadCorridor && adjoiningConfig.roadCorridorLabel && (() => {
                                 const compFocus = computeParcel(selectedParcel, points);
                                 if (!compFocus || compFocus.legs.length === 0) return null;
 
                                 const selectedLegIndices = (adjoiningConfig.roadFrontageLegIndices || [0])
                                   .filter(i => i < compFocus.legs.length);
+
+                                const setbackM = adjoiningConfig.roadSetbackMeters || 0;
+                                const widthM = adjoiningConfig.roadCorridorWidth || 12;
+                                const extM = adjoiningConfig.roadExtensionMeters ?? 10;
+                                const dirFrom = (adjoiningConfig.roadDirectionFrom || '').trim();
+                                const dirTo = (adjoiningConfig.roadDirectionTo || '').trim();
+                                const isCurved = adjoiningConfig.roadGeometryMode === 'curved';
 
                                 return (
                                   <g key="road-corridors">
@@ -2686,6 +3320,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                       const dy = p2.y - p1.y;
                                       const len = Math.hypot(dx, dy);
                                       if (len < 1) return null;
+
+                                      const ux = dx / len;
+                                      const uy = dy / len;
 
                                       // Orient outward from focus parcel centroid
                                       const focCentX = compFocus.vertices.reduce((s, v) => s + toSvgX(v.easting), 0) / compFocus.vertices.length;
@@ -2700,30 +3337,76 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                         ny = -ny;
                                       }
 
-                                      const roadWidthPx = (adjoiningConfig.roadCorridorWidth || 12) * pixelsPerMeter;
-                                      const r1 = { x: p1.x + nx * roadWidthPx, y: p1.y + ny * roadWidthPx };
-                                      const r2 = { x: p2.x + nx * roadWidthPx, y: p2.y + ny * roadWidthPx };
+                                      const setbackPx = setbackM * pixelsPerMeter;
+                                      const widthPx = widthM * pixelsPerMeter;
+                                      const extPx = extM * pixelsPerMeter;
 
-                                      const roadMidX = (midX + (r1.x + r2.x) / 2) / 2;
-                                      const roadMidY = (midY + (r1.y + r2.y) / 2) / 2;
+                                      // 1. Near Road Line (or setback line)
+                                      const near1 = { x: p1.x + nx * setbackPx - ux * extPx, y: p1.y + ny * setbackPx - uy * extPx };
+                                      const near2 = { x: p2.x + nx * setbackPx + ux * extPx, y: p2.y + ny * setbackPx + uy * extPx };
+
+                                      // 2. Far Road Line
+                                      const far1 = { x: p1.x + nx * (setbackPx + widthPx) - ux * extPx, y: p1.y + ny * (setbackPx + widthPx) - uy * extPx };
+                                      const far2 = { x: p2.x + nx * (setbackPx + widthPx) + ux * extPx, y: p2.y + ny * (setbackPx + widthPx) + uy * extPx };
+
+                                      // Centerline midpoint for text placement
+                                      const centerMidX = (midX + nx * (setbackPx + widthPx / 2));
+                                      const centerMidY = (midY + ny * (setbackPx + widthPx / 2));
 
                                       let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
                                       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180;
 
+                                      // Format label string
+                                      let routeLabel = adjoiningConfig.roadCorridorLabel.toUpperCase();
+                                      if (dirFrom && dirTo) {
+                                        routeLabel = `FROM ${dirFrom.toUpperCase()} ─────────> TO ${dirTo.toUpperCase()}`;
+                                      } else if (dirTo) {
+                                        routeLabel = `${routeLabel} (TO ${dirTo.toUpperCase()})`;
+                                      }
+
                                       return (
                                         <g key={`road-${legIdx}`}>
-                                          <line x1={r1.x} y1={r1.y} x2={r2.x} y2={r2.y} stroke="#64748b" strokeWidth="1.2" strokeDasharray="5 3" />
-                                          <g transform={`translate(${roadMidX}, ${roadMidY}) rotate(${angleDeg})`}>
+                                          {/* Far road boundary line */}
+                                          <line x1={far1.x} y1={far1.y} x2={far2.x} y2={far2.y} stroke="#475569" strokeWidth="1.2" strokeDasharray="6 3" />
+
+                                          {/* Near setback line if setback > 0 */}
+                                          {setbackM > 0 && (
+                                            <line x1={near1.x} y1={near1.y} x2={near2.x} y2={near2.y} stroke="#94a3b8" strokeWidth="0.8" strokeDasharray="3 3" />
+                                          )}
+
+                                          {/* Corner Extension Stubs */}
+                                          <line x1={p1.x} y1={p1.y} x2={near1.x} y2={near1.y} stroke="#94a3b8" strokeWidth="0.8" strokeDasharray="2 2" />
+                                          <line x1={p2.x} y1={p2.y} x2={near2.x} y2={near2.y} stroke="#94a3b8" strokeWidth="0.8" strokeDasharray="2 2" />
+
+                                          {/* Curved ticks if geometry mode is curved */}
+                                          {isCurved && [0.25, 0.5, 0.75].map(t => {
+                                            const tx = near1.x + (near2.x - near1.x) * t;
+                                            const ty = near1.y + (near2.y - near1.y) * t;
+                                            return (
+                                              <line
+                                                key={`tick-${t}`}
+                                                x1={tx}
+                                                y1={ty}
+                                                x2={tx + nx * 4}
+                                                y2={ty + ny * 4}
+                                                stroke="#64748b"
+                                                strokeWidth="0.8"
+                                              />
+                                            );
+                                          })}
+
+                                          {/* Road Corridor Text */}
+                                          <g transform={`translate(${centerMidX}, ${centerMidY}) rotate(${angleDeg})`}>
                                             <text
                                               y={0}
                                               textAnchor="middle"
                                               dominantBaseline="central"
                                               fontSize="7.5"
                                               fontWeight="bold"
-                                              fill="#475569"
+                                              fill="#334155"
                                               style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px' }}
                                             >
-                                              ═ {adjoiningConfig.roadCorridorLabel.toUpperCase()} ═
+                                              ═ {routeLabel} ═
                                             </text>
                                           </g>
                                         </g>
@@ -2732,6 +3415,96 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                   </g>
                                 );
                               })()}
+
+                              {/* 1.8 Custom Topographic Feature Annotations (Buildings, Drainage, Utilities, Text) */}
+                              {customAnnotations.map(ann => {
+                                const ax = toSvgX(ann.easting);
+                                const ay = toSvgY(ann.northing);
+                                const wPx = (ann.width || 10) * pixelsPerMeter;
+                                const hPx = (ann.height || 6) * pixelsPerMeter;
+                                const rot = ann.rotation || 0;
+                                const isSelected = selectedElementId === ann.id;
+
+                                if (ann.type === 'building') {
+                                  return (
+                                    <g key={ann.id} transform={`translate(${ax}, ${ay}) rotate(${rot})`} onClick={() => setSelectedElementId(ann.id)} style={{ cursor: 'pointer' }}>
+                                      <rect
+                                        x={-wPx / 2}
+                                        y={-hPx / 2}
+                                        width={wPx}
+                                        height={hPx}
+                                        fill="url(#svg-diag-hatch)"
+                                        stroke={isSelected ? '#0284c7' : '#475569'}
+                                        strokeWidth={isSelected ? '2' : '1.2'}
+                                      />
+                                      <text
+                                        x={0}
+                                        y={0}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        fontSize="7"
+                                        fontWeight="bold"
+                                        fill="#1e293b"
+                                        style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2.5px' }}
+                                      >
+                                        {ann.label || 'EXISTING BUILDING'}
+                                      </text>
+                                    </g>
+                                  );
+                                } else if (ann.type === 'drainage') {
+                                  return (
+                                    <g key={ann.id} transform={`translate(${ax}, ${ay}) rotate(${rot})`} onClick={() => setSelectedElementId(ann.id)} style={{ cursor: 'pointer' }}>
+                                      <line x1={-wPx / 2} y1={-1.5} x2={wPx / 2} y2={-1.5} stroke="#0284c7" strokeWidth="1.2" />
+                                      <line x1={-wPx / 2} y1={1.5} x2={wPx / 2} y2={1.5} stroke="#0284c7" strokeWidth="1.2" />
+                                      <text
+                                        x={0}
+                                        y={-5}
+                                        textAnchor="middle"
+                                        fontSize="6.5"
+                                        fontWeight="bold"
+                                        fill="#0284c7"
+                                        style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2px' }}
+                                      >
+                                        {ann.label || 'DRAINAGE'}
+                                      </text>
+                                    </g>
+                                  );
+                                } else if (ann.type === 'utility') {
+                                  return (
+                                    <g key={ann.id} transform={`translate(${ax}, ${ay}) rotate(${rot})`} onClick={() => setSelectedElementId(ann.id)} style={{ cursor: 'pointer' }}>
+                                      <rect x={-wPx / 2} y={-hPx / 2} width={wPx} height={hPx} fill="url(#svg-cross-hatch)" stroke="#d97706" strokeWidth="1.2" />
+                                      <text
+                                        x={0}
+                                        y={hPx / 2 + 7}
+                                        textAnchor="middle"
+                                        fontSize="6.5"
+                                        fontWeight="bold"
+                                        fill="#d97706"
+                                        style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2px' }}
+                                      >
+                                        {ann.label || 'IBEDC TRANSFORMER'}
+                                      </text>
+                                    </g>
+                                  );
+                                } else {
+                                  return (
+                                    <g key={ann.id} transform={`translate(${ax}, ${ay}) rotate(${rot})`} onClick={() => setSelectedElementId(ann.id)} style={{ cursor: 'pointer' }}>
+                                      <text
+                                        x={0}
+                                        y={0}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        fontSize="7.5"
+                                        fontWeight="bold"
+                                        fill="#334155"
+                                        style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '2.5px' }}
+                                      >
+                                        {ann.label}
+                                      </text>
+                                    </g>
+                                  );
+                                }
+                              })}
                             </g>
                           )}
 
@@ -2886,98 +3659,121 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             );
                           })}
 
-                          {/* 4. Boundary Leg Bearings & Distances (Interactive Drag & Transform) */}
+                          {/* 4. Boundary Leg Bearings & Distances (Interactive Drag & Transform with Leader Lines) */}
                           {resolvedLayout.boundaryDimensions.map(dim => {
                             const entityKey = `dim_${dim.key}`;
                             const tf = getTransform(entityKey);
                             if (tf.hidden) return null;
+
+                            // Check if routed to schedule table
+                            const isScheduledInTable = scheduledLegsSet.has(dim.key);
+                            if (isScheduledInTable && !layoutArrangement.showScheduledDimensionsOnDrawing) return null;
+
                             const isSelected = selectedElementId === entityKey;
                             const scale = tf.scale || 1.0;
                             const totalRot = dim.angleDeg + (tf.rotation || 0);
+                            const isDisplaced = Math.hypot(dim.x - dim.anchorX, dim.y - dim.anchorY) > 12 || Math.hypot(tf.dx, tf.dy) > 4;
 
                             return (
-                              <g
-                                key={dim.key}
-                                transform={`translate(${dim.x}, ${dim.y}) rotate(${totalRot}) scale(${scale})`}
-                                style={{ cursor: tf.locked ? 'default' : 'move' }}
-                                onMouseDown={(e) => handleElementMouseDown(entityKey, e)}
-                              >
-                                {isSelected && (
-                                  <g className="element-selection-gizmo">
-                                    <rect
-                                      x={-34}
-                                      y={-12}
-                                      width={68}
-                                      height={28}
-                                      fill="rgba(56,189,248,0.08)"
-                                      stroke="#38bdf8"
+                              <g key={dim.key} className={`svg-dimension-item ${isSelected ? 'selected' : ''}`}>
+                                {/* Dynamic Connecting Leader Line from Segment Midpoint to Displaced Dimension Label */}
+                                {isDisplaced && (
+                                  <g className="dimension-leader-line-group" style={{ pointerEvents: 'none' }}>
+                                    <circle cx={dim.anchorX} cy={dim.anchorY} r="2.2" fill="#64748b" />
+                                    <line
+                                      x1={dim.anchorX}
+                                      y1={dim.anchorY}
+                                      x2={dim.x}
+                                      y2={dim.y}
+                                      stroke="#64748b"
                                       strokeWidth="1.2"
                                       strokeDasharray="3 2"
-                                      rx="3"
-                                    />
-                                    <rect
-                                      x={30}
-                                      y={12}
-                                      width="7"
-                                      height="7"
-                                      fill="#38bdf8"
-                                      stroke="#ffffff"
-                                      strokeWidth="1"
-                                      cursor="nwse-resize"
-                                      onMouseDown={(e) => handleScaleHandleMouseDown(entityKey, e)}
-                                    />
-                                    <line x1={0} y1={-12} x2={0} y2={-20} stroke="#38bdf8" strokeWidth="1" />
-                                    <circle
-                                      cx={0}
-                                      cy={-20}
-                                      r="4"
-                                      fill="#38bdf8"
-                                      stroke="#ffffff"
-                                      strokeWidth="1"
-                                      cursor="crosshair"
-                                      onMouseDown={(e) => handleRotateHandleMouseDown(entityKey, e)}
                                     />
                                   </g>
                                 )}
 
-                                <text
-                                  x={0}
-                                  y={-1.5}
-                                  textAnchor="middle"
-                                  dominantBaseline="auto"
-                                  fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                  fontWeight="bold"
-                                  fontFamily="monospace"
-                                  fill="#0f172a"
-                                  style={{
-                                    paintOrder: 'stroke fill',
-                                    stroke: '#ffffff',
-                                    strokeWidth: '3.5px',
-                                    strokeLinecap: 'round',
-                                    strokeLinejoin: 'round'
-                                  }}
+                                <g
+                                  transform={`translate(${dim.x}, ${dim.y}) rotate(${totalRot}) scale(${scale})`}
+                                  style={{ cursor: tf.locked ? 'default' : 'move' }}
+                                  onMouseDown={(e) => handleElementMouseDown(entityKey, e)}
                                 >
-                                  {dim.bearingStr}
-                                </text>
-                                <text
-                                  x={0}
-                                  y={7.5}
-                                  textAnchor="middle"
-                                  dominantBaseline="auto"
-                                  fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                  fontWeight="bold"
-                                  fontFamily="monospace"
-                                  fill="#0f172a"
-                                  style={{
-                                    paintOrder: 'stroke fill',
-                                    stroke: '#ffffff',
-                                    strokeWidth: '3.5px',
-                                    strokeLinecap: 'round',
-                                    strokeLinejoin: 'round'
-                                  }}
-                                >
-                                  {dim.distStr}
-                                </text>
+                                  {isSelected && (
+                                    <g className="element-selection-gizmo">
+                                      <rect
+                                        x={-34}
+                                        y={-12}
+                                        width={68}
+                                        height={28}
+                                        fill="rgba(56,189,248,0.08)"
+                                        stroke="#38bdf8"
+                                        strokeWidth="1.2"
+                                        strokeDasharray="3 2"
+                                        rx="3"
+                                      />
+                                      <rect
+                                        x={30}
+                                        y={12}
+                                        width="7"
+                                        height="7"
+                                        fill="#38bdf8"
+                                        stroke="#ffffff"
+                                        strokeWidth="1"
+                                        cursor="nwse-resize"
+                                        onMouseDown={(e) => handleScaleHandleMouseDown(entityKey, e)}
+                                      />
+                                      <line x1={0} y1={-12} x2={0} y2={-20} stroke="#38bdf8" strokeWidth="1" />
+                                      <circle
+                                        cx={0}
+                                        cy={-20}
+                                        r="4"
+                                        fill="#38bdf8"
+                                        stroke="#ffffff"
+                                        strokeWidth="1"
+                                        cursor="crosshair"
+                                        onMouseDown={(e) => handleRotateHandleMouseDown(entityKey, e)}
+                                      />
+                                    </g>
+                                  )}
+
+                                  <text
+                                    x={0}
+                                    y={-1.5}
+                                    textAnchor="middle"
+                                    dominantBaseline="auto"
+                                    fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                    fill="#0f172a"
+                                    style={{
+                                      paintOrder: 'stroke fill',
+                                      stroke: '#ffffff',
+                                      strokeWidth: '3.5px',
+                                      strokeLinecap: 'round',
+                                      strokeLinejoin: 'round'
+                                    }}
+                                  >
+                                    {dim.bearingStr}
+                                  </text>
+                                  <text
+                                    x={0}
+                                    y={7.5}
+                                    textAnchor="middle"
+                                    dominantBaseline="auto"
+                                    fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                    fill="#0f172a"
+                                    style={{
+                                      paintOrder: 'stroke fill',
+                                      stroke: '#ffffff',
+                                      strokeWidth: '3.5px',
+                                      strokeLinecap: 'round',
+                                      strokeLinejoin: 'round'
+                                    }}
+                                  >
+                                    {dim.distStr}
+                                  </text>
+                                </g>
                               </g>
                             );
                           })}
@@ -3122,8 +3918,37 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                             );
                           })}
 
+                          {/* FCT Abuja Large Needle North Arrow */}
+                          {(layoutArrangement.northArrowMode === 'fct_needle' || layoutArrangement.preset === 'fct_abuja_rofo') && (() => {
+                            const naX = svgWidth - 28;
+                            const naCenterY = svgHeight * 0.42;
+                            const needleH = 110;
+                            const tipY = naCenterY - needleH / 2;
+                            const baseY = naCenterY + needleH / 2;
+                            const label = layoutArrangement.trueNorthStyle === 'TN' ? 'T  N' : layoutArrangement.trueNorthStyle === 'UN' ? 'U  N' : 'N  N';
+
+                            return (
+                              <g className="fct-north-needle-group" style={{ pointerEvents: 'none' }}>
+                                <polygon points={`${naX},${tipY} ${naX - 8},${baseY - 26} ${naX},${baseY - 26}`} fill="#0f172a" />
+                                <polygon points={`${naX},${tipY} ${naX + 8},${baseY - 26} ${naX},${baseY - 26}`} fill="none" stroke="#0f172a" strokeWidth="1.2" />
+                                <line x1={naX} y1={baseY - 26} x2={naX} y2={baseY} stroke="#0f172a" strokeWidth="1.2" />
+                                <line x1={naX - 10} y1={baseY - 8} x2={naX + 10} y2={baseY - 8} stroke="#0f172a" strokeWidth="1.2" />
+                                <text
+                                  x={naX}
+                                  y={baseY - 12}
+                                  textAnchor="middle"
+                                  fontSize="9.5"
+                                  fontWeight="bold"
+                                  fill="#0f172a"
+                                >
+                                  {label}
+                                </text>
+                              </g>
+                            );
+                          })()}
+
                           {/* Origin Meridian Grid Cross on Starting Beacon (Bi-Directional 4-Way U N / T N) */}
-                          {(!layoutArrangement.northArrowMode || layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both') && (() => {
+                          {layoutArrangement.preset !== 'fct_abuja_rofo' && layoutArrangement.northArrowMode !== 'fct_needle' && (!layoutArrangement.northArrowMode || layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both') && (() => {
                             const originPt = (layoutArrangement.originBeaconId ? targetPoints.find(p => p.id === layoutArrangement.originBeaconId) : null) || targetPoints[0] || points[0];
                             if (!originPt) return null;
                             const ox = toSvgX(originPt.easting);
@@ -3404,104 +4229,207 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
 
                     {/* Standard Bottom Footer (when not right sidebar) */}
                     {layoutArrangement.coordTablePosition !== 'right_column' && layoutArrangement.sealBoxPosition !== 'right_column' && (
-                      <div className="tdp-plan-footer">
-                        {showCoordinateTable && !getTransform('elem_coord_table').hidden && layoutArrangement.coordTablePosition !== 'hidden' && layoutArrangement.coordTablePosition !== 'top_right' && (
-                          <div
-                            className="tdp-coord-schedule-table"
-                            style={{
-                              order: layoutArrangement.coordTablePosition === 'bottom_right' ? 2 : 1,
-                              cursor: 'pointer'
-                            }}
-                            onClick={() => setSelectedElementId('elem_coord_table')}
-                          >
-                            <div className="schedule-table-title">COORDINATE SCHEDULE (MINNA DATUM)</div>
-                            <table>
-                              <thead>
-                                <tr>
-                                  <th>BEACON ID</th>
-                                  <th>EASTING (m)</th>
-                                  <th>NORTHING (m)</th>
-                                  <th>ORIGIN</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {targetPoints.map(pt => (
-                                  <tr key={pt.id}>
-                                    <td>{pt.id}</td>
-                                    <td>{pt.easting.toFixed(3)}</td>
-                                    <td>{pt.northing.toFixed(3)}</td>
-                                    <td>{pt.isControl ? 'CONTROL' : 'CONCRETE'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                      <div className="tdp-plan-footer" style={{ borderTop: layoutArrangement.showNeatlineFrame === false ? 'none' : undefined }}>
+                        {/* 1. FCT Abuja Origin Note & Staff Sign-off Grid */}
+                        {(layoutArrangement.preset === 'fct_abuja_rofo' || layoutArrangement.footerStyle === 'fct_staff_grid') ? (() => {
+                          const fct = layoutArrangement.fctConfig || {};
+                          const originPt = targetPoints[0] || points[0] || { id: 'PB 6371', easting: 293637.434, northing: 994737.304 };
 
-                        {showSealBox && !getTransform('elem_seal_box').hidden && (
-                          <div
-                            className="tdp-seal-block"
-                            style={{
-                              order: layoutArrangement.sealBoxPosition === 'bottom_left' ? 1 : 2,
-                              width: layoutArrangement.sealBoxPosition === 'bottom_center' ? '98%' : undefined,
-                              cursor: 'pointer'
-                            }}
-                            onClick={() => setSelectedElementId('elem_seal_box')}
-                          >
-                            <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
-                            <div className="cert-body">
-                              I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with the Survey Regulations.
-                            </div>
-
-                            {currentUser?.signatureUrl && (
-                              <div className="tdp-sig-container" style={{ margin: '4px 0 2px' }}>
-                                <img src={currentUser.signatureUrl} alt="Signature" style={{ height: '24px', maxWidth: '120px', objectFit: 'contain' }} />
+                          return (
+                            <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', padding: '6px 10px', fontSize: '8px', color: '#0f172a' }}>
+                              {/* Left Staff Sign-off Grid */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ fontWeight: 'bold' }}>NOTE:</div>
+                                <div>FULL BEACON NUMBER = {fct.fullBeaconNumber || `FCT ${originPt.id}`}</div>
+                                <div>COORDINATE OF {originPt.id}</div>
+                                <div style={{ fontFamily: 'monospace' }}>N = {originPt.northing.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</div>
+                                <div style={{ fontFamily: 'monospace' }}>E = {originPt.easting.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</div>
+                                <div>{fct.coordinateSystemText || 'COORDINATE SYSTEM UTM 32N'}</div>
+                                <div style={{ fontWeight: 'bold', marginTop: '3px' }}>SURVEYED BY: {(project.surveyFirm || 'C. S. AGHA & ASSOCIATES').toUpperCase()}</div>
+                                <div>DRAWN BY: {fct.drawnBy || '___________________'}</div>
+                                <div>CHECKED BY: {fct.checkedBy || '_________________'}</div>
+                                <div>PASSED BY: {fct.passedBy || '__________________'}</div>
+                                <div>DATE: {fct.dateSurveyed || project.date || '27TH OF JUNE, 2002'}</div>
                               </div>
-                            )}
 
-                            <div className="surveyor-name">
-                              {currentUser?.title ? `${currentUser.title} ` : 'SURV. '}
-                              {(currentUser?.fullName || project.surveyorName).toUpperCase()}
+                              {/* Right Multi-Row Short Leg Table & Cadastral Map Box */}
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', minWidth: '220px' }}>
+                                <div style={{ textAlign: 'left', border: '1px solid #cbd5e1', padding: '4px 8px', borderRadius: '3px', background: '#ffffff', width: '100%' }}>
+                                  <div style={{ fontWeight: 'bold', fontSize: '7.5px', borderBottom: '1px solid #e2e8f0', paddingBottom: '2px', marginBottom: '3px' }}>
+                                    BEACON No. &nbsp;&nbsp;&nbsp;&nbsp; DISTANCE &nbsp;&nbsp;&nbsp;&nbsp; BEARING
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    {scheduledLegs.slice(0, 5).map((sLeg, sIdx) => (
+                                      <div key={sLeg.key || sIdx} style={{ fontSize: '7px', fontFamily: 'monospace', color: '#1e293b' }}>
+                                        FROM {sLeg.fromPointId} TO {sLeg.toPointId} = {sLeg.distance.toFixed(2)}m AT {sLeg.bearingFormatted}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: '6px', textAlign: 'center', width: '100%' }}>
+                                  <div style={{ fontWeight: 'bold', fontSize: '8.5px', marginBottom: '3px' }}>
+                                    {fct.cadastralMapScaleText || `CADASTRAL MAP 1: ${effectiveScaleRatio}`}
+                                  </div>
+                                  <div style={{ border: '1.5px solid #0f172a', padding: '4px 12px', fontWeight: 'bold', fontSize: '9px', letterSpacing: '0.06em' }}>
+                                    {(fct.layoutName || project.title || 'CKC EXT.   LAYOUT').toUpperCase()}
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', margin: '1px 0' }}>
-                              {currentUser?.surconNumber || project.surveyorNumber || 'SURCON REG.'}
-                            </div>
-                            <div className="survey-firm">{(activeOrg?.name || project.surveyFirm).toUpperCase()}</div>
-                            <div className="survey-date">DATE: {project.date}</div>
+                          );
+                        })() : (layoutArrangement.footerStyle === 'surcon_3box' || layoutArrangement.preset === 'surcon_standard' || layoutArrangement.headerTemplate === 'shewing_property') ? (() => {
+                          const planNoFormatted = layoutArrangement.customPlanNoText || project.code || 'OY / 0327 / 2017 / 004';
+                          const firmAddr = (layoutArrangement.surveyorFirmAddress || project.surveyFirm || 'OFFICE ADDRESS / CONTACT').toUpperCase();
+                          const firmPhone = layoutArrangement.surveyorPhone || 'TEL: 0800-SURVEYOR';
+                          const survName = ((currentUser?.title ? `${currentUser.title} ` : '') + (currentUser?.fullName || project.surveyorName)).toUpperCase();
 
-                            {currentUser?.digitalSealUrl || activeOrg?.officialSealUrl ? (
+                          return (
+                            <div style={{ display: 'grid', gridTemplateColumns: '28% 42% 30%', width: '100%', border: '1.5px solid #0f172a', background: '#ffffff', minHeight: '65px' }}>
+                              {/* Box 1: Plan No */}
+                              <div style={{ borderRight: '1.5px solid #0f172a', padding: '6px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '9px' }}>
+                                  <span>PLAN</span>
+                                  <span>NO</span>
+                                </div>
+                                <div style={{ fontWeight: 'bold', fontSize: '10px', color: '#0f172a', letterSpacing: '0.04em' }}>
+                                  {planNoFormatted}
+                                </div>
+                              </div>
+
+                              {/* Box 2: Surveyor / Firm Contact */}
+                              <div style={{ borderRight: '1.5px solid #0f172a', padding: '6px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div style={{ fontWeight: 'bold', fontSize: '9px', color: '#0f172a' }}>
+                                  {survName}
+                                </div>
+                                <div style={{ fontSize: '7.5px', color: '#334155', lineHeight: 1.2 }}>
+                                  {firmAddr}
+                                </div>
+                                <div style={{ fontSize: '7.5px', color: '#475569' }}>
+                                  {firmPhone}
+                                </div>
+                              </div>
+
+                              {/* Box 3: Seal & Signature */}
+                              <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                                {currentUser?.signatureUrl ? (
+                                  <img src={currentUser.signatureUrl} alt="Signature" style={{ height: '22px', maxWidth: '90px', objectFit: 'contain' }} />
+                                ) : (
+                                  <div style={{ height: '18px' }} />
+                                )}
+                                <div style={{ fontWeight: 'bold', fontSize: '8.5px', color: '#0f172a', marginTop: '2px' }}>
+                                  {survName}
+                                </div>
+                                <div style={{ fontSize: '7.5px', fontWeight: 600, color: '#475569' }}>
+                                  SURVEYOR
+                                </div>
+                                <div style={{ fontSize: '7px', color: '#64748b' }}>
+                                  {project.date || new Date().toISOString().split('T')[0]}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })() : (
+                          // Default Coordinate Schedule & Seal Box Layout
+                          <>
+                            {showCoordinateTable && !getTransform('elem_coord_table').hidden && layoutArrangement.coordTablePosition !== 'hidden' && layoutArrangement.coordTablePosition !== 'top_right' && (
                               <div
-                                className="tdp-seal-stamp-container"
+                                className="tdp-coord-schedule-table"
                                 style={{
-                                  position: 'absolute',
-                                  right: '6px',
-                                  bottom: '6px',
-                                  width: '75px',
-                                  height: '52px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  overflow: 'hidden'
+                                  order: layoutArrangement.coordTablePosition === 'bottom_right' ? 2 : 1,
+                                  cursor: 'pointer'
                                 }}
+                                onClick={() => setSelectedElementId('elem_coord_table')}
                               >
-                                <img
-                                  src={currentUser?.digitalSealUrl || activeOrg?.officialSealUrl}
-                                  alt="Official Seal"
-                                  style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '100%',
-                                    objectFit: 'contain',
-                                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.12))'
-                                  }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="surcon-seal-box">
-                                <ShieldCheck size={18} className="text-muted" />
-                                <span>SURCON SEAL</span>
+                                <div className="schedule-table-title">COORDINATE SCHEDULE (MINNA DATUM)</div>
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>BEACON ID</th>
+                                      <th>EASTING (m)</th>
+                                      <th>NORTHING (m)</th>
+                                      <th>ORIGIN</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {targetPoints.map(pt => (
+                                      <tr key={pt.id}>
+                                        <td>{pt.id}</td>
+                                        <td>{pt.easting.toFixed(3)}</td>
+                                        <td>{pt.northing.toFixed(3)}</td>
+                                        <td>{pt.isControl ? 'CONTROL' : 'CONCRETE'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
                               </div>
                             )}
-                          </div>
+
+                            {showSealBox && !getTransform('elem_seal_box').hidden && (
+                              <div
+                                className="tdp-seal-block"
+                                style={{
+                                  order: layoutArrangement.sealBoxPosition === 'bottom_left' ? 1 : 2,
+                                  width: layoutArrangement.sealBoxPosition === 'bottom_center' ? '98%' : undefined,
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => setSelectedElementId('elem_seal_box')}
+                              >
+                                <div className="cert-title">SURVEYOR'S CERTIFICATION</div>
+                                <div className="cert-body">
+                                  I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with the Survey Regulations.
+                                </div>
+
+                                {currentUser?.signatureUrl && (
+                                  <div className="tdp-sig-container" style={{ margin: '4px 0 2px' }}>
+                                    <img src={currentUser.signatureUrl} alt="Signature" style={{ height: '24px', maxWidth: '120px', objectFit: 'contain' }} />
+                                  </div>
+                                )}
+
+                                <div className="surveyor-name">
+                                  {currentUser?.title ? `${currentUser.title} ` : 'SURV. '}
+                                  {(currentUser?.fullName || project.surveyorName).toUpperCase()}
+                                </div>
+                                <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', margin: '1px 0' }}>
+                                  {currentUser?.surconNumber || project.surveyorNumber || 'SURCON REG.'}
+                                </div>
+                                <div className="survey-firm">{(activeOrg?.name || project.surveyFirm).toUpperCase()}</div>
+                                <div className="survey-date">DATE: {project.date}</div>
+
+                                {currentUser?.digitalSealUrl || activeOrg?.officialSealUrl ? (
+                                  <div
+                                    className="tdp-seal-stamp-container"
+                                    style={{
+                                      position: 'absolute',
+                                      right: '6px',
+                                      bottom: '6px',
+                                      width: '75px',
+                                      height: '52px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      overflow: 'hidden'
+                                    }}
+                                  >
+                                    <img
+                                      src={currentUser?.digitalSealUrl || activeOrg?.officialSealUrl}
+                                      alt="Official Seal"
+                                      style={{
+                                        maxWidth: '100%',
+                                        maxHeight: '100%',
+                                        objectFit: 'contain',
+                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.12))'
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="surcon-seal-box">
+                                    <ShieldCheck size={18} className="text-muted" />
+                                    <span>SURCON SEAL</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}

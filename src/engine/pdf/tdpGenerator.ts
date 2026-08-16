@@ -45,6 +45,20 @@ export interface TdpStyleConfig {
   themePreset?: 'federal_standard' | 'state_lands' | 'executive_deed' | 'cad_blueprint' | 'custom';
 }
 
+export interface TdpCustomAnnotation {
+  id: string;
+  type: 'building' | 'drainage' | 'utility' | 'road_curve' | 'text' | 'tie_dimension';
+  easting: number;
+  northing: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  label: string;
+  subText?: string;
+  color?: string;
+  hatchPattern?: 'none' | 'diagonal' | 'cross' | 'solid';
+}
+
 export interface TdpAdjoiningConfig {
   showAdjoining: boolean;
   adjoiningParcelIds: string[];
@@ -53,8 +67,14 @@ export interface TdpAdjoiningConfig {
   showRoadCorridor: boolean;
   roadCorridorLabel: string; // e.g. "12.00m ACCESS ROAD"
   roadCorridorWidth: number; // e.g. 12m
+  roadSetbackMeters?: number; // Distance from parcel boundary before road line (e.g. 0m to 20m)
+  roadDirectionFrom?: string; // e.g. "ORANYAN"
+  roadDirectionTo?: string; // e.g. "BEYERUNKA"
+  roadExtensionMeters?: number; // Extension past corner beacons (e.g. 5m to 25m)
+  roadGeometryMode?: 'straight' | 'curved';
   /** Indices of boundary legs that face a road. Multi-select: [0] = frontage, [0,2] = corner plot, etc. */
   roadFrontageLegIndices: number[];
+  customAnnotations?: TdpCustomAnnotation[];
 }
 
 export const DEFAULT_TDP_STYLE: TdpStyleConfig = {
@@ -151,15 +171,58 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r: 16, g: 185, b: 129 };
 }
 
+export type TdpLayoutPreset =
+  | 'fct_abuja_rofo'
+  | 'surcon_standard'
+  | 'lagos_lasg_cadastral'
+  | 'state_lands_boxed'
+  | 'subdivision_layout'
+  | 'right_sidebar'
+  | 'compact_split'
+  | 'custom_free';
+
+export interface TdpFctRofOConfig {
+  rOfONumber?: string;         // e.g. "FCT RLA/ 2002/ 0184"
+  allotteeName?: string;       // e.g. "E-NOCK BAKSON KANAWA"
+  districtArea?: string;       // e.g. "GWAGWALADA"
+  cadastralZone?: string;      // e.g. "CADASTRAL ZONE 04-07"
+  zonalSurveyorTitle?: string; // e.g. "ZONAL LAND SURVEYOR"
+  fullBeaconNumber?: string;   // e.g. "FCT PB 6371"
+  coordinateSystemText?: string; // e.g. "COORDINATE SYSTEM UTM 32N"
+  drawnBy?: string;
+  checkedBy?: string;
+  passedBy?: string;
+  dateSurveyed?: string;
+  layoutName?: string;         // e.g. "CKC EXT. LAYOUT"
+  cadastralMapScaleText?: string; // e.g. "CADASTRAL MAP 1: 1000"
+  tieLegFromBeacon?: string;
+  tieLegToBeacon?: string;
+  tieLegDistance?: number;
+  tieLegBearing?: string;
+}
+
 export interface TdpLayoutArrangement {
-  preset: 'surcon_standard' | 'state_lands_boxed' | 'right_sidebar' | 'compact_split' | 'custom_free';
+  preset: TdpLayoutPreset;
   headerAlign: 'center' | 'left' | 'split';
   headerYOffset: number; // in mm
+  headerTemplate?: 'fct_rofo' | 'shewing_property' | 'being_plot' | 'survey_plan_of' | 'custom';
+  clientName?: string;
+  locationLocality?: string; // e.g. "AT ABAYOMI STREET, IDI-ISIN AREA, IBADAN"
+  locationLgaState?: string; // e.g. "IBADAN NORTH WEST LOCAL GOVT. AREA, OYO STATE"
+  originDatumName?: string; // e.g. "U.T.M (ZONE 31)" or "N.N.O" or "MINNA DATUM (MID BELT)"
+  showAreaUnderline?: boolean;
+  showNeatlineFrame?: boolean;
+  footerStyle?: 'surcon_3box' | 'fct_staff_grid' | 'schedule_seal' | 'compact' | 'none';
+  fctConfig?: TdpFctRofOConfig;
+  surveyorFirmAddress?: string;
+  surveyorPhone?: string;
+  certifiedTrueCopyText?: string;
+  showQrCode?: boolean;
   coordTablePosition: 'bottom_left' | 'bottom_right' | 'right_column' | 'top_right' | 'hidden';
-  sealBoxPosition: 'bottom_right' | 'bottom_left' | 'bottom_center' | 'right_column';
-  scaleBarPosition: 'bottom_right' | 'bottom_left' | 'top_left';
-  northArrowPosition: 'top_right' | 'top_left' | 'bottom_right';
-  northArrowMode?: 'corner' | 'origin_beacon' | 'both';
+  sealBoxPosition: 'bottom_right' | 'bottom_left' | 'bottom_center' | 'right_column' | 'hidden';
+  scaleBarPosition: 'bottom_right' | 'bottom_left' | 'top_left' | 'bottom_center';
+  northArrowPosition: 'top_right' | 'top_left' | 'bottom_right' | 'right_mid';
+  northArrowMode?: 'corner' | 'origin_beacon' | 'both' | 'fct_needle';
   trueNorthStyle?: 'UN' | 'TN' | 'N';
   originBeaconId?: string;
   trueNorthMaskParcel?: boolean;
@@ -175,12 +238,94 @@ export interface TdpLayoutArrangement {
   customSubtitleText?: string;
   customLocationText?: string;
   customPlanNoText?: string;
+  customAnnotations?: TdpCustomAnnotation[];
+  shortLegScheduleMode?: 'auto' | 'all_on_drawing' | 'all_in_schedule' | 'manual';
+  shortLegThresholdMeters?: number;
+  omittedLegKeys?: string[];
+  showScheduledDimensionsOnDrawing?: boolean;
+}
+
+export interface TdpScheduledLeg {
+  fromPointId: string;
+  toPointId: string;
+  distance: number;
+  bearingFormatted: string;
+  key: string;
+}
+
+export function getScheduledBoundaryLegs(
+  parcels: Parcel[],
+  points: CoordinatePoint[],
+  layout: TdpLayoutArrangement
+): TdpScheduledLeg[] {
+  const result: TdpScheduledLeg[] = [];
+  const renderedEdges = new Set<string>();
+  const mode = layout.shortLegScheduleMode || 'auto';
+  const threshold = layout.shortLegThresholdMeters ?? 6.0;
+  const omittedSet = new Set(layout.omittedLegKeys || []);
+
+  for (const parcel of parcels) {
+    const comp = computeParcel(parcel, points);
+    if (!comp) continue;
+
+    for (const leg of comp.legs) {
+      const p1Id = leg.fromPoint.id;
+      const p2Id = leg.toPoint.id;
+      const edgeKey = [p1Id, p2Id].sort().join('--');
+      if (renderedEdges.has(edgeKey)) continue;
+      renderedEdges.add(edgeKey);
+
+      let isIncluded = false;
+      if (mode === 'all_in_schedule') {
+        isIncluded = true;
+      } else if (mode === 'all_on_drawing') {
+        isIncluded = false;
+      } else if (mode === 'manual') {
+        isIncluded = omittedSet.has(edgeKey);
+      } else {
+        // 'auto' mode: include if leg distance <= threshold OR explicitly added in omittedSet
+        isIncluded = leg.distance <= threshold || omittedSet.has(edgeKey);
+      }
+
+      if (isIncluded) {
+        result.push({
+          fromPointId: p1Id,
+          toPointId: p2Id,
+          distance: leg.distance,
+          bearingFormatted: leg.bearing.formatted,
+          key: edgeKey
+        });
+      }
+    }
+  }
+
+  // Fallback: if no short legs were found, include the first leg if FCT preset or tie leg specified
+  if (result.length === 0 && (layout.preset === 'fct_abuja_rofo' || layout.fctConfig?.tieLegFromBeacon)) {
+    const fct = layout.fctConfig || {};
+    const firstComp = parcels[0] ? computeParcel(parcels[0], points) : null;
+    const firstLeg = firstComp?.legs?.[0];
+    if (firstLeg) {
+      result.push({
+        fromPointId: fct.tieLegFromBeacon || firstLeg.fromPoint.id,
+        toPointId: fct.tieLegToBeacon || firstLeg.toPoint.id,
+        distance: fct.tieLegDistance || firstLeg.distance,
+        bearingFormatted: fct.tieLegBearing || firstLeg.bearing.formatted,
+        key: [firstLeg.fromPoint.id, firstLeg.toPoint.id].sort().join('--')
+      });
+    }
+  }
+
+  return result;
 }
 
 export const DEFAULT_TDP_LAYOUT: TdpLayoutArrangement = {
   preset: 'surcon_standard',
   headerAlign: 'center',
   headerYOffset: 0,
+  headerTemplate: 'shewing_property',
+  footerStyle: 'surcon_3box',
+  showAreaUnderline: true,
+  showNeatlineFrame: true,
   coordTablePosition: 'bottom_left',
   sealBoxPosition: 'bottom_right',
   scaleBarPosition: 'bottom_left',
@@ -196,13 +341,75 @@ export const DEFAULT_TDP_LAYOUT: TdpLayoutArrangement = {
   trueNorthStrokeWidth: 0.25,
   trueNorthFontSize: 7.0,
   trueNorthTextOffset: 0.8,
+  shortLegScheduleMode: 'auto',
+  shortLegThresholdMeters: 6.0,
+  omittedLegKeys: [],
+  showScheduledDimensionsOnDrawing: false,
 };
 
 export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
+  fct_abuja_rofo: {
+    preset: 'fct_abuja_rofo',
+    headerAlign: 'center',
+    headerYOffset: 0,
+    headerTemplate: 'fct_rofo',
+    footerStyle: 'fct_staff_grid',
+    showAreaUnderline: false,
+    showNeatlineFrame: false,
+    coordTablePosition: 'hidden',
+    sealBoxPosition: 'hidden',
+    scaleBarPosition: 'bottom_center',
+    northArrowPosition: 'right_mid',
+    northArrowMode: 'fct_needle',
+    trueNorthStyle: 'TN',
+    fctConfig: {
+      rOfONumber: 'FCT RLA/ 2002/ 0184',
+      allotteeName: 'E-NOCK BAKSON KANAWA',
+      districtArea: 'GWAGWALADA',
+      cadastralZone: 'CADASTRAL ZONE 04-07',
+      zonalSurveyorTitle: 'ZONAL LAND SURVEYOR',
+      coordinateSystemText: 'COORDINATE SYSTEM UTM 32N',
+      drawnBy: '___________________',
+      checkedBy: '_________________',
+      passedBy: '__________________',
+      dateSurveyed: '27TH OF JUNE, 2002',
+      layoutName: 'CKC EXT.   LAYOUT',
+      cadastralMapScaleText: 'CADASTRAL MAP 1: 1000'
+    }
+  },
   surcon_standard: {
     preset: 'surcon_standard',
     headerAlign: 'center',
     headerYOffset: 0,
+    headerTemplate: 'shewing_property',
+    footerStyle: 'surcon_3box',
+    showAreaUnderline: true,
+    showNeatlineFrame: true,
+    coordTablePosition: 'bottom_left',
+    sealBoxPosition: 'bottom_right',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_right',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+    trueNorthLengthNorth: 45,
+    trueNorthLengthSouth: 18,
+    trueNorthLengthEast: 45,
+    trueNorthLengthWest: 12,
+    trueNorthColor: '#0f172a',
+    trueNorthStrokeWidth: 0.25,
+    trueNorthFontSize: 7.0,
+    trueNorthTextOffset: 0.8,
+  },
+  lagos_lasg_cadastral: {
+    preset: 'lagos_lasg_cadastral',
+    headerAlign: 'center',
+    headerYOffset: 0,
+    headerTemplate: 'shewing_property',
+    footerStyle: 'surcon_3box',
+    showAreaUnderline: true,
+    showNeatlineFrame: true,
+    originDatumName: 'U.T.M (ZONE 31)',
     coordTablePosition: 'bottom_left',
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
@@ -223,6 +430,10 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     preset: 'state_lands_boxed',
     headerAlign: 'left',
     headerYOffset: 0,
+    headerTemplate: 'shewing_property',
+    footerStyle: 'surcon_3box',
+    showAreaUnderline: true,
+    showNeatlineFrame: true,
     coordTablePosition: 'bottom_left',
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
@@ -239,10 +450,30 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     trueNorthFontSize: 7.0,
     trueNorthTextOffset: 0.8,
   },
+  subdivision_layout: {
+    preset: 'subdivision_layout',
+    headerAlign: 'center',
+    headerYOffset: 0,
+    headerTemplate: 'being_plot',
+    footerStyle: 'surcon_3box',
+    showAreaUnderline: true,
+    showNeatlineFrame: true,
+    coordTablePosition: 'bottom_left',
+    sealBoxPosition: 'bottom_right',
+    scaleBarPosition: 'bottom_left',
+    northArrowPosition: 'top_right',
+    northArrowMode: 'origin_beacon',
+    trueNorthStyle: 'UN',
+    trueNorthMaskParcel: true,
+  },
   right_sidebar: {
     preset: 'right_sidebar',
     headerAlign: 'left',
     headerYOffset: 0,
+    headerTemplate: 'custom',
+    footerStyle: 'schedule_seal',
+    showAreaUnderline: false,
+    showNeatlineFrame: true,
     coordTablePosition: 'right_column',
     sealBoxPosition: 'right_column',
     scaleBarPosition: 'bottom_left',
@@ -263,6 +494,10 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     preset: 'compact_split',
     headerAlign: 'split',
     headerYOffset: 0,
+    headerTemplate: 'custom',
+    footerStyle: 'compact',
+    showAreaUnderline: false,
+    showNeatlineFrame: true,
     coordTablePosition: 'top_right',
     sealBoxPosition: 'bottom_right',
     scaleBarPosition: 'bottom_left',
@@ -422,47 +657,149 @@ export function generateTitleDeedPlanPDF(
     targetPoints = points;
   }
 
-  // 2. Draw Double Neatline Outer Borders
-  doc.setLineWidth(0.8);
-  doc.setDrawColor(15, 23, 42);
-  doc.rect(outerX, outerY, outerW, outerH);
+  // 2. Draw Neatline Outer Borders
+  if (layout.showNeatlineFrame !== false) {
+    doc.setLineWidth(0.8);
+    doc.setDrawColor(15, 23, 42);
+    doc.rect(outerX, outerY, outerW, outerH);
 
-  doc.setLineWidth(0.3);
-  doc.rect(outerX + 1.5, outerY + 1.5, outerW - 3, outerH - 3);
+    doc.setLineWidth(0.3);
+    doc.rect(outerX + 1.5, outerY + 1.5, outerW - 3, outerH - 3);
+  } else {
+    // Subtle border for open/FCT layout
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(outerX, outerY, outerW, outerH);
+  }
 
-  // 3. Header & Title Block with Dynamic Layout Alignment
+  // 3. Header & Title Block with Dynamic Regional Templates
   const headerY = outerY + 6 + (layout.headerYOffset || 0);
-  const titleText = layout.customTitleText || 'TITLE DEED PLAN';
-  const planSub = layout.customSubtitleText || (isSinglePlot && selectedParcel
-    ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
-    : `SURVEY PLAN OF ${project.title.toUpperCase()}`);
-  const locText = layout.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
-  const planNo = layout.customPlanNoText || project.code;
+  const isFctRofO = layout.preset === 'fct_abuja_rofo' || layout.headerTemplate === 'fct_rofo';
+  const isShewingProperty = layout.preset === 'surcon_standard' || layout.preset === 'lagos_lasg_cadastral' || layout.headerTemplate === 'shewing_property';
+  const isBeingPlot = layout.preset === 'subdivision_layout' || layout.headerTemplate === 'being_plot';
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(15, 23, 42);
+  if (isFctRofO) {
+    const fct = layout.fctConfig || {};
 
-  const isLeftHeader = layout.headerAlign === 'left';
-  const isSplitHeader = layout.headerAlign === 'split';
-  const titleX = isLeftHeader ? outerX + 6 : isSplitHeader ? outerX + 6 : pageWidth / 2;
-  const titleAlign: 'left' | 'center' = isLeftHeader || isSplitHeader ? 'left' : 'center';
-  const maxTitleW = isLeftHeader || isSplitHeader ? outerW - 65 : outerW - 60;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`RIGHT OF OCCUPANCY NO. ${fct.rOfONumber || project.code || 'FCT RLA/'}`, pageWidth / 2, headerY + 1, { align: 'center' });
 
-  doc.text(titleText, titleX, headerY + 4, { align: titleAlign });
+    doc.setFontSize(7.8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`LAND GRANTED TO ${(fct.allotteeName || selectedParcel?.ownerName || layout.clientName || 'ALLOTTEE NAME').toUpperCase()}`, pageWidth / 2, headerY + 5.5, { align: 'center' });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text(planSub, titleX, headerY + 9, { align: titleAlign, maxWidth: maxTitleW });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text((fct.districtArea || project.location || 'GWAGWALADA').toUpperCase(), pageWidth / 2, headerY + 11, { align: 'center' });
 
-  doc.setFontSize(7.5);
-  doc.text(locText, titleX, headerY + 13.5, { align: titleAlign, maxWidth: maxTitleW });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('FEDERAL CAPITAL TERRITORY', pageWidth / 2, headerY + 15, { align: 'center' });
+    doc.text('OF FEDERAL REPUBLIC OF NIGERIA', pageWidth / 2, headerY + 18.5, { align: 'center' });
 
-  // Divider Line
-  doc.setLineWidth(0.3);
-  doc.setDrawColor(203, 213, 225);
-  doc.line(outerX + 3, headerY + 16, outerX + outerW - 3, headerY + 16);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.2);
+    doc.text(`PLOT No. ${selectedParcel?.plotNumber || '7853C'}`, pageWidth / 2, headerY + 22.5, { align: 'center' });
+
+    doc.setFontSize(9.5);
+    doc.text(fct.cadastralZone || 'CADASTRAL ZONE 04-07', pageWidth / 2, headerY + 26.5, { align: 'center' });
+
+    // Zonal Land Surveyor Divider
+    doc.setLineWidth(0.35);
+    doc.setDrawColor(15, 23, 42);
+    doc.line(pageWidth / 2 - 40, headerY + 29.5, pageWidth / 2 + 40, headerY + 29.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.0);
+    doc.text(fct.zonalSurveyorTitle || 'ZONAL LAND SURVEYOR', pageWidth / 2, headerY + 33, { align: 'center' });
+
+  } else if (isShewingProperty) {
+    const client = layout.clientName || selectedParcel?.ownerName || project.title || 'CLIENT NAME';
+    const loc1 = layout.locationLocality || `AT ${project.location.toUpperCase()}`;
+    const loc2 = layout.locationLgaState || 'LOCAL GOVT. AREA, STATE';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('PLAN SHEWING PROPERTY', pageWidth / 2, headerY + 1, { align: 'center' });
+
+    doc.setFontSize(7.0);
+    doc.setFont('helvetica', 'normal');
+    doc.text('SAID TO BELONG TO', pageWidth / 2, headerY + 4.8, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(client.toUpperCase(), pageWidth / 2, headerY + 9.5, { align: 'center', maxWidth: outerW - 40 });
+
+    doc.setFontSize(7.0);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(loc1.toUpperCase(), pageWidth / 2, headerY + 13.5, { align: 'center', maxWidth: outerW - 40 });
+    doc.text(loc2.toUpperCase(), pageWidth / 2, headerY + 17, { align: 'center', maxWidth: outerW - 40 });
+
+    // Divider Line
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(outerX + 3, headerY + 19, outerX + outerW - 3, headerY + 19);
+
+  } else if (isBeingPlot) {
+    const plotNo = selectedParcel?.plotNumber || '1';
+    const client = layout.clientName || selectedParcel?.ownerName || 'ALLOTTEE';
+    const loc = layout.locationLocality || project.location;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`BEING PLOT ${plotNo} (${project.title.toUpperCase()})`, pageWidth / 2, headerY + 2, { align: 'center' });
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`SAID TO BELONG TO: ${client.toUpperCase()}`, pageWidth / 2, headerY + 7, { align: 'center' });
+
+    doc.setFontSize(7.0);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`SITUATED AT: ${loc.toUpperCase()} | DATUM: MINNA`, pageWidth / 2, headerY + 11.5, { align: 'center' });
+
+    // Divider Line
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(outerX + 3, headerY + 15, outerX + outerW - 3, headerY + 15);
+
+  } else {
+    // Custom / Default Freeform Header
+    const titleText = layout.customTitleText || 'TITLE DEED PLAN';
+    const planSub = layout.customSubtitleText || (isSinglePlot && selectedParcel
+      ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
+      : `SURVEY PLAN OF ${project.title.toUpperCase()}`);
+    const locText = layout.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+
+    const isLeftHeader = layout.headerAlign === 'left';
+    const isSplitHeader = layout.headerAlign === 'split';
+    const titleX = isLeftHeader ? outerX + 6 : isSplitHeader ? outerX + 6 : pageWidth / 2;
+    const titleAlign: 'left' | 'center' = isLeftHeader || isSplitHeader ? 'left' : 'center';
+    const maxTitleW = isLeftHeader || isSplitHeader ? outerW - 65 : outerW - 60;
+
+    doc.text(titleText, titleX, headerY + 4, { align: titleAlign });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(planSub, titleX, headerY + 9, { align: titleAlign, maxWidth: maxTitleW });
+
+    doc.setFontSize(7.5);
+    doc.text(locText, titleX, headerY + 13.5, { align: titleAlign, maxWidth: maxTitleW });
+
+    // Divider Line
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(outerX + 3, headerY + 16, outerX + outerW - 3, headerY + 16);
+  }
 
   // 4. Drawing Area Dimensions & Scale Ratio Determination
   const isRightSidebar = layout.coordTablePosition === 'right_column' || layout.sealBoxPosition === 'right_column';
@@ -506,7 +843,7 @@ export function generateTitleDeedPlanPDF(
   doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.text(`SCALE 1:${effectiveScale}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
-  doc.text(`JOB NO: ${planNo}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
+  doc.text(`JOB NO: ${layout.customPlanNoText || project.code || 'TDP'}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
 
   // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
@@ -616,51 +953,182 @@ export function generateTitleDeedPlanPDF(
       }
     }
 
-    // Road Corridor Depiction
-    if (adjConfig.showRoadCorridor && adjConfig.roadCorridorLabel) {
+    // Road Corridor Depiction with Multi-Frontage & Setback Support
+    if (adjConfig.showRoadCorridor && (adjConfig.roadCorridorLabel || adjConfig.roadDirectionFrom)) {
       const compFocus = computeParcel(selectedParcel, points);
       if (compFocus && compFocus.legs.length > 0) {
-        const frontageLeg = compFocus.legs[0];
-        const p1 = { x: toMapX(frontageLeg.fromPoint.easting), y: toMapY(frontageLeg.fromPoint.northing) };
-        const p2 = { x: toMapX(frontageLeg.toPoint.easting), y: toMapY(frontageLeg.toPoint.northing) };
+        const selectedLegIndices = (adjConfig.roadFrontageLegIndices && adjConfig.roadFrontageLegIndices.length > 0)
+          ? adjConfig.roadFrontageLegIndices.filter(i => i < compFocus.legs.length)
+          : [0];
 
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const len = Math.hypot(dx, dy);
-        if (len > 1) {
-          let nx = -dy / len;
-          let ny = dx / len;
-          const midX = (p1.x + p2.x) / 2;
-          const midY = (p1.y + p2.y) / 2;
-          if (nx * (midX - centX) + ny * (midY - centY) < 0) {
-            nx = -nx;
-            ny = -ny;
+        for (const legIdx of selectedLegIndices) {
+          const leg = compFocus.legs[legIdx];
+          const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
+          const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
+
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 1) {
+            let nx = -dy / len;
+            let ny = dx / len;
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+            if (nx * (midX - centX) + ny * (midY - centY) < 0) {
+              nx = -nx;
+              ny = -ny;
+            }
+
+            const setbackMm = (adjConfig.roadSetbackMeters || 0) * mapScale;
+            const roadWidthMm = (adjConfig.roadCorridorWidth || 12) * mapScale;
+            const extMm = (adjConfig.roadExtensionMeters || 6) * mapScale;
+
+            // Unit tangent vector
+            const ux = dx / len;
+            const uy = dy / len;
+
+            // Near road line (if setback > 0)
+            if (setbackMm > 0.5) {
+              const n1 = { x: p1.x + nx * setbackMm - ux * extMm, y: p1.y + ny * setbackMm - uy * extMm };
+              const n2 = { x: p2.x + nx * setbackMm + ux * extMm, y: p2.y + ny * setbackMm + uy * extMm };
+              doc.setDrawColor(148, 163, 184);
+              doc.setLineWidth(0.3);
+              doc.setLineDashPattern([3, 2], 0);
+              doc.line(n1.x, n1.y, n2.x, n2.y);
+            }
+
+            // Far road line
+            const totalDistMm = setbackMm + roadWidthMm;
+            const r1 = { x: p1.x + nx * totalDistMm - ux * extMm, y: p1.y + ny * totalDistMm - uy * extMm };
+            const r2 = { x: p2.x + nx * totalDistMm + ux * extMm, y: p2.y + ny * totalDistMm + uy * extMm };
+
+            doc.setDrawColor(100, 116, 139);
+            doc.setLineWidth(0.4);
+            doc.setLineDashPattern([3, 2], 0);
+            doc.line(r1.x, r1.y, r2.x, r2.y);
+
+            // Extension stubs from beacons to far road line
+            doc.setLineWidth(0.25);
+            doc.setLineDashPattern([2, 2], 0);
+            doc.line(p1.x, p1.y, p1.x + nx * totalDistMm, p1.y + ny * totalDistMm);
+            doc.line(p2.x, p2.y, p2.x + nx * totalDistMm, p2.y + ny * totalDistMm);
+
+            // If curved mode, draw perpendicular tick marks along road line
+            if (adjConfig.roadGeometryMode === 'curved') {
+              const tickStep = 6;
+              const numTicks = Math.floor(len / tickStep);
+              for (let t = 1; t <= numTicks; t++) {
+                const tx = p1.x + ux * (t * tickStep) + nx * totalDistMm;
+                const ty = p1.y + uy * (t * tickStep) + ny * totalDistMm;
+                doc.line(tx - nx * 1.5, ty - ny * 1.5, tx + nx * 1.5, ty + ny * 1.5);
+              }
+            }
+
+            // Road Label Annotation
+            const roadMidX = midX + nx * (setbackMm + roadWidthMm * 0.5);
+            const roadMidY = midY + ny * (setbackMm + roadWidthMm * 0.5);
+            let angleRad = Math.atan2(dy, dx);
+            if (angleRad > Math.PI / 2) angleRad -= Math.PI;
+            if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.2);
+            doc.setTextColor(71, 85, 105);
+
+            let roadText = '';
+            if (adjConfig.roadDirectionFrom && adjConfig.roadDirectionTo) {
+              roadText = `FROM ${adjConfig.roadDirectionFrom.toUpperCase()} ─────> TO ${adjConfig.roadDirectionTo.toUpperCase()}`;
+            } else if (adjConfig.roadCorridorLabel) {
+              roadText = `═ ${adjConfig.roadCorridorLabel.toUpperCase()} ═`;
+            }
+
+            if (roadText) {
+              const rtw = doc.getTextWidth(roadText);
+              const rux = Math.cos(angleRad);
+              const ruy = Math.sin(angleRad);
+              doc.text(roadText, roadMidX - rux * (rtw / 2), roadMidY - ruy * (rtw / 2), { angle: -(angleRad * 180 / Math.PI) });
+            }
           }
-
-          const roadWidthMm = (adjConfig.roadCorridorWidth || 12) * mapScale;
-          const r1 = { x: p1.x + nx * roadWidthMm, y: p1.y + ny * roadWidthMm };
-          const r2 = { x: p2.x + nx * roadWidthMm, y: p2.y + ny * roadWidthMm };
-
-          doc.setDrawColor(100, 116, 139);
-          doc.setLineWidth(0.4);
-          doc.setLineDashPattern([3, 2], 0);
-          doc.line(r1.x, r1.y, r2.x, r2.y);
-
-          const roadMidX = (midX + (r1.x + r2.x) / 2) / 2;
-          const roadMidY = (midY + (r1.y + r2.y) / 2) / 2;
-          let angleRad = Math.atan2(dy, dx);
-          if (angleRad > Math.PI / 2) angleRad -= Math.PI;
-          if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.2);
-          doc.setTextColor(71, 85, 105);
-          const roadText = `═ ${adjConfig.roadCorridorLabel.toUpperCase()} ═`;
-          const rtw = doc.getTextWidth(roadText);
-          const rux = Math.cos(angleRad);
-          const ruy = Math.sin(angleRad);
-          doc.text(roadText, roadMidX - rux * (rtw / 2), roadMidY - ruy * (rtw / 2), { angle: -(angleRad * 180 / Math.PI) });
         }
+      }
+    }
+
+    // Topographic Feature Annotations (Buildings, Drainage, Utilities, Custom Text)
+    const annotations = layout.customAnnotations || adjConfig.customAnnotations || [];
+    for (const ann of annotations) {
+      const ax = toMapX(ann.easting);
+      const ay = toMapY(ann.northing);
+      const annRot = (ann.rotation || 0) * (Math.PI / 180);
+
+      if (ann.type === 'building') {
+        const bwMm = (ann.width || 12) * mapScale;
+        const bhMm = (ann.height || 8) * mapScale;
+
+        // Draw Building Polygon
+        const halfW = bwMm / 2;
+        const halfH = bhMm / 2;
+        const cosR = Math.cos(annRot);
+        const sinR = Math.sin(annRot);
+
+        const bVerts = [
+          { x: ax + (-halfW * cosR - -halfH * sinR), y: ay + (-halfW * sinR + -halfH * cosR) },
+          { x: ax + (halfW * cosR - -halfH * sinR), y: ay + (halfW * sinR + -halfH * cosR) },
+          { x: ax + (halfW * cosR - halfH * sinR), y: ay + (halfW * sinR + halfH * cosR) },
+          { x: ax + (-halfW * cosR - halfH * sinR), y: ay + (-halfW * sinR + halfH * cosR) }
+        ];
+
+        doc.setDrawColor(71, 85, 105);
+        doc.setLineWidth(0.35);
+        doc.setLineDashPattern([], 0);
+        for (let vi = 0; vi < 4; vi++) {
+          doc.line(bVerts[vi].x, bVerts[vi].y, bVerts[(vi + 1) % 4].x, bVerts[(vi + 1) % 4].y);
+        }
+
+        // Building Diagonal Hatch
+        clipAndDrawPolygonHatch(doc, bVerts, 45, 2.5);
+
+        // Building Label
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text((ann.label || 'EXISTING BUILDING').toUpperCase(), ax, ay, { align: 'center' });
+
+      } else if (ann.type === 'drainage') {
+        const dLenMm = (ann.width || 20) * mapScale;
+        const cosR = Math.cos(annRot);
+        const sinR = Math.sin(annRot);
+        const dHalf = dLenMm / 2;
+
+        doc.setDrawColor(56, 189, 248);
+        doc.setLineWidth(0.3);
+        doc.setLineDashPattern([], 0);
+        doc.line(ax - dHalf * cosR - sinR * 1.0, ay - dHalf * sinR + cosR * 1.0, ax + dHalf * cosR - sinR * 1.0, ay + dHalf * sinR + cosR * 1.0);
+        doc.line(ax - dHalf * cosR + sinR * 1.0, ay - dHalf * sinR - cosR * 1.0, ax + dHalf * cosR + sinR * 1.0, ay + dHalf * sinR - cosR * 1.0);
+
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(5.0);
+        doc.setTextColor(3, 105, 161);
+        doc.text((ann.label || 'DRAINAGE').toUpperCase(), ax, ay + 0.8, { align: 'center' });
+
+      } else if (ann.type === 'utility') {
+        doc.setDrawColor(234, 88, 12);
+        doc.setLineWidth(0.35);
+        doc.setLineDashPattern([], 0);
+        doc.rect(ax - 3, ay - 3, 6, 6);
+        doc.line(ax - 3, ay - 3, ax + 3, ay + 3);
+        doc.line(ax - 3, ay + 3, ax + 3, ay - 3);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.0);
+        doc.setTextColor(194, 65, 12);
+        doc.text((ann.label || 'TRANSFORMER').toUpperCase(), ax, ay + 5.5, { align: 'center' });
+
+      } else if (ann.type === 'text') {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        const rotDeg = ann.rotation || 0;
+        doc.text(ann.label.toUpperCase(), ax, ay, { align: 'center', angle: -rotDeg });
       }
     }
 
@@ -839,6 +1307,9 @@ export function generateTitleDeedPlanPDF(
     }
 
     // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
+    const scheduledLegs = getScheduledBoundaryLegs(targetParcels, points, layout);
+    const scheduledLegsSet = new Set(scheduledLegs.map(l => l.key));
+
     for (const leg of comp.legs) {
       const p1Id = leg.fromPoint.id;
       const p2Id = leg.toPoint.id;
@@ -847,6 +1318,10 @@ export function generateTitleDeedPlanPDF(
 
       if (renderedEdges.has(edgeKeyDash)) continue;
       renderedEdges.add(edgeKeyDash);
+
+      // Check if routed to schedule table
+      const isScheduledInTable = scheduledLegsSet.has(edgeKeyDash);
+      if (isScheduledInTable && !layout.showScheduledDimensionsOnDrawing) continue;
 
       // Check all canonical key representations: double dash, double underscore, raw endpoints
       const dimTf = getTransform(`dim_${edgeKeyDash}`) ||
@@ -866,6 +1341,21 @@ export function generateTitleDeedPlanPDF(
 
       const midX = (p1.x + p2.x) / 2 + dimTf.dx;
       const midY = (p1.y + p2.y) / 2 + dimTf.dy;
+
+      // Draw connecting leader line if displaced
+      const anchorMidX = (p1.x + p2.x) / 2;
+      const anchorMidY = (p1.y + p2.y) / 2;
+      const isDisplaced = Math.hypot(dimTf.dx, dimTf.dy) > 2.0;
+
+      if (isDisplaced) {
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineWidth(0.2);
+        doc.setLineDashPattern([2, 1.5], 0);
+        doc.line(anchorMidX, anchorMidY, midX, midY);
+        doc.setLineDashPattern([], 0);
+        doc.setFillColor(100, 116, 139);
+        doc.circle(anchorMidX, anchorMidY, 0.35, 'F');
+      }
 
       let angleRad = Math.atan2(dy, dx);
       if (angleRad > Math.PI / 2) angleRad -= Math.PI;
@@ -965,10 +1455,38 @@ export function generateTitleDeedPlanPDF(
   }
 
   // 9. True North / Origin Meridian Grid Cross on Starting Beacon (Bi-Directional 4-Way)
-  const showOriginMeridian = layout.northArrowMode === 'origin_beacon' || layout.northArrowMode === 'both' || !layout.northArrowMode;
+  const isFctNeedle = layout.northArrowMode === 'fct_needle' || isFctRofO;
+  const showOriginMeridian = (layout.northArrowMode === 'origin_beacon' || layout.northArrowMode === 'both' || !layout.northArrowMode) && !isFctNeedle;
   const showCornerNorthArrow = layout.northArrowMode === 'corner' || layout.northArrowMode === 'both';
 
-  if (showOriginMeridian) {
+  if (isFctNeedle) {
+    // FCT Abuja Large Needle North Arrow (Right-Center position)
+    const naX = drawAreaX + drawAreaW - 12;
+    const naCenterY = drawAreaY + drawAreaH * 0.42;
+    const needleHeightMm = 45;
+    const tipY = naCenterY - needleHeightMm / 2;
+    const baseY = naCenterY + needleHeightMm / 2;
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.4);
+
+    // Left half filled black, right half open stroke
+    doc.setFillColor(15, 23, 42);
+    doc.triangle(naX, tipY, naX - 3.2, baseY - 12, naX, baseY - 12, 'FD');
+    doc.triangle(naX, tipY, naX + 3.2, baseY - 12, naX, baseY - 12, 'S');
+
+    // Stem down to base
+    doc.line(naX, baseY - 12, naX, baseY);
+    doc.line(naX - 5, baseY - 4, naX + 5, baseY - 4);
+
+    // Label: 'N  N' or 'T  N'
+    const needleLabel = layout.trueNorthStyle === 'TN' ? 'T  N' : layout.trueNorthStyle === 'UN' ? 'U  N' : 'N  N';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.0);
+    doc.setTextColor(15, 23, 42);
+    doc.text(needleLabel, naX, baseY - 5.5, { align: 'center' });
+
+  } else if (showOriginMeridian) {
     const originPt = (layout.originBeaconId ? targetPoints.find(p => p.id === layout.originBeaconId) || points.find(p => p.id === layout.originBeaconId) : null) || targetPoints[0] || points[0];
     if (originPt) {
       const ox = toMapX(originPt.easting);
@@ -1111,167 +1629,341 @@ export function generateTitleDeedPlanPDF(
   } else if (layout.scaleBarPosition === 'top_left') {
     sbX = drawAreaX + 6;
     sbY = drawAreaY + 14;
+  } else if (layout.scaleBarPosition === 'bottom_center' || isFctRofO) {
+    sbX = pageWidth / 2 - 25;
+    sbY = drawAreaY + drawAreaH - 4;
   }
 
-  const targetBarMm = 35;
-  const rawMeters = targetBarMm / mapScale;
-  const niceIntervals = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
-  const scaleBarMeters = niceIntervals.find(n => n >= rawMeters * 0.75) || 50;
-  const scaleBarMm = Math.min(drawAreaW * 0.35, scaleBarMeters * mapScale);
-
-  if (scaleBarMm > 15) {
-    doc.setDrawColor(15, 23, 42);
-    doc.setLineWidth(0.4);
-    doc.rect(sbX, sbY, scaleBarMm, 1.8, 'S');
-    doc.rect(sbX, sbY, scaleBarMm / 2, 1.8, 'F');
-
-    doc.setFontSize(5.5);
-    doc.setFont('helvetica', 'normal');
+  if (isFctRofO) {
+    // Centered FCT Scale Text: SCALE :- 1: 1000
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
-    doc.text('0', sbX, sbY - 1.5);
-    doc.text(`${scaleBarMeters / 2}m`, sbX + scaleBarMm / 2, sbY - 1.5, { align: 'center' });
-    doc.text(`${scaleBarMeters} METRES`, sbX + scaleBarMm, sbY - 1.5, { align: 'right' });
-    doc.text(`SCALE 1:${effectiveScale}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
+    doc.text(`SCALE :- 1: ${effectiveScale}`, pageWidth / 2, sbY, { align: 'center' });
+  } else {
+    const targetBarMm = 35;
+    const rawMeters = targetBarMm / mapScale;
+    const niceIntervals = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+    const scaleBarMeters = niceIntervals.find(n => n >= rawMeters * 0.75) || 50;
+    const scaleBarMm = Math.min(drawAreaW * 0.35, scaleBarMeters * mapScale);
+
+    if (scaleBarMm > 15) {
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.4);
+      doc.rect(sbX, sbY, scaleBarMm, 1.8, 'S');
+      doc.rect(sbX, sbY, scaleBarMm / 2, 1.8, 'F');
+
+      doc.setFontSize(5.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(15, 23, 42);
+      doc.text('0', sbX, sbY - 1.5);
+      doc.text(`${scaleBarMeters / 2}m`, sbX + scaleBarMm / 2, sbY - 1.5, { align: 'center' });
+      doc.text(`${scaleBarMeters} METRES`, sbX + scaleBarMm, sbY - 1.5, { align: 'right' });
+      doc.text(`SCALE 1:${effectiveScale}`, sbX + scaleBarMm / 2, sbY + 4.5, { align: 'center' });
+    }
   }
 
   // 11. Coordinate Schedule Table & Surveyor Seal Box Layout Arrangement
   const footerY = outerY + outerH - bottomPanelHeight;
-  if (!isRightSidebar) {
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(203, 213, 225);
-    doc.line(outerX + 3, footerY, outerX + outerW - 3, footerY);
-  }
 
-  // Coordinate Schedule Placement
-  if (options.showCoordinateTable && layout.coordTablePosition !== 'hidden') {
-    let tableX = outerX + 4;
-    let tableY = footerY + 3;
-    let tableW = outerW * 0.53;
+  if (isFctRofO || layout.footerStyle === 'fct_staff_grid') {
+    // ----------------------------------------------------
+    // FCT Abuja Origin Note & Staff Sign-Off Grid
+    // ----------------------------------------------------
+    const fct = layout.fctConfig || {};
+    const fctLeftX = outerX + 6;
+    const fctLeftY = footerY + 2;
 
-    if (layout.coordTablePosition === 'bottom_right') {
-      tableX = outerX + outerW * 0.45;
-      tableW = outerW * 0.53;
-    } else if (layout.coordTablePosition === 'right_column') {
-      tableX = outerX + outerW - rightColW + 2;
-      tableY = drawAreaY;
-      tableW = rightColW - 4;
-    } else if (layout.coordTablePosition === 'top_right') {
-      tableX = drawAreaX + drawAreaW - 75;
-      tableY = drawAreaY + 4;
-      tableW = 70;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('NOTE:', fctLeftX, fctLeftY);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.8);
+    const originPt = targetPoints[0] || points[0] || { id: 'PB 6371', easting: 293637.434, northing: 994737.304 };
+    doc.text(`FULL BEACON NUMBER = ${fct.fullBeaconNumber || 'FCT ' + originPt.id}`, fctLeftX, fctLeftY + 3.8);
+    doc.text(`COORDINATE OF ${originPt.id}`, fctLeftX, fctLeftY + 7.2);
+    doc.text(`N = ${originPt.northing.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`, fctLeftX, fctLeftY + 10.6);
+    doc.text(`E = ${originPt.easting.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`, fctLeftX, fctLeftY + 14.0);
+    doc.text(fct.coordinateSystemText || 'COORDINATE SYSTEM UTM 32N', fctLeftX, fctLeftY + 17.4);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`SURVEYED BY: ${(project.surveyFirm || 'C. S. AGHA & ASSOCIATES').toUpperCase()}`, fctLeftX, fctLeftY + 21.2);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`DRAWN BY: ${fct.drawnBy || '___________________'}`, fctLeftX, fctLeftY + 24.6);
+    doc.text(`CHECKED BY: ${fct.checkedBy || '_________________'}`, fctLeftX, fctLeftY + 28.0);
+    doc.text(`PASSED BY: ${fct.passedBy || '__________________'}`, fctLeftX, fctLeftY + 31.4);
+    doc.text(`DATE: ${fct.dateSurveyed || project.date || '27TH OF JUNE, 2002'}`, fctLeftX, fctLeftY + 34.8);
+
+    // FCT Right Side: Multi-Row Short Leg / Omitted Bearing & Distance Schedule Table
+    const fctRightX = outerX + outerW - 82;
+    const fctRightY = footerY + 1.5;
+    const scheduledLegs = getScheduledBoundaryLegs(targetParcels, points, layout);
+
+    if (scheduledLegs.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.2);
+      doc.setTextColor(15, 23, 42);
+      doc.text('BEACON No.       DISTANCE      BEARING', fctRightX, fctRightY);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.3);
+      doc.setTextColor(30, 41, 59);
+
+      let rowY = fctRightY + 3.8;
+      const maxRows = 5;
+      scheduledLegs.slice(0, maxRows).forEach(sLeg => {
+        doc.text(
+          `FROM ${sLeg.fromPointId} TO ${sLeg.toPointId} = ${sLeg.distance.toFixed(2)}m  AT  ${sLeg.bearingFormatted}`,
+          fctRightX,
+          rowY
+        );
+        rowY += 3.2;
+      });
+    }
+
+    // Cadastral Map Box
+    const mapBoxY = fctRightY + 19;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(fct.cadastralMapScaleText || `CADASTRAL MAP 1: ${effectiveScale}`, fctRightX + 35, mapBoxY, { align: 'center' });
+
+    doc.setLineWidth(0.4);
+    doc.setDrawColor(15, 23, 42);
+    doc.rect(fctRightX, mapBoxY + 3, 70, 7);
+    doc.setFontSize(7.0);
+    doc.text((fct.layoutName || project.title || 'CKC EXT.   LAYOUT').toUpperCase(), fctRightX + 35, mapBoxY + 7.5, { align: 'center' });
+
+  } else if (layout.footerStyle === 'surcon_3box' || isShewingProperty) {
+    // ----------------------------------------------------
+    // SURCON 3-Box Standard Partitioned Footer Block
+    // ----------------------------------------------------
+    const boxH = 22;
+    const boxY = footerY + 2;
+    const col1W = outerW * 0.28;
+    const col2W = outerW * 0.42;
+    const col3W = outerW - col1W - col2W;
+
+    doc.setLineWidth(0.4);
+    doc.setDrawColor(15, 23, 42);
+
+    // Outer bounding box
+    doc.rect(outerX, boxY, outerW, boxH);
+    // Vertical dividers
+    doc.line(outerX + col1W, boxY, outerX + col1W, boxY + boxH);
+    doc.line(outerX + col1W + col2W, boxY, outerX + col1W + col2W, boxY + boxH);
+
+    // Cell 1: PLAN NO.
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.0);
+    doc.setTextColor(15, 23, 42);
+    doc.text('PLAN', outerX + 6, boxY + 6);
+    doc.text('NO', outerX + 26, boxY + 6);
+
+    doc.setFontSize(8.5);
+    const planNoFormatted = layout.customPlanNoText || project.code || 'OY / 0327 / 2017 / 004';
+    doc.text(planNoFormatted, outerX + 4, boxY + 17);
+
+    // Cell 2: Surveyor Firm Contact
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.0);
+    doc.text((options.surveyorTitle ? `${options.surveyorTitle} ` : '') + (project.surveyorName || 'REGISTERED SURVEYOR').toUpperCase(), outerX + col1W + 6, boxY + 6);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
+    doc.setTextColor(51, 65, 85);
+    const firmAddr = layout.surveyorFirmAddress || project.surveyFirm || 'OFFICE ADDRESS / CONTACT';
+    const firmPhone = layout.surveyorPhone || 'TEL: 0800-SURVEYOR';
+    doc.text(firmAddr.toUpperCase(), outerX + col1W + 6, boxY + 11, { maxWidth: col2W - 12 });
+    doc.text(firmPhone, outerX + col1W + 6, boxY + 17);
+
+    // Cell 3: Registered Surveyor Seal & Signature Block
+    const c3X = outerX + col1W + col2W;
+
+    if (options.surveyorSignatureUrl) {
+      try {
+        doc.addImage(options.surveyorSignatureUrl, 'PNG', c3X + 4, boxY + 2, 22, 6);
+      } catch (e) {
+        console.warn('Failed to embed signature image', e);
+      }
     }
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(15, 23, 42);
-    doc.text('COORDINATE SCHEDULE (MINNA DATUM)', tableX, tableY + 2);
+    doc.text((project.surveyorName || 'SURVEYOR').toUpperCase(), c3X + col3W / 2, boxY + 10.5, { align: 'center' });
 
-    // Table Header
-    doc.setFillColor(241, 245, 249);
-    doc.rect(tableX, tableY + 3.5, tableW, 4, 'F');
-    doc.setFontSize(5.8);
-    doc.setTextColor(71, 85, 105);
-    const colStep = tableW / 4;
-    doc.text('BEACON ID', tableX + 2, tableY + 6.2);
-    doc.text('EASTING (m)', tableX + colStep, tableY + 6.2);
-    doc.text('NORTHING (m)', tableX + colStep * 2, tableY + 6.2);
-    doc.text('ORIGIN', tableX + colStep * 3, tableY + 6.2);
-
-    // Table Rows
-    const schedulePoints = isSinglePlot ? targetPoints : points.slice(0, 8);
-    let rowY = tableY + 10.5;
+    doc.setFontSize(6.5);
+    doc.text('SURVEYOR', c3X + col3W / 2, boxY + 14.5, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.8);
-    doc.setTextColor(15, 23, 42);
+    doc.text(project.date || new Date().toISOString().split('T')[0], c3X + col3W / 2, boxY + 18.5, { align: 'center' });
 
-    for (const pt of schedulePoints) {
-      doc.text(pt.id, tableX + 2, rowY);
-      doc.text(pt.easting.toFixed(3), tableX + colStep, rowY);
-      doc.text(pt.northing.toFixed(3), tableX + colStep * 2, rowY);
-      doc.text(pt.isControl ? 'CONTROL' : 'CONCRETE', tableX + colStep * 3, rowY);
-      rowY += 3.8;
-    }
-  }
+    // Official SURCON Stamp / Seal Box on Left of plan if enabled
+    if (options.showSealBox) {
+      const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
+      const sealBoxW = 20;
+      const sealBoxH = 18;
+      const sealImgX = outerX + 4;
+      const sealImgY = drawAreaY + drawAreaH * 0.45;
 
-  // Surveyor Seal Box Placement
-  if (options.showSealBox) {
-    let sealX = outerX + outerW * 0.55;
-    let sealY = footerY + 2;
-    let sealW = outerW * 0.43;
-
-    if (layout.sealBoxPosition === 'bottom_left') {
-      sealX = outerX + 4;
-      sealW = outerW * 0.43;
-    } else if (layout.sealBoxPosition === 'bottom_center') {
-      sealX = outerX + outerW * 0.2;
-      sealW = outerW * 0.6;
-    } else if (layout.sealBoxPosition === 'right_column') {
-      sealX = outerX + outerW - rightColW + 2;
-      sealY = drawAreaY + 55;
-      sealW = rightColW - 4;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(15, 23, 42);
-    doc.text("SURVEYOR'S CERTIFICATION", sealX, sealY + 2);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5);
-    doc.setTextColor(71, 85, 105);
-    const certText = `I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with Survey Regulations.`;
-    doc.text(certText, sealX, sealY + 5.5, { maxWidth: sealW - 22 });
-
-    const survTitle = options.surveyorTitle ? `${options.surveyorTitle} ` : '';
-    const survName = `${survTitle}${project.surveyorName}`.toUpperCase();
-    const surconNum = options.surconNumber || project.surveyorNumber || 'SURCON REG.';
-
-    // Embed Signature Image if uploaded
-    if (options.surveyorSignatureUrl) {
-      try {
-        doc.addImage(options.surveyorSignatureUrl, 'PNG', sealX, sealY + 8.5, 24, 7);
-      } catch (e) {
-        console.warn('Failed to embed signature image in PDF', e);
+      if (sealStampUrl) {
+        try {
+          doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
+        } catch (e) {
+          doc.setDrawColor(203, 213, 225);
+          doc.circle(sealImgX + 10, sealImgY + 9, 8);
+          doc.setFontSize(4.5);
+          doc.text('SURCON\nSEAL', sealImgX + 10, sealImgY + 8, { align: 'center' });
+        }
       }
     }
 
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(survName, sealX, sealY + 16.5);
+  } else {
+    // ----------------------------------------------------
+    // Default Coordinate Schedule & Seal Box Layout
+    // ----------------------------------------------------
+    if (!isRightSidebar) {
+      doc.setLineWidth(0.3);
+      doc.setDrawColor(203, 213, 225);
+      doc.line(outerX + 3, footerY, outerX + outerW - 3, footerY);
+    }
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.2);
-    doc.setTextColor(51, 65, 85);
-    doc.text(surconNum, sealX, sealY + 19);
-    doc.text(`FIRM: ${project.surveyFirm.toUpperCase()}`, sealX, sealY + 21.5);
-    doc.text(`DATE: ${project.date}`, sealX, sealY + 24);
+    // Coordinate Schedule Placement
+    if (options.showCoordinateTable && layout.coordTablePosition !== 'hidden') {
+      let tableX = outerX + 4;
+      let tableY = footerY + 3;
+      let tableW = outerW * 0.53;
 
-    // Embed Official Seal Stamp Image (Surveyor Seal or Firm Seal)
-    const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
-    const sealBoxW = 22;
-    const sealBoxH = 18;
-    const sealImgX = sealX + sealW - sealBoxW - 1;
-    const sealImgY = sealY + 4;
+      if (layout.coordTablePosition === 'bottom_right') {
+        tableX = outerX + outerW * 0.45;
+        tableW = outerW * 0.53;
+      } else if (layout.coordTablePosition === 'right_column') {
+        tableX = outerX + outerW - rightColW + 2;
+        tableY = drawAreaY;
+        tableW = rightColW - 4;
+      } else if (layout.coordTablePosition === 'top_right') {
+        tableX = drawAreaX + drawAreaW - 75;
+        tableY = drawAreaY + 4;
+        tableW = 70;
+      }
 
-    if (sealStampUrl) {
-      try {
-        doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
-      } catch (e) {
-        console.warn('Failed to embed seal stamp image in PDF', e);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('COORDINATE SCHEDULE (MINNA DATUM)', tableX, tableY + 2);
+
+      // Table Header
+      doc.setFillColor(241, 245, 249);
+      doc.rect(tableX, tableY + 3.5, tableW, 4, 'F');
+      doc.setFontSize(5.8);
+      doc.setTextColor(71, 85, 105);
+      const colStep = tableW / 4;
+      doc.text('BEACON ID', tableX + 2, tableY + 6.2);
+      doc.text('EASTING (m)', tableX + colStep, tableY + 6.2);
+      doc.text('NORTHING (m)', tableX + colStep * 2, tableY + 6.2);
+      doc.text('ORIGIN', tableX + colStep * 3, tableY + 6.2);
+
+      // Table Rows
+      const schedulePoints = isSinglePlot ? targetPoints : points.slice(0, 8);
+      let rowY = tableY + 10.5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.8);
+      doc.setTextColor(15, 23, 42);
+
+      for (const pt of schedulePoints) {
+        doc.text(pt.id, tableX + 2, rowY);
+        doc.text(pt.easting.toFixed(3), tableX + colStep, rowY);
+        doc.text(pt.northing.toFixed(3), tableX + colStep * 2, rowY);
+        doc.text(pt.isControl ? 'CONTROL' : 'CONCRETE', tableX + colStep * 3, rowY);
+        rowY += 3.8;
+      }
+    }
+
+    // Surveyor Seal Box Placement
+    if (options.showSealBox) {
+      let sealX = outerX + outerW * 0.55;
+      let sealY = footerY + 2;
+      let sealW = outerW * 0.43;
+
+      if (layout.sealBoxPosition === 'bottom_left') {
+        sealX = outerX + 4;
+        sealW = outerW * 0.43;
+      } else if (layout.sealBoxPosition === 'bottom_center') {
+        sealX = outerX + outerW * 0.2;
+        sealW = outerW * 0.6;
+      } else if (layout.sealBoxPosition === 'right_column') {
+        sealX = outerX + outerW - rightColW + 2;
+        sealY = drawAreaY + 55;
+        sealW = rightColW - 4;
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 23, 42);
+      doc.text("SURVEYOR'S CERTIFICATION", sealX, sealY + 2);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5);
+      doc.setTextColor(71, 85, 105);
+      const certText = `I hereby certify that this plan was surveyed by me or under my direct supervision on the ground in accordance with Survey Regulations.`;
+      doc.text(certText, sealX, sealY + 5.5, { maxWidth: sealW - 22 });
+
+      const survTitle = options.surveyorTitle ? `${options.surveyorTitle} ` : '';
+      const survName = `${survTitle}${project.surveyorName}`.toUpperCase();
+      const surconNum = options.surconNumber || project.surveyorNumber || 'SURCON REG.';
+
+      // Embed Signature Image if uploaded
+      if (options.surveyorSignatureUrl) {
+        try {
+          doc.addImage(options.surveyorSignatureUrl, 'PNG', sealX, sealY + 8.5, 24, 7);
+        } catch (e) {
+          console.warn('Failed to embed signature image in PDF', e);
+        }
+      }
+
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(survName, sealX, sealY + 16.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.2);
+      doc.setTextColor(51, 65, 85);
+      doc.text(surconNum, sealX, sealY + 19);
+      doc.text(`FIRM: ${project.surveyFirm.toUpperCase()}`, sealX, sealY + 21.5);
+      doc.text(`DATE: ${project.date}`, sealX, sealY + 24);
+
+      // Embed Official Seal Stamp Image (Surveyor Seal or Firm Seal)
+      const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
+      const sealBoxW = 22;
+      const sealBoxH = 18;
+      const sealImgX = sealX + sealW - sealBoxW - 1;
+      const sealImgY = sealY + 4;
+
+      if (sealStampUrl) {
+        try {
+          doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
+        } catch (e) {
+          console.warn('Failed to embed seal stamp image in PDF', e);
+          doc.setDrawColor(203, 213, 225);
+          doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
+          doc.setFontSize(5);
+          doc.setTextColor(148, 163, 184);
+          doc.text('SURCON\nSEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
+        }
+      } else {
         doc.setDrawColor(203, 213, 225);
         doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
         doc.setFontSize(5);
         doc.setTextColor(148, 163, 184);
-        doc.text('SURCON\nSEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
+        doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
       }
-    } else {
-      doc.setDrawColor(203, 213, 225);
-      doc.rect(sealImgX, sealImgY, sealBoxW, sealBoxH);
-      doc.setFontSize(5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('SURCON\nOFFICIAL SEAL', sealImgX + sealBoxW / 2, sealImgY + sealBoxH / 2, { align: 'center' });
     }
   }
 
