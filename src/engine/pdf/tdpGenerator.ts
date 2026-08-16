@@ -770,10 +770,11 @@ export function generateTitleDeedPlanPDF(
   } else {
     // Custom / Default Freeform Header
     const titleText = layout.customTitleText || 'TITLE DEED PLAN';
+    const clientDisplay = layout.clientName || selectedParcel?.ownerName;
     const planSub = layout.customSubtitleText || (isSinglePlot && selectedParcel
-      ? `PLAN SHOWING ${selectedParcel.plotNumber} ${selectedParcel.ownerName ? `(ALLOTTEE: ${selectedParcel.ownerName.toUpperCase()})` : ''}`
-      : `SURVEY PLAN OF ${project.title.toUpperCase()}`);
-    const locText = layout.customLocationText || `SITUATED AT: ${project.location.toUpperCase()} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
+      ? `PLAN SHOWING ${selectedParcel.plotNumber} ${clientDisplay ? `(ALLOTTEE: ${clientDisplay.toUpperCase()})` : ''}`
+      : `SURVEY PLAN OF ${clientDisplay ? `${clientDisplay.toUpperCase()} - ` : ''}${project.title.toUpperCase()}`);
+    const locText = layout.customLocationText || `SITUATED AT: ${(layout.locationLocality || project.location).toUpperCase()}${layout.locationLgaState ? `, ${layout.locationLgaState.toUpperCase()}` : ''} | DATUM: MINNA (${getDatumBeltName(project.gridBelt).toUpperCase()})`;
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
@@ -876,9 +877,9 @@ export function generateTitleDeedPlanPDF(
     }
   }
 
-  // 6.5. Draw Adjoining (Abutting) Parcels & Road Corridors
-  if (options.adjoining?.showAdjoining && isSinglePlot && selectedParcel) {
-    const adjConfig = options.adjoining;
+  // 6A. Draw Adjoining (Abutting) Parcels (Stub Extensions or Full Dashed Polygons)
+  const adjConfig: Partial<TdpAdjoiningConfig> = options.adjoining || {};
+  if (adjConfig.showAdjoining && isSinglePlot && selectedParcel) {
     const adjIds = new Set(adjConfig.adjoiningParcelIds || []);
     const abuttingParcels = parcels.filter(p => p.id !== selectedParcel.id && (adjIds.size === 0 || adjIds.has(p.id)));
 
@@ -952,109 +953,114 @@ export function generateTitleDeedPlanPDF(
         }
       }
     }
+    doc.setLineDashPattern([], 0);
+  }
 
-    // Road Corridor Depiction with Multi-Frontage & Setback Support
-    if (adjConfig.showRoadCorridor && (adjConfig.roadCorridorLabel || adjConfig.roadDirectionFrom)) {
-      const compFocus = computeParcel(selectedParcel, points);
-      if (compFocus && compFocus.legs.length > 0) {
-        const selectedLegIndices = (adjConfig.roadFrontageLegIndices && adjConfig.roadFrontageLegIndices.length > 0)
-          ? adjConfig.roadFrontageLegIndices.filter(i => i < compFocus.legs.length)
-          : [0];
+  // 6B. Road Corridor Depiction with Multi-Frontage & Setback Support (Independent Pass)
+  if (adjConfig.showRoadCorridor && (adjConfig.roadCorridorLabel || adjConfig.roadDirectionFrom)) {
+    const focusParcel = selectedParcel || targetParcels[0];
+    const compFocus = focusParcel ? computeParcel(focusParcel, points) : null;
+    if (compFocus && compFocus.legs.length > 0) {
+      const selectedLegIndices = (adjConfig.roadFrontageLegIndices && adjConfig.roadFrontageLegIndices.length > 0)
+        ? adjConfig.roadFrontageLegIndices.filter(i => i < compFocus.legs.length)
+        : [0];
 
-        for (const legIdx of selectedLegIndices) {
-          const leg = compFocus.legs[legIdx];
-          const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
-          const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
+      for (const legIdx of selectedLegIndices) {
+        const leg = compFocus.legs[legIdx];
+        const p1 = { x: toMapX(leg.fromPoint.easting), y: toMapY(leg.fromPoint.northing) };
+        const p2 = { x: toMapX(leg.toPoint.easting), y: toMapY(leg.toPoint.northing) };
 
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const len = Math.hypot(dx, dy);
-          if (len > 1) {
-            let nx = -dy / len;
-            let ny = dx / len;
-            const midX = (p1.x + p2.x) / 2;
-            const midY = (p1.y + p2.y) / 2;
-            if (nx * (midX - centX) + ny * (midY - centY) < 0) {
-              nx = -nx;
-              ny = -ny;
-            }
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 1) {
+          let nx = -dy / len;
+          let ny = dx / len;
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          if (nx * (midX - centX) + ny * (midY - centY) < 0) {
+            nx = -nx;
+            ny = -ny;
+          }
 
-            const setbackMm = (adjConfig.roadSetbackMeters || 0) * mapScale;
-            const roadWidthMm = (adjConfig.roadCorridorWidth || 12) * mapScale;
-            const extMm = (adjConfig.roadExtensionMeters || 6) * mapScale;
+          const setbackMm = (adjConfig.roadSetbackMeters || 0) * mapScale;
+          const roadWidthMm = (adjConfig.roadCorridorWidth || 12) * mapScale;
+          const extMm = (adjConfig.roadExtensionMeters || 6) * mapScale;
 
-            // Unit tangent vector
-            const ux = dx / len;
-            const uy = dy / len;
+          // Unit tangent vector
+          const ux = dx / len;
+          const uy = dy / len;
 
-            // Near road line (if setback > 0)
-            if (setbackMm > 0.5) {
-              const n1 = { x: p1.x + nx * setbackMm - ux * extMm, y: p1.y + ny * setbackMm - uy * extMm };
-              const n2 = { x: p2.x + nx * setbackMm + ux * extMm, y: p2.y + ny * setbackMm + uy * extMm };
-              doc.setDrawColor(148, 163, 184);
-              doc.setLineWidth(0.3);
-              doc.setLineDashPattern([3, 2], 0);
-              doc.line(n1.x, n1.y, n2.x, n2.y);
-            }
-
-            // Far road line
-            const totalDistMm = setbackMm + roadWidthMm;
-            const r1 = { x: p1.x + nx * totalDistMm - ux * extMm, y: p1.y + ny * totalDistMm - uy * extMm };
-            const r2 = { x: p2.x + nx * totalDistMm + ux * extMm, y: p2.y + ny * totalDistMm + uy * extMm };
-
-            doc.setDrawColor(100, 116, 139);
-            doc.setLineWidth(0.4);
+          // Near road line (if setback > 0)
+          if (setbackMm > 0.5) {
+            const n1 = { x: p1.x + nx * setbackMm - ux * extMm, y: p1.y + ny * setbackMm - uy * extMm };
+            const n2 = { x: p2.x + nx * setbackMm + ux * extMm, y: p2.y + ny * setbackMm + uy * extMm };
+            doc.setDrawColor(148, 163, 184);
+            doc.setLineWidth(0.3);
             doc.setLineDashPattern([3, 2], 0);
-            doc.line(r1.x, r1.y, r2.x, r2.y);
+            doc.line(n1.x, n1.y, n2.x, n2.y);
+          }
 
-            // Extension stubs from beacons to far road line
-            doc.setLineWidth(0.25);
-            doc.setLineDashPattern([2, 2], 0);
-            doc.line(p1.x, p1.y, p1.x + nx * totalDistMm, p1.y + ny * totalDistMm);
-            doc.line(p2.x, p2.y, p2.x + nx * totalDistMm, p2.y + ny * totalDistMm);
+          // Far road line
+          const totalDistMm = setbackMm + roadWidthMm;
+          const r1 = { x: p1.x + nx * totalDistMm - ux * extMm, y: p1.y + ny * totalDistMm - uy * extMm };
+          const r2 = { x: p2.x + nx * totalDistMm + ux * extMm, y: p2.y + ny * totalDistMm + uy * extMm };
 
-            // If curved mode, draw perpendicular tick marks along road line
-            if (adjConfig.roadGeometryMode === 'curved') {
-              const tickStep = 6;
-              const numTicks = Math.floor(len / tickStep);
-              for (let t = 1; t <= numTicks; t++) {
-                const tx = p1.x + ux * (t * tickStep) + nx * totalDistMm;
-                const ty = p1.y + uy * (t * tickStep) + ny * totalDistMm;
-                doc.line(tx - nx * 1.5, ty - ny * 1.5, tx + nx * 1.5, ty + ny * 1.5);
-              }
+          doc.setDrawColor(100, 116, 139);
+          doc.setLineWidth(0.4);
+          doc.setLineDashPattern([3, 2], 0);
+          doc.line(r1.x, r1.y, r2.x, r2.y);
+
+          // Extension stubs from beacons to far road line
+          doc.setLineWidth(0.25);
+          doc.setLineDashPattern([2, 2], 0);
+          doc.line(p1.x, p1.y, p1.x + nx * totalDistMm, p1.y + ny * totalDistMm);
+          doc.line(p2.x, p2.y, p2.x + nx * totalDistMm, p2.y + ny * totalDistMm);
+
+          // If curved mode, draw perpendicular tick marks along road line
+          if (adjConfig.roadGeometryMode === 'curved') {
+            const tickStep = 6;
+            const numTicks = Math.floor(len / tickStep);
+            for (let t = 1; t <= numTicks; t++) {
+              const tx = p1.x + ux * (t * tickStep) + nx * totalDistMm;
+              const ty = p1.y + uy * (t * tickStep) + ny * totalDistMm;
+              doc.line(tx - nx * 1.5, ty - ny * 1.5, tx + nx * 1.5, ty + ny * 1.5);
             }
+          }
 
-            // Road Label Annotation
-            const roadMidX = midX + nx * (setbackMm + roadWidthMm * 0.5);
-            const roadMidY = midY + ny * (setbackMm + roadWidthMm * 0.5);
-            let angleRad = Math.atan2(dy, dx);
-            if (angleRad > Math.PI / 2) angleRad -= Math.PI;
-            if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
+          // Road Label Annotation
+          const roadMidX = midX + nx * (setbackMm + roadWidthMm * 0.5);
+          const roadMidY = midY + ny * (setbackMm + roadWidthMm * 0.5);
+          let angleRad = Math.atan2(dy, dx);
+          if (angleRad > Math.PI / 2) angleRad -= Math.PI;
+          if (angleRad <= -Math.PI / 2) angleRad += Math.PI;
 
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(6.2);
-            doc.setTextColor(71, 85, 105);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.2);
+          doc.setTextColor(71, 85, 105);
 
-            let roadText = '';
-            if (adjConfig.roadDirectionFrom && adjConfig.roadDirectionTo) {
-              roadText = `FROM ${adjConfig.roadDirectionFrom.toUpperCase()} ─────> TO ${adjConfig.roadDirectionTo.toUpperCase()}`;
-            } else if (adjConfig.roadCorridorLabel) {
-              roadText = `═ ${adjConfig.roadCorridorLabel.toUpperCase()} ═`;
-            }
+          let roadText = '';
+          if (adjConfig.roadDirectionFrom && adjConfig.roadDirectionTo) {
+            roadText = `FROM ${adjConfig.roadDirectionFrom.toUpperCase()} ─────> TO ${adjConfig.roadDirectionTo.toUpperCase()}`;
+          } else if (adjConfig.roadCorridorLabel) {
+            roadText = `═ ${adjConfig.roadCorridorLabel.toUpperCase()} ═`;
+          }
 
-            if (roadText) {
-              const rtw = doc.getTextWidth(roadText);
-              const rux = Math.cos(angleRad);
-              const ruy = Math.sin(angleRad);
-              doc.text(roadText, roadMidX - rux * (rtw / 2), roadMidY - ruy * (rtw / 2), { angle: -(angleRad * 180 / Math.PI) });
-            }
+          if (roadText) {
+            const rtw = doc.getTextWidth(roadText);
+            const rux = Math.cos(angleRad);
+            const ruy = Math.sin(angleRad);
+            doc.text(roadText, roadMidX - rux * (rtw / 2), roadMidY - ruy * (rtw / 2), { angle: -(angleRad * 180 / Math.PI) });
           }
         }
       }
     }
+    doc.setLineDashPattern([], 0);
+  }
 
-    // Topographic Feature Annotations (Buildings, Drainage, Utilities, Custom Text)
-    const annotations = layout.customAnnotations || adjConfig.customAnnotations || [];
+  // 6C. Topographic Feature Annotations (Buildings, Drainage, Utilities, Custom Text - Independent Pass)
+  const annotations = layout.customAnnotations || adjConfig.customAnnotations || [];
+  if (annotations.length > 0) {
     for (const ann of annotations) {
       const ax = toMapX(ann.easting);
       const ay = toMapY(ann.northing);
@@ -1131,8 +1137,7 @@ export function generateTitleDeedPlanPDF(
         doc.text(ann.label.toUpperCase(), ax, ay, { align: 'center', angle: -rotDeg });
       }
     }
-
-    doc.setLineDashPattern([], 0); // Reset
+    doc.setLineDashPattern([], 0);
   }
 
   // 7. Draw Parcels (Shaded Polygons, Boundaries, Centroid & Line Dimensions)
@@ -1384,8 +1389,8 @@ export function generateTitleDeedPlanPDF(
       const textWidth = doc.getTextWidth(legText);
       const offDist = 2.3;
 
-      const startX = midX - ux * (textWidth / 2) + nx * offDist;
-      const startY = midY - uy * (textWidth / 2) + ny * offDist;
+      const startX = isDisplaced ? (midX - ux * (textWidth / 2)) : (midX - ux * (textWidth / 2) + nx * offDist);
+      const startY = isDisplaced ? (midY - uy * (textWidth / 2)) : (midY - uy * (textWidth / 2) + ny * offDist);
       const angleDeg = angleRad * (180 / Math.PI) + (dimTf.rotation || 0);
 
       doc.text(legText, startX, startY, { angle: -angleDeg });
@@ -1434,22 +1439,29 @@ export function generateTitleDeedPlanPDF(
         }
       }
 
-      // Beacon ID Label (De-conflicted position)
+      // Beacon ID Label (De-conflicted position with vertical baseline compensation)
       const lbl = beaconLabelMap.get(pt.id);
       if (lbl) {
+        const bFontSize = (style.beaconFontSize || 6.0) * (beaconTf.scale || 1.0);
+        // Compensate for jsPDF's bottom-baseline text rendering vs SVG dominantBaseline central/hanging
+        const fontSizeMm = bFontSize * 0.3527;
+        const baselineOffsetY = lbl.dominantBaseline === 'hanging' ? (fontSizeMm * 0.75) : (fontSizeMm * 0.35);
+
         if (lbl.hasLeaderLine) {
           doc.setDrawColor(100, 116, 139);
           doc.setLineWidth(0.2);
           doc.setLineDashPattern([1.0, 1.0], 0);
           doc.line(lbl.anchorX, lbl.anchorY, lbl.x, lbl.y);
           doc.setLineDashPattern([], 0);
+          doc.setFillColor(100, 116, 139);
+          doc.circle(lbl.anchorX, lbl.anchorY, 0.25, 'F');
         }
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize((style.beaconFontSize || 6.0) * (beaconTf.scale || 1.0));
+        doc.setFontSize(bFontSize);
         doc.setTextColor(15, 23, 42);
         const align = lbl.textAnchor === 'start' ? 'left' : lbl.textAnchor === 'end' ? 'right' : 'center';
-        doc.text(pt.id, lbl.x, lbl.y, { align: align as any });
+        doc.text(pt.id, lbl.x, lbl.y + baselineOffsetY, { align: align as any });
       }
     }
   }

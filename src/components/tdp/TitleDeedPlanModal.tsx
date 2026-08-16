@@ -3295,8 +3295,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 })}
 
                               {/* Road Corridors — with setbacks, extension stubs, and directional routes */}
-                              {adjoiningConfig.showRoadCorridor && adjoiningConfig.roadCorridorLabel && (() => {
-                                const compFocus = computeParcel(selectedParcel, points);
+                              {adjoiningConfig.showRoadCorridor && (adjoiningConfig.roadCorridorLabel || adjoiningConfig.roadDirectionFrom) && (() => {
+                                const compFocus = selectedParcel ? computeParcel(selectedParcel, points) : (parcels[0] ? computeParcel(parcels[0], points) : null);
                                 if (!compFocus || compFocus.legs.length === 0) return null;
 
                                 const selectedLegIndices = (adjoiningConfig.roadFrontageLegIndices || [0])
@@ -3357,7 +3357,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180;
 
                                       // Format label string
-                                      let routeLabel = adjoiningConfig.roadCorridorLabel.toUpperCase();
+                                      let routeLabel = (adjoiningConfig.roadCorridorLabel || 'ACCESS ROAD').toUpperCase();
                                       if (dirFrom && dirTo) {
                                         routeLabel = `FROM ${dirFrom.toUpperCase()} ─────────> TO ${dirTo.toUpperCase()}`;
                                       } else if (dirTo) {
