@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { ProjectMetadata, CoordinatePoint, Parcel, TdpProjectConfig } from '../../engine/types';
 import {
   generateTitleDeedPlanPDF,
   generateCoordinateSchedulePDF,
@@ -57,7 +57,9 @@ import {
   Building2,
   Droplets,
   Zap,
-  Trash2
+  Trash2,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 
 interface TitleDeedPlanModalProps {
@@ -69,6 +71,8 @@ interface TitleDeedPlanModalProps {
   isOpen: boolean;
   isViewMode?: boolean;
   initialSelectedParcelId?: string;
+  initialTdpConfig?: TdpProjectConfig;
+  onSaveTdpConfig?: (config: TdpProjectConfig) => void;
   onClose: () => void;
 }
 
@@ -81,6 +85,8 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   isOpen,
   isViewMode = false,
   initialSelectedParcelId,
+  initialTdpConfig,
+  onSaveTdpConfig,
   onClose
 }) => {
   // Navigation Tabs: 'specs' (Plan Specs & Layout) | 'design' (Design & Template Studio) | 'layers' (Element Layers Inspector)
@@ -114,8 +120,11 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   const [showSetbacks, setShowSetbacks] = useState<boolean>(false);
   const [setbackDist, setSetbackDist] = useState<number>(3.0);
 
-  // Cartographic Style & Design Studio State
+  // Cartographic Style & Design Studio State (Loaded from project config or user template fallback)
   const [styleConfig, setStyleConfig] = useState<TdpStyleConfig>(() => {
+    if (initialTdpConfig?.styleConfig) {
+      return { ...DEFAULT_TDP_STYLE, ...initialTdpConfig.styleConfig };
+    }
     try {
       const saved = localStorage.getItem('nsurvey_tdp_template_style');
       if (saved) return { ...DEFAULT_TDP_STYLE, ...JSON.parse(saved) };
@@ -155,8 +164,11 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     });
   }, []);
 
-  // CAD Layout & Sheet Arrangement State
+  // CAD Layout & Sheet Arrangement State (Loaded from project config or user template fallback)
   const [layoutArrangement, setLayoutArrangement] = useState<TdpLayoutArrangement>(() => {
+    if (initialTdpConfig?.layoutArrangement) {
+      return { ...DEFAULT_TDP_LAYOUT, ...initialTdpConfig.layoutArrangement };
+    }
     try {
       const saved = localStorage.getItem('nsurvey_tdp_template_layout');
       if (saved) return { ...DEFAULT_TDP_LAYOUT, ...JSON.parse(saved) };
@@ -167,29 +179,41 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
   });
 
   // Adjoining Plots & Road Corridor Configuration
-  const [adjoiningConfig, setAdjoiningConfig] = useState<TdpAdjoiningConfig>(() => ({
-    showAdjoining: false,
-    adjoiningParcelIds: parcels.slice(1, 4).map(p => p.id),
-    renderMode: 'stub_extension',
-    stubDepthMeters: 8,
-    showRoadCorridor: false,
-    roadCorridorLabel: '12.00m ACCESS ROAD',
-    roadCorridorWidth: 12,
-    roadSetbackMeters: 0,
-    roadExtensionMeters: 10,
-    roadGeometryMode: 'straight',
-    roadFrontageLegIndices: [0]
-  }));
+  const [adjoiningConfig, setAdjoiningConfig] = useState<TdpAdjoiningConfig>(() => {
+    if (initialTdpConfig?.adjoiningConfig) {
+      return initialTdpConfig.adjoiningConfig;
+    }
+    return {
+      showAdjoining: false,
+      adjoiningParcelIds: parcels.slice(1, 4).map(p => p.id),
+      renderMode: 'stub_extension',
+      stubDepthMeters: 8,
+      showRoadCorridor: false,
+      roadCorridorLabel: '12.00m ACCESS ROAD',
+      roadCorridorWidth: 12,
+      roadSetbackMeters: 0,
+      roadExtensionMeters: 10,
+      roadGeometryMode: 'straight',
+      roadFrontageLegIndices: [0]
+    };
+  });
 
   // Element Transforms (Position, Rotation, Scale, Visibility, Lock)
-  const [elementTransforms, setElementTransforms] = useState<Record<string, TdpElementTransform>>({});
+  const [elementTransforms, setElementTransforms] = useState<Record<string, TdpElementTransform>>(() => {
+    return initialTdpConfig?.elementTransforms || {};
+  });
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [transformMode, setTransformMode] = useState<'move' | 'scale' | 'rotate' | null>(null);
-  const [enableCollisionDeconfliction, setEnableCollisionDeconfliction] = useState<boolean>(false); // Opt-in default
+  const [enableCollisionDeconfliction, setEnableCollisionDeconfliction] = useState<boolean>(() => {
+    return initialTdpConfig?.enableCollisionDeconfliction !== undefined ? initialTdpConfig.enableCollisionDeconfliction : false;
+  });
   const [layerSearchTerm, setLayerSearchTerm] = useState<string>('');
 
   // Custom Topographic Feature Annotations (Buildings, Drainage, Utilities, Text)
   const [customAnnotations, setCustomAnnotations] = useState<TdpCustomAnnotation[]>(() => {
+    if (initialTdpConfig?.customAnnotations && Array.isArray(initialTdpConfig.customAnnotations)) {
+      return initialTdpConfig.customAnnotations;
+    }
     try {
       const saved = localStorage.getItem('nsurvey_tdp_custom_annotations');
       if (saved) return JSON.parse(saved);
@@ -199,7 +223,158 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     return [];
   });
 
+  // Real-time synchronization back to parent workspace and project database
+  const onSaveTdpConfigRef = useRef(onSaveTdpConfig);
+  onSaveTdpConfigRef.current = onSaveTdpConfig;
+
+  useEffect(() => {
+    onSaveTdpConfigRef.current?.({
+      styleConfig,
+      layoutArrangement,
+      adjoiningConfig,
+      customAnnotations,
+      elementTransforms,
+      enableCollisionDeconfliction
+    });
+  }, [styleConfig, layoutArrangement, adjoiningConfig, customAnnotations, elementTransforms, enableCollisionDeconfliction]);
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // TDP STUDIO UNDO & REDO HISTORY ENGINE
+  // ═════════════════════════════════════════════════════════════════════════════
+  interface TdpSnapshot {
+    styleConfig: TdpStyleConfig;
+    layoutArrangement: TdpLayoutArrangement;
+    adjoiningConfig: TdpAdjoiningConfig;
+    customAnnotations: TdpCustomAnnotation[];
+    elementTransforms: Record<string, TdpElementTransform>;
+    enableCollisionDeconfliction: boolean;
+    pageSize: 'a4' | 'a3' | 'legal';
+    orientation: 'portrait' | 'landscape';
+    scaleRatio: number;
+    showCoordinateTable: boolean;
+    showSealBox: boolean;
+    showGridCrosses: boolean;
+    showSetbacks: boolean;
+    setbackDist: number;
+  }
+
+  const [tdpUndoStack, setTdpUndoStack] = useState<TdpSnapshot[]>([]);
+  const [tdpRedoStack, setTdpRedoStack] = useState<TdpSnapshot[]>([]);
+
+  const tdpStateRef = useRef<TdpSnapshot>({
+    styleConfig,
+    layoutArrangement,
+    adjoiningConfig,
+    customAnnotations,
+    elementTransforms,
+    enableCollisionDeconfliction,
+    pageSize,
+    orientation,
+    scaleRatio,
+    showCoordinateTable,
+    showSealBox,
+    showGridCrosses,
+    showSetbacks,
+    setbackDist
+  });
+
+  tdpStateRef.current = {
+    styleConfig,
+    layoutArrangement,
+    adjoiningConfig,
+    customAnnotations,
+    elementTransforms,
+    enableCollisionDeconfliction,
+    pageSize,
+    orientation,
+    scaleRatio,
+    showCoordinateTable,
+    showSealBox,
+    showGridCrosses,
+    showSetbacks,
+    setbackDist
+  };
+
+  const recordTdpSnapshot = useCallback(() => {
+    const current = tdpStateRef.current;
+    const snap: TdpSnapshot = JSON.parse(JSON.stringify(current));
+    setTdpUndoStack(prev => [...prev.slice(-49), snap]);
+    setTdpRedoStack([]);
+  }, []);
+
+  const handleTdpUndo = useCallback(() => {
+    if (tdpUndoStack.length === 0) return;
+    const current = tdpStateRef.current;
+    const previous = tdpUndoStack[tdpUndoStack.length - 1];
+
+    setTdpRedoStack(prev => [...prev, JSON.parse(JSON.stringify(current))]);
+    setTdpUndoStack(prev => prev.slice(0, -1));
+
+    setStyleConfig(previous.styleConfig);
+    setLayoutArrangement(previous.layoutArrangement);
+    setAdjoiningConfig(previous.adjoiningConfig);
+    setCustomAnnotations(previous.customAnnotations);
+    setElementTransforms(previous.elementTransforms);
+    setEnableCollisionDeconfliction(previous.enableCollisionDeconfliction);
+    setPageSize(previous.pageSize);
+    setOrientation(previous.orientation);
+    setScaleRatio(previous.scaleRatio);
+    setShowCoordinateTable(previous.showCoordinateTable);
+    setShowSealBox(previous.showSealBox);
+    setShowGridCrosses(previous.showGridCrosses);
+    setShowSetbacks(previous.showSetbacks);
+    setSetbackDist(previous.setbackDist);
+  }, [tdpUndoStack]);
+
+  const handleTdpRedo = useCallback(() => {
+    if (tdpRedoStack.length === 0) return;
+    const current = tdpStateRef.current;
+    const next = tdpRedoStack[tdpRedoStack.length - 1];
+
+    setTdpUndoStack(prev => [...prev, JSON.parse(JSON.stringify(current))]);
+    setTdpRedoStack(prev => prev.slice(0, -1));
+
+    setStyleConfig(next.styleConfig);
+    setLayoutArrangement(next.layoutArrangement);
+    setAdjoiningConfig(next.adjoiningConfig);
+    setCustomAnnotations(next.customAnnotations);
+    setElementTransforms(next.elementTransforms);
+    setEnableCollisionDeconfliction(next.enableCollisionDeconfliction);
+    setPageSize(next.pageSize);
+    setOrientation(next.orientation);
+    setScaleRatio(next.scaleRatio);
+    setShowCoordinateTable(next.showCoordinateTable);
+    setShowSealBox(next.showSealBox);
+    setShowGridCrosses(next.showGridCrosses);
+    setShowSetbacks(next.showSetbacks);
+    setSetbackDist(next.setbackDist);
+  }, [tdpRedoStack]);
+
+  // Keyboard shortcut listener (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleTdpUndo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleTdpRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleTdpUndo, handleTdpRedo]);
+
   const handleAddAnnotation = useCallback((type: 'building' | 'drainage' | 'utility' | 'text') => {
+    recordTdpSnapshot();
     const defaultCenterE = points[0]?.easting || 294312;
     const defaultCenterN = points[0]?.northing || 992100;
     const newAnn: TdpCustomAnnotation = {
@@ -219,24 +394,26 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       return next;
     });
     setSelectedElementId(newAnn.id);
-  }, [points]);
+  }, [points, recordTdpSnapshot]);
 
   const handleUpdateAnnotation = useCallback((id: string, patch: Partial<TdpCustomAnnotation>) => {
+    recordTdpSnapshot();
     setCustomAnnotations(prev => {
       const next = prev.map(a => a.id === id ? { ...a, ...patch } : a);
       try { localStorage.setItem('nsurvey_tdp_custom_annotations', JSON.stringify(next)); } catch (e) {}
       return next;
     });
-  }, []);
+  }, [recordTdpSnapshot]);
 
   const handleDeleteAnnotation = useCallback((id: string) => {
+    recordTdpSnapshot();
     setCustomAnnotations(prev => {
       const next = prev.filter(a => a.id !== id);
       try { localStorage.setItem('nsurvey_tdp_custom_annotations', JSON.stringify(next)); } catch (e) {}
       return next;
     });
     setSelectedElementId(prev => prev === id ? null : prev);
-  }, []);
+  }, [recordTdpSnapshot]);
 
   // Viewport Zoom & Pan State (linked to mouse wheel & drag)
   const [previewZoom, setPreviewZoom] = useState<number>(0.68);
@@ -386,7 +563,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       beaconFontSize: styleConfig.beaconFontSize * 1.25,
       manualOffsets: combinedOffsets,
       enableAutoDeconfliction: enableCollisionDeconfliction,
-      shortLegThresholdMeters: layoutArrangement.shortLegThresholdMeters ?? 6.0
+      shortLegThresholdMeters: layoutArrangement.shortLegThresholdMeters ?? 6.0,
+      areaUnitFormat: styleConfig.areaUnitFormat || 'both_two_lines',
+      areaUnitLabel: styleConfig.areaUnitLabel || 'metric_symbol'
     });
   }, [
     targetParcels,
@@ -404,31 +583,34 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
     e.stopPropagation();
     const current = getTransform(entityId);
     if (current.locked) return;
+    recordTdpSnapshot();
     setSelectedElementId(entityId);
     setTransformMode('move');
     setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragInitialOffset({ dx: current.dx, dy: current.dy });
-  }, [getTransform]);
+  }, [getTransform, recordTdpSnapshot]);
 
   const handleScaleHandleMouseDown = useCallback((entityId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const current = getTransform(entityId);
     if (current.locked) return;
+    recordTdpSnapshot();
     setSelectedElementId(entityId);
     setTransformMode('scale');
     setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragInitialOffset({ dx: current.scale || 1.0, dy: 0 });
-  }, [getTransform]);
+  }, [getTransform, recordTdpSnapshot]);
 
   const handleRotateHandleMouseDown = useCallback((entityId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const current = getTransform(entityId);
     if (current.locked) return;
+    recordTdpSnapshot();
     setSelectedElementId(entityId);
     setTransformMode('rotate');
     setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragInitialOffset({ dx: current.rotation || 0, dy: 0 });
-  }, [getTransform]);
+  }, [getTransform, recordTdpSnapshot]);
 
   const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (!selectedElementId || !transformMode) return;
@@ -589,12 +771,14 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
 
   const handleApplyTheme = (presetKey: string) => {
     if (TDP_THEME_PRESETS[presetKey]) {
+      recordTdpSnapshot();
       setStyleConfig({ ...TDP_THEME_PRESETS[presetKey] });
     }
   };
 
   const handleApplyLayoutPreset = (presetKey: string) => {
     if (TDP_LAYOUT_PRESETS[presetKey]) {
+      recordTdpSnapshot();
       setLayoutArrangement({ ...TDP_LAYOUT_PRESETS[presetKey] });
     }
   };
@@ -779,6 +963,42 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
         </div>
 
         <div className="header-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* TDP Undo / Redo History Group */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginRight: '6px', paddingRight: '8px', borderRight: '1px solid rgba(148, 163, 184, 0.2)' }}>
+            <button
+              className="btn-secondary-sm"
+              onClick={handleTdpUndo}
+              disabled={tdpUndoStack.length === 0}
+              title={`Undo Layout Action (Ctrl+Z)${tdpUndoStack.length > 0 ? ` - ${tdpUndoStack.length} actions available` : ''}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: tdpUndoStack.length > 0 ? 1 : 0.4,
+                cursor: tdpUndoStack.length > 0 ? 'pointer' : 'not-allowed'
+              }}
+            >
+              <Undo2 size={13} />
+              <span>Undo</span>
+            </button>
+            <button
+              className="btn-secondary-sm"
+              onClick={handleTdpRedo}
+              disabled={tdpRedoStack.length === 0}
+              title={`Redo Layout Action (Ctrl+Y or Ctrl+Shift+Z)${tdpRedoStack.length > 0 ? ` - ${tdpRedoStack.length} actions available` : ''}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: tdpRedoStack.length > 0 ? 1 : 0.4,
+                cursor: tdpRedoStack.length > 0 ? 'pointer' : 'not-allowed'
+              }}
+            >
+              <Redo2 size={13} />
+              <span>Redo</span>
+            </button>
+          </div>
+
           <button
             className="btn-secondary-sm"
             onClick={handleExportTdpScript}
@@ -2115,6 +2335,80 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           onChange={(e) => setStyleConfig({ ...styleConfig, areaFontSize: parseFloat(e.target.value) || 7.5, themePreset: 'custom' })}
                           style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                         />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Boundary Dimension Placement (Split vs Single Line) */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#38bdf8', marginBottom: '6px', textTransform: 'uppercase' }}>Boundary Dimensions Placement</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Line Dimension Layout</label>
+                      <select
+                        value={styleConfig.dimensionPlacementMode || 'split_two_sides'}
+                        onChange={(e) => {
+                          recordTdpSnapshot();
+                          setStyleConfig({ ...styleConfig, dimensionPlacementMode: e.target.value as any, themePreset: 'custom' });
+                        }}
+                        style={{ fontSize: '9.5px', height: '24px' }}
+                      >
+                        <option value="split_two_sides">Split (Two Sides - Bearing Outside / Dist Inside)</option>
+                        <option value="combined_single_line">Combined Single Line (Bearing &amp; Distance)</option>
+                        <option value="stacked_single_side">Stacked Single Side (Two Lines One Side)</option>
+                      </select>
+                    </div>
+
+                    {(styleConfig.dimensionPlacementMode || 'split_two_sides') === 'split_two_sides' && (
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Bearing / Distance Sides</label>
+                        <select
+                          value={styleConfig.bearingSide || 'outside'}
+                          onChange={(e) => {
+                            recordTdpSnapshot();
+                            setStyleConfig({ ...styleConfig, bearingSide: e.target.value as any, themePreset: 'custom' });
+                          }}
+                          style={{ fontSize: '9.5px', height: '24px' }}
+                        >
+                          <option value="outside">Bearing on Outside / Distance on Inside</option>
+                          <option value="inside">Bearing on Inside / Distance on Outside</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Parcel Centroid Area Display Format */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', marginBottom: '6px', textTransform: 'uppercase' }}>Parcel Area Display Format</div>
+                    <div className="form-row-2" style={{ gap: '6px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Area Layout Format</label>
+                        <select
+                          value={styleConfig.areaUnitFormat || 'both_two_lines'}
+                          onChange={(e) => {
+                            recordTdpSnapshot();
+                            setStyleConfig({ ...styleConfig, areaUnitFormat: e.target.value as any, themePreset: 'custom' });
+                          }}
+                          style={{ fontSize: '9.5px', height: '24px' }}
+                        >
+                          <option value="both_two_lines">Both in Two Lines (m² &amp; Ha)</option>
+                          <option value="both_single_line">Both in One Line [m² (Ha)]</option>
+                          <option value="sqm_only">m² Only (Square Metres)</option>
+                          <option value="ha_only">Ha Only (Hectares)</option>
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Unit Label Style</label>
+                        <select
+                          value={styleConfig.areaUnitLabel || 'metric_symbol'}
+                          onChange={(e) => {
+                            recordTdpSnapshot();
+                            setStyleConfig({ ...styleConfig, areaUnitLabel: e.target.value as any, themePreset: 'custom' });
+                          }}
+                          style={{ fontSize: '9.5px', height: '24px' }}
+                        >
+                          <option value="metric_symbol">m² / Ha (Symbol)</option>
+                          <option value="formal_text">Sq. Metres / Hectares (Deed)</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -3584,18 +3878,47 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     {badge.ownerName}
                                   </text>
                                 )}
-                                <text
-                                  x={badge.x}
-                                  y={badge.y + (isSinglePlot ? 19 : 9)}
-                                  textAnchor="middle"
-                                  fontWeight="bold"
-                                  fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.1}` : `${styleConfig.areaFontSize * 0.9}`}
-                                  fill={styleConfig.boundaryColor}
-                                  fontFamily="monospace"
-                                  style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
-                                >
-                                  {badge.areaText}
-                                </text>
+                                {badge.areaLines && badge.areaLines.length > 1 ? (
+                                  <>
+                                    <text
+                                      x={badge.x}
+                                      y={badge.y + (isSinglePlot ? 16 : 8)}
+                                      textAnchor="middle"
+                                      fontWeight="bold"
+                                      fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.05}` : `${styleConfig.areaFontSize * 0.85}`}
+                                      fill={styleConfig.boundaryColor}
+                                      fontFamily="monospace"
+                                      style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                    >
+                                      {badge.areaLines[0]}
+                                    </text>
+                                    <text
+                                      x={badge.x}
+                                      y={badge.y + (isSinglePlot ? 27 : 17)}
+                                      textAnchor="middle"
+                                      fontWeight="bold"
+                                      fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.05}` : `${styleConfig.areaFontSize * 0.85}`}
+                                      fill={styleConfig.boundaryColor}
+                                      fontFamily="monospace"
+                                      style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                    >
+                                      {badge.areaLines[1]}
+                                    </text>
+                                  </>
+                                ) : (
+                                  <text
+                                    x={badge.x}
+                                    y={badge.y + (isSinglePlot ? 19 : 9)}
+                                    textAnchor="middle"
+                                    fontWeight="bold"
+                                    fontSize={isSinglePlot ? `${styleConfig.areaFontSize * 1.1}` : `${styleConfig.areaFontSize * 0.9}`}
+                                    fill={styleConfig.boundaryColor}
+                                    fontFamily="monospace"
+                                    style={{ paintOrder: 'stroke fill', stroke: '#ffffff', strokeWidth: '3px', strokeLinecap: 'round', strokeLinejoin: 'round' }}
+                                  >
+                                    {badge.areaLines?.[0] || badge.areaText}
+                                  </text>
+                                )}
                               </g>
                             );
                           })}
@@ -3676,44 +3999,109 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     </g>
                                   )}
 
-                                  <text
-                                    x={0}
-                                    y={-1.5}
-                                    textAnchor="middle"
-                                    dominantBaseline="auto"
-                                    fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                    fill="#0f172a"
-                                    style={{
-                                      paintOrder: 'stroke fill',
-                                      stroke: '#ffffff',
-                                      strokeWidth: '3.5px',
-                                      strokeLinecap: 'round',
-                                      strokeLinejoin: 'round'
-                                    }}
-                                  >
-                                    {dim.bearingStr}
-                                  </text>
-                                  <text
-                                    x={0}
-                                    y={7.5}
-                                    textAnchor="middle"
-                                    dominantBaseline="auto"
-                                    fontSize={`${styleConfig.bearingFontSize * 1.15}`}
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                    fill="#0f172a"
-                                    style={{
-                                      paintOrder: 'stroke fill',
-                                      stroke: '#ffffff',
-                                      strokeWidth: '3.5px',
-                                      strokeLinecap: 'round',
-                                      strokeLinejoin: 'round'
-                                    }}
-                                  >
-                                    {dim.distStr}
-                                  </text>
+                                  {(styleConfig.dimensionPlacementMode || 'split_two_sides') === 'split_two_sides' ? (
+                                    <>
+                                      <text
+                                        x={0}
+                                        y={(styleConfig.bearingSide || 'outside') === 'outside' ? -3.5 : 8.5}
+                                        textAnchor="middle"
+                                        dominantBaseline="auto"
+                                        fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        fill="#0f172a"
+                                        style={{
+                                          paintOrder: 'stroke fill',
+                                          stroke: '#ffffff',
+                                          strokeWidth: '3.5px',
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round'
+                                        }}
+                                      >
+                                        {dim.bearingStr}
+                                      </text>
+                                      <text
+                                        x={0}
+                                        y={(styleConfig.bearingSide || 'outside') === 'outside' ? 8.5 : -3.5}
+                                        textAnchor="middle"
+                                        dominantBaseline="auto"
+                                        fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        fill="#0f172a"
+                                        style={{
+                                          paintOrder: 'stroke fill',
+                                          stroke: '#ffffff',
+                                          strokeWidth: '3.5px',
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round'
+                                        }}
+                                      >
+                                        {dim.distStr}
+                                      </text>
+                                    </>
+                                  ) : (styleConfig.dimensionPlacementMode || 'split_two_sides') === 'stacked_single_side' ? (
+                                    <>
+                                      <text
+                                        x={0}
+                                        y={-10.0}
+                                        textAnchor="middle"
+                                        dominantBaseline="auto"
+                                        fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        fill="#0f172a"
+                                        style={{
+                                          paintOrder: 'stroke fill',
+                                          stroke: '#ffffff',
+                                          strokeWidth: '3.5px',
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round'
+                                        }}
+                                      >
+                                        {dim.bearingStr}
+                                      </text>
+                                      <text
+                                        x={0}
+                                        y={-2.0}
+                                        textAnchor="middle"
+                                        dominantBaseline="auto"
+                                        fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        fill="#0f172a"
+                                        style={{
+                                          paintOrder: 'stroke fill',
+                                          stroke: '#ffffff',
+                                          strokeWidth: '3.5px',
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round'
+                                        }}
+                                      >
+                                        {dim.distStr}
+                                      </text>
+                                    </>
+                                  ) : (
+                                    <text
+                                      x={0}
+                                      y={-3.0}
+                                      textAnchor="middle"
+                                      dominantBaseline="auto"
+                                      fontSize={`${styleConfig.bearingFontSize * 1.15}`}
+                                      fontWeight="bold"
+                                      fontFamily="monospace"
+                                      fill="#0f172a"
+                                      style={{
+                                        paintOrder: 'stroke fill',
+                                        stroke: '#ffffff',
+                                        strokeWidth: '3.5px',
+                                        strokeLinecap: 'round',
+                                        strokeLinejoin: 'round'
+                                      }}
+                                    >
+                                      {dim.bearingStr} ({dim.distStr})
+                                    </text>
+                                  )}
                                 </g>
                               </g>
                             );

@@ -14,6 +14,11 @@ export interface ParcelShadingStyle {
   boundaryLineStyle?: 'solid' | 'dashed' | 'dashdot';
 }
 
+export type TdpDimensionPlacementMode = 'split_two_sides' | 'combined_single_line' | 'stacked_single_side';
+export type TdpBearingSide = 'outside' | 'inside';
+export type TdpAreaUnitFormat = 'sqm_only' | 'ha_only' | 'both_single_line' | 'both_two_lines';
+export type TdpAreaUnitLabel = 'metric_symbol' | 'formal_text';
+
 export interface TdpStyleConfig {
   // Typography (pt)
   titleFontSize: number;
@@ -21,10 +26,16 @@ export interface TdpStyleConfig {
   beaconFontSize: number;
   areaFontSize: number;
 
-  // Boundary Linework
+  // Boundary Linework & Dimension Placement
   boundaryColor: string; // Hex color e.g. '#10b981'
   boundaryLineWidth: number; // mm in PDF
   boundaryLineStyle: 'solid' | 'dashed' | 'dashdot';
+  dimensionPlacementMode?: TdpDimensionPlacementMode; // 'split_two_sides' (default) | 'combined_single_line' | 'stacked_single_side'
+  bearingSide?: TdpBearingSide; // 'outside' (default) | 'inside'
+
+  // Parcel Centroid Area Format & Units
+  areaUnitFormat?: TdpAreaUnitFormat; // 'sqm_only' | 'ha_only' | 'both_single_line' | 'both_two_lines' (default)
+  areaUnitLabel?: TdpAreaUnitLabel; // 'metric_symbol' ('m² / Ha') | 'formal_text' ('Sq. Metres / Hectares')
 
   // Plot Fill / Shading (Global Default)
   fillColor: string; // Hex color
@@ -85,6 +96,10 @@ export const DEFAULT_TDP_STYLE: TdpStyleConfig = {
   boundaryColor: '#10b981',
   boundaryLineWidth: 0.6,
   boundaryLineStyle: 'solid',
+  dimensionPlacementMode: 'split_two_sides',
+  bearingSide: 'outside',
+  areaUnitFormat: 'both_two_lines',
+  areaUnitLabel: 'metric_symbol',
   fillColor: '#10b981',
   fillOpacity: 0.04,
   hatchPattern: 'tint',
@@ -96,6 +111,34 @@ export const DEFAULT_TDP_STYLE: TdpStyleConfig = {
   parcelShadingOverrides: {},
   themePreset: 'federal_standard'
 };
+
+/**
+ * Formats parcel area for display on maps, plans, and schedules according to surveyor formatting rules.
+ */
+export function formatParcelAreaLines(
+  areaSqM: number,
+  areaHa: number,
+  format: TdpAreaUnitFormat = 'both_two_lines',
+  labelStyle: TdpAreaUnitLabel = 'metric_symbol'
+): string[] {
+  const sqLabel = labelStyle === 'formal_text' ? 'Sq. Metres' : 'm²';
+  const haLabel = labelStyle === 'formal_text' ? 'Hectares' : 'Ha';
+
+  const sqStr = `${areaSqM.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${sqLabel}`;
+  const haStr = `${areaHa.toFixed(4)} ${haLabel}`;
+
+  switch (format) {
+    case 'sqm_only':
+      return [sqStr];
+    case 'ha_only':
+      return [haStr];
+    case 'both_single_line':
+      return [`${sqStr} (${haStr})`];
+    case 'both_two_lines':
+    default:
+      return [sqStr, haStr];
+  }
+}
 
 export const TDP_THEME_PRESETS: Record<string, TdpStyleConfig> = {
   federal_standard: {
@@ -1317,7 +1360,20 @@ export function generateTitleDeedPlanPDF(
       doc.setFont('helvetica', 'bold');
       doc.setFontSize((isSinglePlot ? style.areaFontSize : Math.max(5.5, style.areaFontSize - 1.5)) * badgeScale);
       doc.setTextColor(bRgb.r, bRgb.g, bRgb.b);
-      doc.text(`${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`, pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
+
+      const areaLines = formatParcelAreaLines(
+        comp.areaSquareMeters,
+        comp.areaHectares,
+        style.areaUnitFormat || 'both_two_lines',
+        style.areaUnitLabel || 'metric_symbol'
+      );
+
+      if (areaLines.length === 1) {
+        doc.text(areaLines[0], pCentX, pCentY + (isSinglePlot ? 6 : 2.2), { align: 'center' });
+      } else {
+        doc.text(areaLines[0], pCentX, pCentY + (isSinglePlot ? 5 : 1.8), { align: 'center' });
+        doc.text(areaLines[1], pCentX, pCentY + (isSinglePlot ? 8.2 : 4.0), { align: 'center' });
+      }
     }
 
     // Leg Bearings & Distances (Deduplicated per Unique Boundary Edge)
@@ -1394,15 +1450,55 @@ export function generateTitleDeedPlanPDF(
       doc.setFontSize((style.bearingFontSize || 5.5) * (dimTf.scale || 1.0));
       doc.setTextColor(30, 41, 59);
 
-      const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
-      const textWidth = doc.getTextWidth(legText);
-      const offDist = 2.3;
-
-      const startX = isDisplaced ? (midX - ux * (textWidth / 2)) : (midX - ux * (textWidth / 2) + nx * offDist);
-      const startY = isDisplaced ? (midY - uy * (textWidth / 2)) : (midY - uy * (textWidth / 2) + ny * offDist);
+      const placementMode = style.dimensionPlacementMode || 'split_two_sides';
+      const isBearingOutside = (style.bearingSide || 'outside') === 'outside';
       const angleDeg = angleRad * (180 / Math.PI) + (dimTf.rotation || 0);
 
-      doc.text(legText, startX, startY, { angle: -angleDeg });
+      if (placementMode === 'split_two_sides' && !isDisplaced) {
+        // 1. Split across line: Bearing on one side, Distance on opposite side
+        const bearingText = leg.bearing.formatted;
+        const distText = `${leg.distance.toFixed(2)}m`;
+        const bWidth = doc.getTextWidth(bearingText);
+        const dWidth = doc.getTextWidth(distText);
+        const offDist = 1.8; // mm offset from line
+
+        const bNormX = isBearingOutside ? nx : -nx;
+        const bNormY = isBearingOutside ? ny : -ny;
+        const dNormX = isBearingOutside ? -nx : nx;
+        const dNormY = isBearingOutside ? -ny : ny;
+
+        const bStartX = midX - ux * (bWidth / 2) + bNormX * offDist;
+        const bStartY = midY - uy * (bWidth / 2) + bNormY * offDist;
+        const dStartX = midX - ux * (dWidth / 2) + dNormX * offDist;
+        const dStartY = midY - uy * (dWidth / 2) + dNormY * offDist;
+
+        doc.text(bearingText, bStartX, bStartY, { angle: -angleDeg });
+        doc.text(distText, dStartX, dStartY, { angle: -angleDeg });
+      } else if (placementMode === 'stacked_single_side' && !isDisplaced) {
+        // 2. Stacked on one side in two lines
+        const bearingText = leg.bearing.formatted;
+        const distText = `${leg.distance.toFixed(2)}m`;
+        const bWidth = doc.getTextWidth(bearingText);
+        const dWidth = doc.getTextWidth(distText);
+
+        const bStartX = midX - ux * (bWidth / 2) + nx * 3.2;
+        const bStartY = midY - uy * (bWidth / 2) + ny * 3.2;
+        const dStartX = midX - ux * (dWidth / 2) + nx * 1.1;
+        const dStartY = midY - uy * (dWidth / 2) + ny * 1.1;
+
+        doc.text(bearingText, bStartX, bStartY, { angle: -angleDeg });
+        doc.text(distText, dStartX, dStartY, { angle: -angleDeg });
+      } else {
+        // 3. Combined single line: Bearing (Distance)
+        const legText = `${leg.bearing.formatted} (${leg.distance.toFixed(2)}m)`;
+        const textWidth = doc.getTextWidth(legText);
+        const offDist = 2.3;
+
+        const startX = isDisplaced ? (midX - ux * (textWidth / 2)) : (midX - ux * (textWidth / 2) + nx * offDist);
+        const startY = isDisplaced ? (midY - uy * (textWidth / 2)) : (midY - uy * (textWidth / 2) + ny * offDist);
+
+        doc.text(legText, startX, startY, { angle: -angleDeg });
+      }
     }
   }
 

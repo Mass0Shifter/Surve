@@ -5,7 +5,7 @@
  */
 
 import { NSurveyBundle, downloadProjectPack } from './nsurvBundle';
-import { NigerianGridBelt, ProjectMetadata, CoordinatePoint, Parcel } from '../types';
+import { NigerianGridBelt, ProjectMetadata, CoordinatePoint, Parcel, CadLayers, TdpProjectConfig } from '../types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from '../sampleData';
 
 const DB_NAME = 'NSurvey_Geomatics_DB';
@@ -38,6 +38,7 @@ export interface ActiveSessionState {
   project: ProjectMetadata;
   points: CoordinatePoint[];
   parcels: Parcel[];
+  tdpConfig?: TdpProjectConfig;
   currentLoadedProjectId?: string | null;
   savedAt: number;
 }
@@ -572,6 +573,65 @@ export async function exportProjectLibraryPack(options?: {
   });
 }
 
+/**
+ * In-place update of an existing library project record (used by auto-save when editing a loaded project).
+ */
+export async function updateProjectInLibrary(
+  projectId: string,
+  data: {
+    project?: ProjectMetadata;
+    points?: CoordinatePoint[];
+    parcels?: Parcel[];
+    tdpConfig?: TdpProjectConfig;
+    layers?: CadLayers;
+  }
+): Promise<StoredProject | null> {
+  await ensureInitialized();
+  try {
+    const db = await openDatabase();
+    const existing = await getProjectFromLibrary(projectId);
+    if (!existing) return null;
+
+    const updatedBundle: NSurveyBundle = {
+      ...existing.bundle,
+      project: data.project || existing.bundle.project,
+      points: data.points || existing.bundle.points,
+      parcels: data.parcels || existing.bundle.parcels,
+      layers: data.layers !== undefined ? data.layers : existing.bundle.layers,
+      tdpConfig: data.tdpConfig !== undefined ? data.tdpConfig : existing.bundle.tdpConfig
+    };
+
+    const updatedProject: StoredProject = {
+      ...existing,
+      title: updatedBundle.project.title || existing.title,
+      code: updatedBundle.project.code || existing.code,
+      clientName: updatedBundle.project.clientName || existing.clientName,
+      location: updatedBundle.project.location || existing.location,
+      surveyFirm: updatedBundle.project.surveyFirm || existing.surveyFirm,
+      surveyorName: updatedBundle.project.surveyorName || existing.surveyorName,
+      pointsCount: updatedBundle.points.length,
+      parcelsCount: updatedBundle.parcels.length,
+      gridBelt: updatedBundle.project.gridBelt || existing.gridBelt,
+      bundle: updatedBundle,
+      updatedAt: Date.now()
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.put(updatedProject);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+
+    notifyLibraryChanged();
+    return updatedProject;
+  } catch (err) {
+    console.warn(`Failed to update project "${projectId}" in IndexedDB:`, err);
+    return null;
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ACTIVE WORKSPACE SESSION PERSISTENCE (High-Capacity Recovery Buffer)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -580,6 +640,7 @@ export async function saveActiveSessionState(session: {
   project: ProjectMetadata;
   points: CoordinatePoint[];
   parcels: Parcel[];
+  tdpConfig?: TdpProjectConfig;
   currentLoadedProjectId?: string | null;
 }): Promise<void> {
   try {
@@ -589,6 +650,7 @@ export async function saveActiveSessionState(session: {
       project: session.project,
       points: session.points,
       parcels: session.parcels,
+      tdpConfig: session.tdpConfig,
       currentLoadedProjectId: session.currentLoadedProjectId,
       savedAt: Date.now()
     };

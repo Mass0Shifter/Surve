@@ -8,6 +8,7 @@
 
 import { CoordinatePoint, Parcel } from '../types';
 import { computeParcel } from '../cogo';
+import { formatParcelAreaLines, TdpAreaUnitFormat, TdpAreaUnitLabel } from '../pdf/tdpGenerator';
 
 export interface BoundingBox {
   x: number;
@@ -37,6 +38,7 @@ export interface ParcelBadgePlacement {
   plotNumber: string;
   ownerName?: string;
   areaText: string;
+  areaLines: string[];
   x: number;
   y: number;
   hasLeaderLine: boolean;
@@ -85,6 +87,8 @@ export interface CollisionLayoutInput {
   enableAutoDeconfliction?: boolean;
   unitScale?: 'mm' | 'px';
   shortLegThresholdMeters?: number;
+  areaUnitFormat?: TdpAreaUnitFormat;
+  areaUnitLabel?: TdpAreaUnitLabel;
 }
 
 /**
@@ -138,7 +142,9 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
     beaconFontSize = 6.2,
     manualOffsets = {},
     enableAutoDeconfliction = true,
-    unitScale = 'px'
+    unitScale = 'px',
+    areaUnitFormat = 'both_two_lines',
+    areaUnitLabel = 'metric_symbol'
   } = input;
 
   const isMm = unitScale === 'mm';
@@ -161,8 +167,9 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
     const centX = comp.vertices.reduce((s, v) => s + toScreenX(v.easting), 0) / comp.vertices.length;
     const centY = comp.vertices.reduce((s, v) => s + toScreenY(v.northing), 0) / comp.vertices.length;
 
-    const areaText = `${comp.areaSquareMeters.toFixed(2)} m² (${comp.areaHectares.toFixed(4)} Ha)`;
-    const maxTextLen = Math.max(parcel.plotNumber.length, areaText.length, (parcel.ownerName || '').length);
+    const areaLines = formatParcelAreaLines(comp.areaSquareMeters, comp.areaHectares, areaUnitFormat, areaUnitLabel);
+    const areaText = areaLines.join(' / ');
+    const maxTextLen = Math.max(parcel.plotNumber.length, ...areaLines.map(l => l.length), (parcel.ownerName || '').length);
     const boxWidth = Math.max(isMm ? 15 : 45, maxTextLen * (Math.max(titleFontSize, areaFontSize) * 0.58));
     const boxHeight = (parcel.ownerName ? 3 : 2) * (Math.max(titleFontSize, areaFontSize) * 1.3);
 
@@ -185,6 +192,7 @@ export function computeCollisionFreeLayout(input: CollisionLayoutInput): Collisi
       plotNumber: parcel.plotNumber,
       ownerName: parcel.ownerName,
       areaText,
+      areaLines,
       x: initX,
       y: initY,
       hasLeaderLine: Math.hypot(override.dx, override.dy) > (isMm ? 6 : 18),

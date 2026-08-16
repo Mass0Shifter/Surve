@@ -15,7 +15,7 @@ import {
   downloadNSurvBundle,
   parseProjectPack
 } from '../../engine/storage/nsurvBundle';
-import { ProjectMetadata, CoordinatePoint, Parcel } from '../../engine/types';
+import { ProjectMetadata, CoordinatePoint, Parcel, CadLayers, TdpProjectConfig } from '../../engine/types';
 import { UserProfile } from '../../engine/auth/authTypes';
 import { Organization } from '../../engine/organization/orgTypes';
 import {
@@ -46,6 +46,8 @@ interface ProjectLibraryModalProps {
   currentProject: ProjectMetadata;
   currentPoints: CoordinatePoint[];
   currentParcels: Parcel[];
+  currentLayers?: CadLayers;
+  currentTdpConfig?: TdpProjectConfig;
   currentProjectId?: string | null;
   currentUser: UserProfile | null;
   activeOrg: Organization | null;
@@ -59,6 +61,8 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   currentProject,
   currentPoints,
   currentParcels,
+  currentLayers,
+  currentTdpConfig,
   currentProjectId,
   currentUser,
   activeOrg,
@@ -158,7 +162,9 @@ export const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
         },
         project: currentProject,
         points: currentPoints,
-        parcels: currentParcels
+        parcels: currentParcels,
+        layers: currentLayers,
+        tdpConfig: currentTdpConfig
       };
 
       const saved = await saveProjectToLibrary(

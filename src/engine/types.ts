@@ -124,3 +124,14 @@ export interface AlignmentOverlay {
     label?: string;
   }>;
 }
+
+/** Project-scoped Title Deed Plan (TDP) Studio Configuration */
+export interface TdpProjectConfig {
+  styleConfig?: any;
+  layoutArrangement?: any;
+  adjoiningConfig?: any;
+  customAnnotations?: any[];
+  elementTransforms?: Record<string, any>;
+  enableCollisionDeconfliction?: boolean;
+}
+

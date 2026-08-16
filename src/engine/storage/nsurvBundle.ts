@@ -3,7 +3,7 @@
  * Provides comprehensive JSON compression, metadata preservation, and validation.
  */
 
-import { ProjectMetadata, CoordinatePoint, Parcel, CadLayers } from '../types';
+import { ProjectMetadata, CoordinatePoint, Parcel, CadLayers, TdpProjectConfig } from '../types';
 
 export const NSURV_BUNDLE_VERSION = '1.0.0';
 
@@ -24,6 +24,7 @@ export interface NSurveyBundle {
   points: CoordinatePoint[];
   parcels: Parcel[];
   layers?: CadLayers;
+  tdpConfig?: TdpProjectConfig;
   notes?: string;
 }
 
@@ -37,6 +38,7 @@ export function serializeNSurvBundle(
   options?: {
     scope?: NSurveyBundleScope;
     layers?: CadLayers;
+    tdpConfig?: TdpProjectConfig;
     notes?: string;
   }
 ): string {
@@ -53,6 +55,7 @@ export function serializeNSurvBundle(
     points,
     parcels,
     layers: options?.layers,
+    tdpConfig: options?.tdpConfig,
     notes: options?.notes
   };
 
@@ -94,6 +97,7 @@ export function parseNSurvBundle(rawContent: string): NSurveyBundle {
       points: Array.isArray(parsed.points) ? parsed.points : [],
       parcels: Array.isArray(parsed.parcels) ? parsed.parcels : [],
       layers: parsed.layers,
+      tdpConfig: parsed.tdpConfig,
       notes: parsed.notes
     };
 
@@ -113,6 +117,7 @@ export function downloadNSurvBundle(
   options?: {
     scope?: NSurveyBundleScope;
     layers?: CadLayers;
+    tdpConfig?: TdpProjectConfig;
     notes?: string;
   }
 ): void {

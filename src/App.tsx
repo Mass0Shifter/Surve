@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot, SetoutOverlay, AlignmentOverlay, NigerianGridBelt } from './engine/types';
+import { CoordinatePoint, Parcel, ProjectMetadata, CadLayers, CadTool, HistorySnapshot, SetoutOverlay, AlignmentOverlay, NigerianGridBelt, TdpProjectConfig } from './engine/types';
 import { SAMPLE_PROJECT_METADATA, SAMPLE_COORDINATES, SAMPLE_PARCELS } from './engine/sampleData';
 import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
@@ -36,7 +36,7 @@ import { FeatureId, hasFeatureAccess } from './engine/subscription/featureGating
 import { UserProfile } from './engine/auth/authTypes';
 import { Organization } from './engine/organization/orgTypes';
 import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/storage/nsurvBundle';
-import { saveActiveSessionState, loadActiveSessionState } from './engine/storage/projectDatabase';
+import { saveActiveSessionState, loadActiveSessionState, updateProjectInLibrary } from './engine/storage/projectDatabase';
 import { getCurrentUser, logout, updateUserProfile } from './engine/auth/authEngine';
 import { getOrganizationsForUser, getActiveOrganization } from './engine/organization/orgEngine';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -109,6 +109,9 @@ export const App: React.FC = () => {
     }
     return SAMPLE_PARCELS;
   });
+
+  // Project-Scoped Title Deed Plan Studio Configuration State
+  const [tdpConfig, setTdpConfig] = useState<TdpProjectConfig | undefined>(undefined);
 
   // Undo / Redo History Stacks
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
@@ -183,6 +186,9 @@ export const App: React.FC = () => {
         setProject(session.project);
         setPoints(session.points);
         setParcels(session.parcels);
+        if (session.tdpConfig) {
+          setTdpConfig(session.tdpConfig);
+        }
         if (session.currentLoadedProjectId) {
           setCurrentLoadedProjectId(session.currentLoadedProjectId);
         }
@@ -316,8 +322,17 @@ export const App: React.FC = () => {
   // High-Capacity Asynchronous IndexedDB Auto-Save Effect (with 400ms debounce)
   useEffect(() => {
     if (autoSaveEnabled) {
-      const timer = setTimeout(() => {
-        saveActiveSessionState({ project, points, parcels, currentLoadedProjectId });
+      const timer = setTimeout(async () => {
+        await saveActiveSessionState({ project, points, parcels, tdpConfig, currentLoadedProjectId });
+        if (currentLoadedProjectId) {
+          await updateProjectInLibrary(currentLoadedProjectId, {
+            project,
+            points,
+            parcels,
+            tdpConfig,
+            layers
+          });
+        }
         localStorage.setItem(AUTOSAVE_KEY, 'true');
         const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setLastSavedTime(now);
@@ -327,7 +342,7 @@ export const App: React.FC = () => {
       localStorage.setItem(AUTOSAVE_KEY, 'false');
       setLastSavedTime(null);
     }
-  }, [project, points, parcels, currentLoadedProjectId, autoSaveEnabled]);
+  }, [project, points, parcels, tdpConfig, layers, currentLoadedProjectId, autoSaveEnabled]);
 
   const handleToggleAutoSave = () => {
     setAutoSaveEnabled(prev => !prev);
@@ -713,6 +728,7 @@ export const App: React.FC = () => {
     });
     setPoints([]);
     setParcels([]);
+    setTdpConfig(undefined);
     setSelectedPointId(null);
     setSelectedParcelId(null);
     setSetoutOverlay(null);
@@ -755,6 +771,11 @@ export const App: React.FC = () => {
     setParcels(bundle.parcels);
     if (bundle.layers) {
       setLayers(bundle.layers);
+    }
+    if (bundle.tdpConfig) {
+      setTdpConfig(bundle.tdpConfig);
+    } else {
+      setTdpConfig(undefined);
     }
     setSelectedPointId(bundle.points[0]?.id || null);
     setSelectedParcelId(bundle.parcels[0]?.id || null);
@@ -811,7 +832,8 @@ export const App: React.FC = () => {
               organizationId: activeOrg?.id,
               organizationName: activeOrg?.name
             },
-            layers
+            layers,
+            tdpConfig
           })}
           onImportNSurv={() => nativeNSurvInputRef.current?.click()}
           onLoadSample={handleLoadSample}
@@ -883,6 +905,8 @@ export const App: React.FC = () => {
           currentUser={currentUser}
           activeOrg={activeOrg}
           initialSelectedParcelId={selectedParcelId || undefined}
+          initialTdpConfig={tdpConfig}
+          onSaveTdpConfig={setTdpConfig}
         />
       ) : (
         <>
@@ -1313,6 +1337,8 @@ export const App: React.FC = () => {
         currentProject={project}
         currentPoints={points}
         currentParcels={parcels}
+        currentLayers={layers}
+        currentTdpConfig={tdpConfig}
         currentProjectId={currentLoadedProjectId}
         currentUser={currentUser}
         activeOrg={activeOrg}
