@@ -7,7 +7,7 @@ import { generateAutoCADScript } from '../../engine/exporters/scrExporter';
 import { generateDXF } from '../../engine/exporters/dxfExporter';
 import { exportCoordinatesToCSV, downloadFile } from '../../engine/exporters/csvExporter';
 import { MenuBar } from './MenuBar';
-import { Compass, Settings, Save, FileText, Globe, User, LogOut, Crown, ChevronDown, Building2, Plus, FolderKanban } from 'lucide-react';
+import { Compass, Settings, Save, Globe, User, LogOut, Crown, ChevronDown, Building2, Plus, FolderKanban } from 'lucide-react';
 
 interface HeaderProps {
   project: ProjectMetadata;
@@ -109,7 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSubscription,
   onRequestUpgrade,
   onLogout,
-  activeView = 'workspace',
   isLeftVisible,
   isRightVisible,
   onToggleLeft,
@@ -205,7 +204,8 @@ export const Header: React.FC<HeaderProps> = ({
         />
       </div>
 
-      <div className="header-right">
+      {/* Center Zone: Project Context & State Telemetry */}
+      <div className="header-center">
         {/* Workspace Switcher (Personal vs Organization) */}
         {currentUser && (
           <div style={{ position: 'relative' }}>
@@ -215,7 +215,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="Switch between Personal Workspace and Organization Projects"
             >
               {activeOrg ? <Building2 size={13} className="text-cyan" /> : <User size={13} className="text-emerald" />}
-              <span style={{ maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span className="workspace-name-text">
                 {activeOrg ? activeOrg.name : 'Personal Workspace'}
               </span>
               <ChevronDown size={11} className="text-muted" />
@@ -282,12 +282,12 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <div className="proj-code-badge">{project.code}</div>
           <div className="proj-title-text">{project.title}</div>
-          <Settings size={13} className="proj-settings-icon" />
+          <Settings size={12} className="proj-settings-icon" />
         </div>
 
         {/* Datum Belt Indicator */}
         <div className="datum-indicator-pill" title="Active Coordinate Projection Datum">
-          <Globe size={12} className="text-emerald" />
+          <Globe size={11} className="text-emerald" />
           <span>
             {project.gridBelt === NigerianGridBelt.MID_BELT
               ? 'Mid Belt (8.5°E)'
@@ -303,57 +303,13 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onToggleAutoSave}
           title={`Click to ${autoSaveEnabled ? 'pause' : 'enable'} project auto-save`}
         >
-          <Save size={12} className={autoSaveEnabled ? 'text-emerald' : 'text-muted'} />
-          <span>{autoSaveEnabled ? (lastSavedTime ? `Saved ${lastSavedTime}` : 'Auto-Save ON') : 'Auto-Save Paused'}</span>
+          <Save size={11} className={autoSaveEnabled ? 'text-emerald' : 'text-muted'} />
+          <span>{autoSaveEnabled ? (lastSavedTime ? `Saved ${lastSavedTime}` : 'Saved') : 'Auto-Save Off'}</span>
         </div>
+      </div>
 
-        {/* Quick Access Highlights */}
-        {onOpenProjectLibrary && (
-          <button
-            id="btn-open-project-library"
-            className="btn-traverse-highlight"
-            style={{ color: '#6ee7b7', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.12)' }}
-            title="Open Project Library & Repositories (.nsurv)"
-            onClick={onOpenProjectLibrary}
-          >
-            <FolderKanban size={13} className="text-emerald" />
-            <span>Library</span>
-          </button>
-        )}
-
-        <button
-          id="btn-open-traverse-modal"
-          className="btn-traverse-highlight"
-          title="Traverse Field Book & Loop Balancing Studio"
-          onClick={onOpenTraverse}
-        >
-          <Compass size={13} className="text-cyan" />
-          <span>Traverse</span>
-        </button>
-
-        <button
-          className="btn-tdp-highlight"
-          style={activeView === 'tdp_studio' ? { color: '#10b981', borderColor: 'rgba(16,185,129,0.5)', background: 'rgba(16,185,129,0.18)' } : undefined}
-          title="Generate Official Title Deed Plan (PDF / Print)"
-          onClick={onOpenTdp}
-        >
-          <FileText size={13} />
-          <span>TDP Studio</span>
-        </button>
-
-        {onOpenCadStudio && (
-          <button
-            id="btn-open-cad-studio"
-            className="btn-traverse-highlight"
-            style={activeView === 'cad_studio' ? { color: '#38bdf8', borderColor: 'rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.18)' } : undefined}
-            title="AutoCAD DWG/DXF Drafting Studio & Virtual Machine"
-            onClick={onOpenCadStudio}
-          >
-            <Compass size={13} className="text-cyan" />
-            <span>CAD Studio</span>
-          </button>
-        )}
-
+      {/* Right Zone: User Account & Profile */}
+      <div className="header-right">
         {/* User Account / Profile Button */}
         {currentUser ? (
           <div style={{ position: 'relative' }}>

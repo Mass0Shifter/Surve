@@ -623,9 +623,9 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       showAdjoiningLabels: true,
       surveyorSealUrl: currentUser?.digitalSealUrl,
       surveyorSignatureUrl: currentUser?.signatureUrl,
-      firmSealUrl: activeOrg?.officialSealUrl,
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
       surveyorTitle: currentUser?.title,
+      surveyorName: currentUser?.fullName || project.surveyorName,
       style: styleConfig,
       adjoining: {
         ...adjoiningConfig,
@@ -662,6 +662,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
       firmSealUrl: activeOrg?.officialSealUrl,
       surconNumber: currentUser?.surconNumber || project.surveyorNumber,
       surveyorTitle: currentUser?.title,
+      surveyorName: currentUser?.fullName || project.surveyorName,
       style: styleConfig,
       adjoining: {
         ...adjoiningConfig,
@@ -847,293 +848,333 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
               </button>
             </div>
 
-            {/* TAB 1: PLAN SPECS & LAYOUT */}
+            {/* TAB 1: PLAN SPECS & GEOMETRY */}
             {activeTab === 'specs' && (
-              <>
-                <div className="sidebar-section-title">
-                  <Settings2 size={14} className="text-emerald" />
-                  <span>Plan Deliverable & Scale</span>
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Card 1: Sheet & Cartographic Scale */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#38bdf8', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Sliders size={13} />
+                    <span>Sheet &amp; Cartographic Scale</span>
+                  </div>
 
-                {/* Plan Type Selector */}
-                <div className="form-group">
-                  <label>Plan Deliverable Type</label>
-                  <select value={planType} onChange={(e) => setPlanType(e.target.value as any)}>
-                    <option value="single_plot">Single-Plot Title Deed Plan (C of O)</option>
-                    <option value="selected_plots">Custom Multi-Plot Plan (Selected Parcels)</option>
-                    <option value="layout">Estate Layout Master Plan (All Plots)</option>
-                  </select>
-                </div>
-
-                {/* Target Parcel Selector */}
-                {planType === 'single_plot' && (
-                  <div className="form-group">
-                    <label>Focus Cadastral Parcel</label>
-                    <select value={selectedParcelId} onChange={(e) => setSelectedParcelId(e.target.value)}>
-                      {parcels.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
-                        </option>
-                      ))}
+                  {/* Plan Type Selector */}
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
+                    <label>Plan Deliverable Type</label>
+                    <select value={planType} onChange={(e) => setPlanType(e.target.value as any)}>
+                      <option value="single_plot">Single-Plot Title Deed Plan (C of O)</option>
+                      <option value="selected_plots">Custom Multi-Plot Plan (Selected Parcels)</option>
+                      <option value="layout">Estate Layout Master Plan (All Plots)</option>
                     </select>
                   </div>
-                )}
 
-                {/* Multi-Parcel Custom Checklist */}
-                {planType === 'selected_plots' && (
-                  <div className="form-group">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <label style={{ margin: 0 }}>Select Included Parcels ({selectedParcelIds.length}/{parcels.length})</label>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          type="button"
-                          className="btn-secondary-sm"
-                          style={{ fontSize: '9px', padding: '2px 6px' }}
-                          onClick={() => setSelectedParcelIds(parcels.map(p => p.id))}
-                        >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary-sm"
-                          style={{ fontSize: '9px', padding: '2px 6px' }}
-                          onClick={() => setSelectedParcelIds([])}
-                        >
-                          None
-                        </button>
+                  {/* Paper Size & Orientation */}
+                  <div className="form-row-2" style={{ marginBottom: '8px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Paper Size</label>
+                      <select value={pageSize} onChange={(e) => setPageSize(e.target.value as any)}>
+                        <option value="a4">A4 (210 x 297 mm)</option>
+                        <option value="a3">A3 (297 x 420 mm)</option>
+                        <option value="legal">Legal (8.5 x 14 in)</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Orientation</label>
+                      <select value={orientation} onChange={(e) => setOrientation(e.target.value as any)}>
+                        <option value="portrait">Portrait</option>
+                        <option value="landscape">Landscape</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Scale Ratio Selector */}
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                      <label style={{ margin: 0 }}>Drawing Scale Ratio (1:N)</label>
+                      <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 600 }}>Active 1:{effectiveScaleRatio}</span>
+                    </div>
+                    <select
+                      value={isCustomScale ? 'custom' : scaleRatio}
+                      onChange={(e) => {
+                        if (e.target.value === 'custom') {
+                          setIsCustomScale(true);
+                          const val = parseInt(customScaleInput);
+                          if (!isNaN(val) && val >= 10) setScaleRatio(val);
+                        } else {
+                          setIsCustomScale(false);
+                          setScaleRatio(parseInt(e.target.value) || 0);
+                        }
+                      }}
+                    >
+                      <option value={0}>Auto-Fit (Optimal Scale)</option>
+                      <option value={250}>1:250 (Detailed Site Plan - 4x Large)</option>
+                      <option value={500}>1:500 (Abuja FCDA Standard - 2x Large)</option>
+                      <option value={1000}>1:1,000 (Standard Cadastral)</option>
+                      <option value={2000}>1:2,000 (Town Layout - 0.5x)</option>
+                      <option value={5000}>1:5,000 (District Regional Sheet)</option>
+                      <option value="custom">Custom Ratio (1:N)...</option>
+                    </select>
+
+                    {isCustomScale && (
+                      <div className="custom-scale-input-box" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>1 :</span>
+                        <input
+                          type="number"
+                          min={10}
+                          max={100000}
+                          step={10}
+                          value={customScaleInput}
+                          onChange={(e) => {
+                            setCustomScaleInput(e.target.value);
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val >= 10) {
+                              setScaleRatio(val);
+                            }
+                          }}
+                          placeholder="e.g. 750"
+                          style={{ flex: 1, fontSize: '11px', padding: '4px 8px', height: '28px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                        />
                       </div>
-                    </div>
-                    <div className="multi-parcel-picker-box" style={{ maxHeight: '110px', overflowY: 'auto', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.1)', padding: '6px' }}>
-                      {parcels.map(p => {
-                        const isChecked = selectedParcelIds.includes(p.id);
-                        return (
-                          <label
-                            key={p.id}
-                            className="checkbox-label"
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', fontSize: '11px', cursor: 'pointer', borderRadius: '4px', background: isChecked ? 'rgba(16, 185, 129, 0.08)' : 'transparent' }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedParcelIds([...selectedParcelIds, p.id]);
-                                } else {
-                                  setSelectedParcelIds(selectedParcelIds.filter(id => id !== p.id));
-                                }
-                              }}
-                            />
-                            <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f8fafc' : '#94a3b8' }}>
-                              {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                    )}
                   </div>
-                )}
 
-                {/* Paper Size & Orientation */}
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Paper Size</label>
-                    <select value={pageSize} onChange={(e) => setPageSize(e.target.value as any)}>
-                      <option value="a4">A4 (210 x 297 mm)</option>
-                      <option value="a3">A3 (297 x 420 mm)</option>
-                      <option value="legal">Legal (8.5 x 14 in)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Orientation</label>
-                    <select value={orientation} onChange={(e) => setOrientation(e.target.value as any)}>
-                      <option value="portrait">Portrait</option>
-                      <option value="landscape">Landscape</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Scale Ratio Selector */}
-                <div className="form-group">
-                  <label>Drawing Scale Ratio (1:N)</label>
-                  <select
-                    value={isCustomScale ? 'custom' : scaleRatio}
-                    onChange={(e) => {
-                      if (e.target.value === 'custom') {
-                        setIsCustomScale(true);
-                        const val = parseInt(customScaleInput);
-                        if (!isNaN(val) && val >= 10) setScaleRatio(val);
-                      } else {
-                        setIsCustomScale(false);
-                        setScaleRatio(parseInt(e.target.value) || 0);
-                      }
-                    }}
-                  >
-                    <option value={0}>Auto-Fit (Optimal Scale)</option>
-                    <option value={250}>1:250 (Detailed Site Plan - 4x Large)</option>
-                    <option value={500}>1:500 (Abuja FCDA Standard - 2x Large)</option>
-                    <option value={1000}>1:1,000 (Standard Cadastral)</option>
-                    <option value={2000}>1:2,000 (Town Layout - 0.5x)</option>
-                    <option value={5000}>1:5,000 (District Regional Sheet)</option>
-                    <option value="custom">Custom Ratio (1:N)...</option>
-                  </select>
-
-                  {isCustomScale && (
-                    <div className="custom-scale-input-box" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>1 :</span>
-                      <input
-                        type="number"
-                        min={10}
-                        max={100000}
-                        step={10}
-                        value={customScaleInput}
-                        onChange={(e) => {
-                          setCustomScaleInput(e.target.value);
-                          const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 10) {
-                            setScaleRatio(val);
-                          }
-                        }}
-                        placeholder="e.g. 750"
-                        style={{ flex: 1, fontSize: '11px', padding: '4px 8px', height: '28px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Cadastral Sheet Index Card */}
-                <div className="sheet-index-card">
-                  <div className="sheet-card-title">
-                    <Grid size={12} className="text-cyan" />
-                    <span>Calculated Cadastral Sheet</span>
-                  </div>
-                  <div className="sheet-number-highlight">{activeSheet.sheetNumber}</div>
-                  <div className="sheet-meta-sub">{activeSheet.scaleLabel} (Scale 1:{effectiveScaleRatio})</div>
-                </div>
-
-                {/* Adjoining (Abutting) Plots & Road Corridor Section */}
-                {isSinglePlot && (
-                  <>
-                    <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                      <MapPin size={14} className="text-emerald" />
-                      <span>Adjoining Plots & Road Corridors</span>
-                    </div>
-
-                    <label className="checkbox-label">
+                  {/* Geodetic Grid Crosses & Elements Toggle */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'rgba(30, 41, 59, 0.4)', padding: '6px 8px', borderRadius: '4px', marginBottom: '8px' }}>
+                    <label className="checkbox-label" style={{ margin: 0 }}>
                       <input
                         type="checkbox"
-                        checked={adjoiningConfig.showAdjoining}
-                        onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, showAdjoining: e.target.checked })}
+                        checked={showCoordinateTable}
+                        onChange={(e) => setShowCoordinateTable(e.target.checked)}
                       />
-                      <span>Show Abutting / Adjoining Parcels</span>
+                      <span>Coordinate Schedule Table</span>
                     </label>
 
-                    {adjoiningConfig.showAdjoining && (
-                      <div style={{ background: 'rgba(15, 23, 42, 0.4)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '6px', padding: '8px', marginTop: '6px' }}>
-                        <div className="form-group" style={{ marginBottom: '8px' }}>
-                          <label style={{ fontSize: '10px' }}>Adjoining Representation Mode</label>
-                          <select
-                            value={adjoiningConfig.renderMode}
-                            onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, renderMode: e.target.value as any })}
-                            style={{ fontSize: '11px', height: '28px' }}
-                          >
-                            <option value="stub_extension">Partial Stub Extent (5m - 15m Depth)</option>
-                            <option value="dashed_full">Full Ghosted Outline (Dashed)</option>
-                          </select>
-                        </div>
+                    <label className="checkbox-label" style={{ margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={showSealBox}
+                        onChange={(e) => setShowSealBox(e.target.checked)}
+                      />
+                      <span>SURCON Surveyor's Seal &amp; Cert</span>
+                    </label>
 
-                        {adjoiningConfig.renderMode === 'stub_extension' && (
-                          <div className="form-group" style={{ marginBottom: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
-                              <span>Stub Projection Depth</span>
-                              <span>{adjoiningConfig.stubDepthMeters}m</span>
+                    <label className="checkbox-label" style={{ margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={showGridCrosses}
+                        onChange={(e) => setShowGridCrosses(e.target.checked)}
+                      />
+                      <span>Geodetic Grid Crosses ({gridStep}m intervals)</span>
+                    </label>
+                  </div>
+
+                  {/* Cadastral Sheet Index Badge */}
+                  <div className="sheet-index-card" style={{ margin: 0 }}>
+                    <div className="sheet-card-title">
+                      <Grid size={12} className="text-cyan" />
+                      <span>Calculated Cadastral Sheet Index</span>
+                    </div>
+                    <div className="sheet-number-highlight">{activeSheet.sheetNumber}</div>
+                    <div className="sheet-meta-sub">{activeSheet.scaleLabel} (Scale 1:{effectiveScaleRatio})</div>
+                  </div>
+                </div>
+
+                {/* Card 2: Cadastral Boundary & Adjoining Context */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#10b981', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <MapPin size={13} />
+                    <span>Cadastral Focus &amp; Adjoining Context</span>
+                  </div>
+
+                  {/* Focus Parcel Selector */}
+                  {planType === 'single_plot' && (
+                    <div className="form-group" style={{ marginBottom: '10px' }}>
+                      <label>Focus Cadastral Parcel</label>
+                      <select value={selectedParcelId} onChange={(e) => setSelectedParcelId(e.target.value)}>
+                        {parcels.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Multi-Parcel Custom Checklist */}
+                  {planType === 'selected_plots' && (
+                    <div className="form-group" style={{ marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <label style={{ margin: 0 }}>Select Included Parcels ({selectedParcelIds.length}/{parcels.length})</label>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn-secondary-sm"
+                            style={{ fontSize: '9px', padding: '2px 6px' }}
+                            onClick={() => setSelectedParcelIds(parcels.map(p => p.id))}
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary-sm"
+                            style={{ fontSize: '9px', padding: '2px 6px' }}
+                            onClick={() => setSelectedParcelIds([])}
+                          >
+                            None
+                          </button>
+                        </div>
+                      </div>
+                      <div className="multi-parcel-picker-box" style={{ maxHeight: '100px', overflowY: 'auto', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '4px', border: '1px solid rgba(148, 163, 184, 0.1)', padding: '4px' }}>
+                        {parcels.map(p => {
+                          const isChecked = selectedParcelIds.includes(p.id);
+                          return (
+                            <label
+                              key={p.id}
+                              className="checkbox-label"
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', fontSize: '10px', cursor: 'pointer', borderRadius: '3px', background: isChecked ? 'rgba(16, 185, 129, 0.08)' : 'transparent' }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedParcelIds([...selectedParcelIds, p.id]);
+                                  } else {
+                                    setSelectedParcelIds(selectedParcelIds.filter(id => id !== p.id));
+                                  }
+                                }}
+                              />
+                              <span style={{ fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f8fafc' : '#94a3b8' }}>
+                                {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Adjoining (Abutting) Plots */}
+                  {isSinglePlot && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)' }}>
+                        <label className="checkbox-label" style={{ margin: 0, display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 600, color: '#e2e8f0' }}>Show Abutting / Adjoining Parcels</span>
+                          <input
+                            type="checkbox"
+                            checked={adjoiningConfig.showAdjoining}
+                            onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, showAdjoining: e.target.checked })}
+                          />
+                        </label>
+
+                        {adjoiningConfig.showAdjoining && (
+                          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label style={{ fontSize: '9px' }}>Representation Mode</label>
+                              <select
+                                value={adjoiningConfig.renderMode}
+                                onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, renderMode: e.target.value as any })}
+                                style={{ fontSize: '10px', height: '26px' }}
+                              >
+                                <option value="stub_extension">Partial Stub Extent (5m - 15m Depth)</option>
+                                <option value="dashed_full">Full Ghosted Outline (Dashed)</option>
+                              </select>
                             </div>
-                            <input
-                              type="range"
-                              min={3}
-                              max={15}
-                              step={1}
-                              value={adjoiningConfig.stubDepthMeters}
-                              onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, stubDepthMeters: parseInt(e.target.value) || 8 })}
-                            />
+
+                            {adjoiningConfig.renderMode === 'stub_extension' && (
+                              <div className="form-group" style={{ margin: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                                  <span>Stub Projection Depth</span>
+                                  <span>{adjoiningConfig.stubDepthMeters}m</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={3}
+                                  max={15}
+                                  step={1}
+                                  value={adjoiningConfig.stubDepthMeters}
+                                  onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, stubDepthMeters: parseInt(e.target.value) || 8 })}
+                                />
+                              </div>
+                            )}
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                                <label style={{ fontSize: '9px', margin: 0 }}>Included Adjoining Plots</label>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary-sm"
+                                    style={{ fontSize: '8px', padding: '1px 5px' }}
+                                    onClick={() => setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: parcels.filter(p => p.id !== selectedParcel?.id).map(p => p.id) })}
+                                  >
+                                    All
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary-sm"
+                                    style={{ fontSize: '8px', padding: '1px 5px' }}
+                                    onClick={() => setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: [] })}
+                                  >
+                                    None
+                                  </button>
+                                </div>
+                              </div>
+                              <div style={{ maxHeight: '70px', overflowY: 'auto', background: 'rgba(15, 23, 42, 0.5)', borderRadius: '4px', padding: '3px' }}>
+                                {parcels.filter(p => p.id !== selectedParcel?.id).map(p => {
+                                  const isChecked = adjoiningConfig.adjoiningParcelIds.includes(p.id);
+                                  return (
+                                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '9.5px', cursor: 'pointer', padding: '1px 3px', color: isChecked ? '#f8fafc' : '#94a3b8' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: [...adjoiningConfig.adjoiningParcelIds, p.id] });
+                                          } else {
+                                            setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: adjoiningConfig.adjoiningParcelIds.filter(id => id !== p.id) });
+                                          }
+                                        }}
+                                      />
+                                      <span>{p.plotNumber}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
                         )}
+                      </div>
 
-                        <div className="form-group" style={{ marginBottom: '8px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                            <label style={{ fontSize: '10px', margin: 0 }}>Included Adjoining Plots</label>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button
-                                type="button"
-                                className="btn-secondary-sm"
-                                style={{ fontSize: '8px', padding: '1px 5px' }}
-                                onClick={() => setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: parcels.filter(p => p.id !== selectedParcel?.id).map(p => p.id) })}
-                              >
-                                All
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-secondary-sm"
-                                style={{ fontSize: '8px', padding: '1px 5px' }}
-                                onClick={() => setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: [] })}
-                              >
-                                None
-                              </button>
-                            </div>
-                          </div>
-                          <div style={{ maxHeight: '80px', overflowY: 'auto', background: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px', padding: '4px' }}>
-                            {parcels.filter(p => p.id !== selectedParcel?.id).map(p => {
-                              const isChecked = adjoiningConfig.adjoiningParcelIds.includes(p.id);
-                              return (
-                                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', cursor: 'pointer', padding: '2px 4px', color: isChecked ? '#f8fafc' : '#94a3b8' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: [...adjoiningConfig.adjoiningParcelIds, p.id] });
-                                      } else {
-                                        setAdjoiningConfig({ ...adjoiningConfig, adjoiningParcelIds: adjoiningConfig.adjoiningParcelIds.filter(id => id !== p.id) });
-                                      }
-                                    }}
-                                  />
-                                  <span>{p.plotNumber}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Road Corridor Toggle */}
-                        <label className="checkbox-label" style={{ marginTop: '4px' }}>
+                      {/* Road Corridor Section */}
+                      <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)' }}>
+                        <label className="checkbox-label" style={{ margin: 0, display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 600, color: '#e2e8f0' }}>Show Access Road Corridor(s)</span>
                           <input
                             type="checkbox"
                             checked={adjoiningConfig.showRoadCorridor}
                             onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, showRoadCorridor: e.target.checked })}
                           />
-                          <span>Show Access Road Corridor(s)</span>
                         </label>
 
                         {adjoiningConfig.showRoadCorridor && (() => {
-                          // Compute legs of the focused parcel for the multi-select checklist
                           const compFocus = selectedParcel ? computeParcel(selectedParcel, points) : null;
                           const focusLegs = compFocus?.legs || [];
                           const selectedIndices = adjoiningConfig.roadFrontageLegIndices || [];
 
                           return (
-                            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {/* Road label input */}
+                            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                               <div className="form-group" style={{ margin: 0 }}>
                                 <label style={{ fontSize: '9px' }}>Road Name / Label</label>
                                 <input
                                   type="text"
                                   value={adjoiningConfig.roadCorridorLabel}
                                   onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadCorridorLabel: e.target.value })}
-                                  placeholder="e.g. 12.00m ACCESS ROAD or ABAYOMI STREET"
-                                  style={{ fontSize: '10px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                  placeholder="e.g. 12.00m ACCESS ROAD"
+                                  style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
                                 />
                               </div>
 
-                              {/* Directional Route (From -> To) */}
                               <div className="form-row-2" style={{ gap: '6px' }}>
                                 <div className="form-group" style={{ margin: 0 }}>
                                   <label style={{ fontSize: '9px' }}>From (Origin)</label>
@@ -1142,7 +1183,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     value={adjoiningConfig.roadDirectionFrom || ''}
                                     onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadDirectionFrom: e.target.value })}
                                     placeholder="e.g. ORANYAN"
-                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
                                   />
                                 </div>
                                 <div className="form-group" style={{ margin: 0 }}>
@@ -1152,12 +1193,11 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     value={adjoiningConfig.roadDirectionTo || ''}
                                     onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadDirectionTo: e.target.value })}
                                     placeholder="e.g. BEYERUNKA"
-                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                                    style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
                                   />
                                 </div>
                               </div>
 
-                              {/* Road Setback Offset & Corridor Width Sliders */}
                               <div className="form-row-2" style={{ gap: '6px' }}>
                                 <div className="form-group" style={{ margin: 0 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
@@ -1189,7 +1229,6 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* Corner Extension & Geometry Mode */}
                               <div className="form-row-2" style={{ gap: '6px' }}>
                                 <div className="form-group" style={{ margin: 0 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
@@ -1210,7 +1249,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                   <select
                                     value={adjoiningConfig.roadGeometryMode || 'straight'}
                                     onChange={(e) => setAdjoiningConfig({ ...adjoiningConfig, roadGeometryMode: e.target.value as any })}
-                                    style={{ fontSize: '9.5px', height: '26px' }}
+                                    style={{ fontSize: '9.5px', height: '24px' }}
                                   >
                                     <option value="straight">Straight Corridor</option>
                                     <option value="curved">Curved / Arc Ticks</option>
@@ -1218,11 +1257,10 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* Multi-select road frontage legs */}
                               {focusLegs.length > 0 && (
-                                <div style={{ background: 'rgba(30,41,59,0.4)', borderRadius: '4px', padding: '6px', border: '1px solid rgba(148,163,184,0.12)' }}>
-                                  <div style={{ fontSize: '9px', color: '#94a3b8', marginBottom: '4px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                                    Select Road Face(s) — tick all sides that abut a road
+                                <div style={{ background: 'rgba(15, 23, 42, 0.5)', borderRadius: '4px', padding: '4px 6px', border: '1px solid rgba(148,163,184,0.1)' }}>
+                                  <div style={{ fontSize: '8.5px', color: '#94a3b8', marginBottom: '3px', textTransform: 'uppercase' }}>
+                                    Tick Road Frontage Faces
                                   </div>
                                   {focusLegs.map((leg, idx) => {
                                     const isChecked = selectedIndices.includes(idx);
@@ -1231,7 +1269,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                         key={idx}
                                         style={{
                                           display: 'flex', alignItems: 'center', gap: '6px',
-                                          fontSize: '10px', cursor: 'pointer', padding: '2px 4px',
+                                          fontSize: '9.5px', cursor: 'pointer', padding: '1px 3px',
                                           borderRadius: '3px',
                                           background: isChecked ? 'rgba(16,185,129,0.10)' : 'transparent',
                                           color: isChecked ? '#f8fafc' : '#94a3b8'
@@ -1247,7 +1285,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                             setAdjoiningConfig({ ...adjoiningConfig, roadFrontageLegIndices: next });
                                           }}
                                         />
-                                        <span style={{ fontFamily: 'monospace', fontSize: '9.5px' }}>
+                                        <span style={{ fontFamily: 'monospace', fontSize: '9px' }}>
                                           Leg {idx + 1}: {leg.bearing.formatted} — {leg.distance.toFixed(2)}m
                                         </span>
                                       </label>
@@ -1259,65 +1297,30 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           );
                         })()}
                       </div>
-                    )}
-                  </>
-                )}
-
-                {/* Feature Toggles */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                  <Layers size={14} className="text-cyan" />
-                  <span>Survey Plan Elements</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="toggle-list">
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={showCoordinateTable}
-                      onChange={(e) => setShowCoordinateTable(e.target.checked)}
-                    />
-                    <span>Coordinate Schedule Table</span>
-                  </label>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={showSealBox}
-                      onChange={(e) => setShowSealBox(e.target.checked)}
-                    />
-                    <span>SURCON Surveyor's Seal & Cert</span>
-                  </label>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={showGridCrosses}
-                      onChange={(e) => setShowGridCrosses(e.target.checked)}
-                    />
-                    <span>Geodetic Grid Crosses ({gridStep}m)</span>
-                  </label>
-                </div>
-
-                {/* Regulatory Building Setback Tool */}
+                {/* Card 3: Zoning & Regulatory Building Setbacks */}
                 {isSinglePlot && (
-                  <>
-                    <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                      <Compass size={14} className="text-amber" />
-                      <span>Building Setback Regulation</span>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#f59e0b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <Compass size={13} />
+                      <span>Zoning &amp; Regulatory Setbacks</span>
                     </div>
 
-                    <label className="checkbox-label">
+                    <label className="checkbox-label" style={{ margin: 0, display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Calculate Building Footprint Setback</span>
                       <input
                         type="checkbox"
                         checked={showSetbacks}
                         onChange={(e) => setShowSetbacks(e.target.checked)}
                       />
-                      <span>Calculate Building Footprint Setback</span>
                     </label>
 
                     {showSetbacks && (
-                      <div className="setback-config-box">
-                        <div className="form-group">
+                      <div className="setback-config-box" style={{ marginTop: '8px' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
                           <label>Setback Distance (m)</label>
                           <input
                             type="number"
@@ -1327,7 +1330,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           />
                         </div>
                         {setbackResult && (
-                          <div className="setback-stats">
+                          <div className="setback-stats" style={{ marginTop: '8px' }}>
                             <div>Gross Plot Area: <strong>{setbackResult.originalArea.toFixed(1)} m²</strong></div>
                             <div>Usable Build Footprint: <strong className="text-emerald">{setbackResult.usableBuildingArea.toFixed(1)} m²</strong></div>
                             <div>Coverage Ratio: <strong>{((setbackResult.usableBuildingArea / setbackResult.originalArea) * 100).toFixed(1)}%</strong></div>
@@ -1335,695 +1338,508 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                         )}
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
-              </>
+              </div>
             )}
 
             {/* TAB 2: DESIGN & TEMPLATE STUDIO */}
             {activeTab === 'design' && (
-              <>
-                <div className="sidebar-section-title">
-                  <Palette size={14} className="text-emerald" />
-                  <span>Template & Theme Presets</span>
-                </div>
-
-                <div className="tdp-preset-grid">
-                  <div
-                    className={`tdp-preset-card ${styleConfig.themePreset === 'federal_standard' ? 'active' : ''}`}
-                    onClick={() => handleApplyTheme('federal_standard')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#10b981' }}>Federal SURCON</div>
-                    <div className="tdp-preset-sub">Cadastral Green • Solid</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* SECTION 1: Cadastral Archetypes & Regional Presets */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#f59e0b', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Layout size={13} />
+                    <span>Regional Layout Archetypes</span>
                   </div>
 
-                  <div
-                    className={`tdp-preset-card ${styleConfig.themePreset === 'state_lands' ? 'active' : ''}`}
-                    onClick={() => handleApplyTheme('state_lands')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>State Lands</div>
-                    <div className="tdp-preset-sub">Navy Blue • Hatch Fill</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${styleConfig.themePreset === 'executive_deed' ? 'active' : ''}`}
-                    onClick={() => handleApplyTheme('executive_deed')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#d97706' }}>Executive Deed</div>
-                    <div className="tdp-preset-sub">Charcoal • Gold Accents</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${styleConfig.themePreset === 'cad_blueprint' ? 'active' : ''}`}
-                    onClick={() => handleApplyTheme('cad_blueprint')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>CAD Blueprint</div>
-                    <div className="tdp-preset-sub">Cyan • Crosshatch</div>
-                  </div>
-                </div>
-
-                {/* Typography Engine */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                  <Sliders size={14} className="text-cyan" />
-                  <span>Typography Scales</span>
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Plot Title Size</span>
-                    <span>{styleConfig.titleFontSize} pt</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={8}
-                    max={16}
-                    step={0.5}
-                    value={styleConfig.titleFontSize}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, titleFontSize: parseFloat(e.target.value) || 10, themePreset: 'custom' })}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Bearing & Distance Size</span>
-                    <span>{styleConfig.bearingFontSize} pt</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={4.5}
-                    max={9}
-                    step={0.25}
-                    value={styleConfig.bearingFontSize}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, bearingFontSize: parseFloat(e.target.value) || 5.5, themePreset: 'custom' })}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Beacon ID Size</span>
-                    <span>{styleConfig.beaconFontSize} pt</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={4.5}
-                    max={9}
-                    step={0.25}
-                    value={styleConfig.beaconFontSize}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconFontSize: parseFloat(e.target.value) || 6.0, themePreset: 'custom' })}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Centroid Area Metric Size</span>
-                    <span>{styleConfig.areaFontSize} pt</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={5.5}
-                    max={11}
-                    step={0.5}
-                    value={styleConfig.areaFontSize}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, areaFontSize: parseFloat(e.target.value) || 7.5, themePreset: 'custom' })}
-                  />
-                </div>
-
-                {/* Boundary Linework */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                  <Layers size={14} className="text-emerald" />
-                  <span>Boundary Linework & Stroke</span>
-                </div>
-
-                <div className="form-group">
-                  <label>Boundary Line Color</label>
-                  <div className="color-swatch-row">
-                    {['#10b981', '#1e3a8a', '#dc2626', '#0f172a', '#d97706', '#0284c7'].map(col => (
-                      <button
-                        key={col}
-                        type="button"
-                        className={`color-swatch-btn ${styleConfig.boundaryColor === col ? 'active' : ''}`}
-                        style={{ background: col }}
-                        onClick={() => setStyleConfig({ ...styleConfig, boundaryColor: col, themePreset: 'custom' })}
-                      />
-                    ))}
-                    <input
-                      type="color"
-                      value={styleConfig.boundaryColor}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, boundaryColor: e.target.value, themePreset: 'custom' })}
-                      style={{ width: '24px', height: '24px', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Line Width</span>
-                    <span>{(styleConfig.boundaryLineWidth || 0.6).toFixed(2)} mm</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={2.5}
-                    step={0.05}
-                    value={styleConfig.boundaryLineWidth || 0.6}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineWidth: parseFloat(e.target.value) || 0.6, themePreset: 'custom' })}
-                  />
-                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                    {[0.3, 0.6, 0.8, 1.2].map(w => (
-                      <button
-                        key={w}
-                        type="button"
-                        className="btn-secondary-xs"
-                        style={{
-                          flex: 1,
-                          fontSize: '10px',
-                          padding: '2px 0',
-                          background: styleConfig.boundaryLineWidth === w ? 'rgba(16,185,129,0.15)' : undefined,
-                          borderColor: styleConfig.boundaryLineWidth === w ? 'rgba(16,185,129,0.4)' : undefined,
-                          color: styleConfig.boundaryLineWidth === w ? '#10b981' : undefined
-                        }}
-                        onClick={() => setStyleConfig({ ...styleConfig, boundaryLineWidth: w, themePreset: 'custom' })}
-                      >
-                        {w}mm
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label>Line Style</label>
-                  <select
-                    value={styleConfig.boundaryLineStyle}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineStyle: e.target.value as any, themePreset: 'custom' })}
-                  >
-                    <option value="solid">Solid Line (Continuous)</option>
-                    <option value="dashed">Dashed Line</option>
-                    <option value="dashdot">Dash-Dot (Boundary Standard)</option>
-                  </select>
-                </div>
-
-                {/* Beacon Marker Styling */}
-                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
-                  <ShieldCheck size={14} className="text-rose-400" />
-                  <span>Beacon & Pillar Markers</span>
-                </div>
-
-                <div className="form-group">
-                  <label>Beacon Marker Symbol</label>
-                  <select
-                    value={styleConfig.beaconSymbolStyle || 'circle_cross'}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconSymbolStyle: e.target.value as any, themePreset: 'custom' })}
-                  >
-                    <option value="circle_cross">SURCON Monument (Circle with Crosshairs)</option>
-                    <option value="filled_circle">Filled Concrete Pillar (Dot)</option>
-                    <option value="open_circle">Open Ring Marker</option>
-                    <option value="square">Square Boundary Beacon</option>
-                    <option value="triangle">Triangulation Benchmark</option>
-                  </select>
-                </div>
-
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Beacon Color</label>
-                    <input
-                      type="color"
-                      value={styleConfig.beaconColor}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, beaconColor: e.target.value, themePreset: 'custom' })}
-                      style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Control Stn Color</label>
-                    <input
-                      type="color"
-                      value={styleConfig.controlColor || '#f59e0b'}
-                      onChange={(e) => setStyleConfig({ ...styleConfig, controlColor: e.target.value, themePreset: 'custom' })}
-                      style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Marker Radius</span>
-                    <span>{(styleConfig.beaconSize || 1.4).toFixed(1)} mm</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={4.0}
-                    step={0.1}
-                    value={styleConfig.beaconSize || 1.4}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconSize: parseFloat(e.target.value) || 1.4, themePreset: 'custom' })}
-                  />
-                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                    {[1.0, 1.4, 1.8, 2.5].map(r => (
-                      <button
-                        key={r}
-                        type="button"
-                        className="btn-secondary-xs"
-                        style={{
-                          flex: 1,
-                          fontSize: '10px',
-                          padding: '2px 0',
-                          background: styleConfig.beaconSize === r ? 'rgba(244,63,94,0.15)' : undefined,
-                          borderColor: styleConfig.beaconSize === r ? 'rgba(244,63,94,0.4)' : undefined,
-                          color: styleConfig.beaconSize === r ? '#fb7185' : undefined
-                        }}
-                        onClick={() => setStyleConfig({ ...styleConfig, beaconSize: r, themePreset: 'custom' })}
-                      >
-                        {r}mm
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Marker Line Stroke</span>
-                    <span>{(styleConfig.beaconLineWidth || 0.3).toFixed(2)} mm</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1.2}
-                    step={0.05}
-                    value={styleConfig.beaconLineWidth || 0.3}
-                    onChange={(e) => setStyleConfig({ ...styleConfig, beaconLineWidth: parseFloat(e.target.value) || 0.3, themePreset: 'custom' })}
-                  />
-                </div>
-
-                {/* Granular Plot Shading & Styling */}
-                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
-                  <Palette size={14} className="text-amber" />
-                  <span>Granular Plot Shading & Styles</span>
-                </div>
-
-                {/* Plot Selector */}
-                <div className="form-group">
-                  <label>Target Plot to Style</label>
-                  <select
-                    value={selectedShadingPlotId}
-                    onChange={(e) => setSelectedShadingPlotId(e.target.value)}
-                    style={{ fontWeight: selectedShadingPlotId === 'global' ? 'normal' : 'bold', color: selectedShadingPlotId === 'global' ? undefined : '#38bdf8' }}
-                  >
-                    <option value="global">🌐 Global Default (All Plots)</option>
-                    {parcels.map(p => {
-                      const hasOverride = !!styleConfig.parcelShadingOverrides?.[p.id];
-                      return (
-                        <option key={p.id} value={p.id}>
-                          {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''} {hasOverride ? '• [Custom Styled]' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                {/* Controls for Global Default */}
-                {selectedShadingPlotId === 'global' ? (
-                  <div style={{ padding: '8px', background: 'rgba(15,23,42,0.4)', borderRadius: '6px', border: '1px solid rgba(148,163,184,0.1)' }}>
-                    <div className="form-group">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                        <span>Global Shading Opacity</span>
-                        <span>{((styleConfig.fillOpacity || 0) * 100).toFixed(0)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={0.5}
-                        step={0.02}
-                        value={styleConfig.fillOpacity}
-                        onChange={(e) => setStyleConfig({ ...styleConfig, fillOpacity: parseFloat(e.target.value) || 0, themePreset: 'custom' })}
-                      />
+                  <div className="tdp-preset-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: '10px' }}>
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'fct_abuja_rofo' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('fct_abuja_rofo')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#10b981' }}>FCT Abuja R-of-O</div>
+                      <div className="tdp-preset-sub">Ministerial Header • Staff Grid</div>
                     </div>
 
-                    <div className="form-row-2">
-                      <div className="form-group">
-                        <label>Hatch Pattern</label>
-                        <select
-                          value={styleConfig.hatchPattern}
-                          onChange={(e) => setStyleConfig({ ...styleConfig, hatchPattern: e.target.value as any, themePreset: 'custom' })}
-                        >
-                          <option value="none">None / Wireframe</option>
-                          <option value="tint">Solid Tint</option>
-                          <option value="diagonal">45° Diagonal Hatch</option>
-                          <option value="cross">Crosshatch Grid</option>
-                        </select>
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'surcon_standard' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('surcon_standard')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>SURCON Standard</div>
+                      <div className="tdp-preset-sub">Plan Shewing • 3-Box Footer</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'lagos_lasg_cadastral' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('lagos_lasg_cadastral')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>Lagos State LASG</div>
+                      <div className="tdp-preset-sub">UTM Zone 31 • Dual Frame</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'subdivision_layout' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('subdivision_layout')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#a855f7' }}>Estate Allotment</div>
+                      <div className="tdp-preset-sub">Being Plot X • Subdivided</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'state_lands_boxed' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('state_lands_boxed')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#f59e0b' }}>State Lands Boxed</div>
+                      <div className="tdp-preset-sub">Left Banner • Boxed Table</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${layoutArrangement.preset === 'right_sidebar' ? 'active' : ''}`}
+                      onClick={() => handleApplyLayoutPreset('right_sidebar')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#ec4899' }}>Right Sidebar</div>
+                      <div className="tdp-preset-sub">Meta Column • Wide Canvas</div>
+                    </div>
+                  </div>
+
+                  {/* Framing & Header Archetype Options */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <label className="checkbox-label" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '10.5px', color: '#e2e8f0' }}>Draw Double Neatline Outer Border</span>
+                      <input
+                        type="checkbox"
+                        checked={layoutArrangement.showNeatlineFrame !== false}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showNeatlineFrame: e.target.checked })}
+                      />
+                    </label>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '9px' }}>Header Template Archetype</label>
+                      <select
+                        value={layoutArrangement.headerTemplate || (layoutArrangement.preset === 'fct_abuja_rofo' ? 'fct_rofo' : layoutArrangement.preset === 'surcon_standard' ? 'shewing_property' : 'shewing_property')}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, headerTemplate: e.target.value as any })}
+                        style={{ fontSize: '10px', height: '26px' }}
+                      >
+                        <option value="fct_rofo">FCT Abuja Right of Occupancy (R-of-O)</option>
+                        <option value="shewing_property">SURCON Standard: Plan Shewing Property...</option>
+                        <option value="being_plot">Subdivision: Plan of Land Being Plot X...</option>
+                        <option value="custom">Standard / Custom Title Header</option>
+                      </select>
+                    </div>
+
+                    {/* FCT Abuja Specific Metadata Fields */}
+                    {(layoutArrangement.headerTemplate === 'fct_rofo' || layoutArrangement.preset === 'fct_abuja_rofo') && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px', marginTop: '6px' }}>
+                        <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', textTransform: 'uppercase' }}>FCT Right of Occupancy Details</div>
+                        <div className="form-row-2" style={{ gap: '6px' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>R-of-O Number</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.rOfONumber || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, rOfONumber: e.target.value }
+                              })}
+                              placeholder="FCT RLA/ 2002/ 016"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Allottee Name</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.allotteeName || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, allotteeName: e.target.value }
+                              })}
+                              placeholder="CHRIST THE KING CATHOLIC CHURCH"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-row-2" style={{ gap: '6px' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>District / Area</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.districtArea || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, districtArea: e.target.value }
+                              })}
+                              placeholder="GWAGWALADA"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Cadastral Zone</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.cadastralZone || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, cadastralZone: e.target.value }
+                              })}
+                              placeholder="CADASTRAL ZONE 04-07"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-row-2" style={{ gap: '6px' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Layout Name</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.layoutName || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, layoutName: e.target.value }
+                              })}
+                              placeholder="CKC EXT.   LAYOUT"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Full Beacon Number</label>
+                            <input
+                              type="text"
+                              value={layoutArrangement.fctConfig?.fullBeaconNumber || ''}
+                              onChange={(e) => setLayoutArrangement({
+                                ...layoutArrangement,
+                                fctConfig: { ...layoutArrangement.fctConfig, fullBeaconNumber: e.target.value }
+                              })}
+                              placeholder="FCT PB 6371"
+                              style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div className="form-group">
-                        <label>Fill Tint Color</label>
+                    )}
+
+                    {/* SURCON / State Lands Header & Location Fields */}
+                    {(layoutArrangement.headerTemplate === 'shewing_property' || layoutArrangement.preset === 'surcon_standard') && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px', marginTop: '6px' }}>
+                        <div style={{ fontSize: '9px', fontWeight: 600, color: '#0ea5e9', textTransform: 'uppercase' }}>SURCON Property &amp; Locality Details</div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Owner / Client Name</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.clientName || ''}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, clientName: e.target.value })}
+                            placeholder="e.g. MR. & MRS. TUNDE BAKARE"
+                            style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Locality (Line 1)</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.locationLocality || ''}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLocality: e.target.value })}
+                            placeholder="e.g. AT OFF OLD IFE ROAD, KUMAPAYI AREA, OLODO"
+                            style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>LGA &amp; State (Line 2)</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.locationLgaState || ''}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLgaState: e.target.value })}
+                            placeholder="e.g. EGBEDA LOCAL GOVERNMENT, OYO STATE"
+                            style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '8.5px' }}>Origin Datum Note</label>
+                          <input
+                            type="text"
+                            value={layoutArrangement.originDatumName || ''}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originDatumName: e.target.value })}
+                            placeholder="e.g. ORIGIN: - OYO SOUTH BEACON (OSB 12T) NATIONAL CADASTRAL DATUM"
+                            style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Header & Plan Text Overrides */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#38bdf8', marginBottom: '6px', textTransform: 'uppercase' }}>Custom Text Overrides</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Plan Title Text</label>
+                      <input
+                        type="text"
+                        value={layoutArrangement.customTitleText || ''}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customTitleText: e.target.value || undefined, preset: 'custom_free' })}
+                        placeholder="TITLE DEED PLAN"
+                        style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Subtitle / Description</label>
+                      <input
+                        type="text"
+                        value={layoutArrangement.customSubtitleText || ''}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customSubtitleText: e.target.value || undefined, preset: 'custom_free' })}
+                        placeholder="e.g. PLAN SHOWING PLOT 12"
+                        style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                      />
+                    </div>
+                    <div className="form-row-2" style={{ gap: '6px' }}>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Location &amp; Datum</label>
                         <input
-                          type="color"
-                          value={styleConfig.fillColor}
-                          onChange={(e) => setStyleConfig({ ...styleConfig, fillColor: e.target.value, themePreset: 'custom' })}
-                          style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                          type="text"
+                          value={layoutArrangement.customLocationText || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customLocationText: e.target.value || undefined, preset: 'custom_free' })}
+                          placeholder={`SITUATED AT: ${project.location.toUpperCase()}`}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Plan / Job No</label>
+                        <input
+                          type="text"
+                          value={layoutArrangement.customPlanNoText || ''}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customPlanNoText: e.target.value || undefined, preset: 'custom_free' })}
+                          placeholder={project.code || 'PLAN-001'}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
                         />
                       </div>
                     </div>
                   </div>
-                ) : (
-                  /* Controls for Specific Plot Override */
-                  (() => {
-                    const targetPlot = parcels.find(p => p.id === selectedShadingPlotId);
-                    const override = styleConfig.parcelShadingOverrides?.[selectedShadingPlotId];
-                    const isCustomEnabled = !!override;
-                    const plotFillCol = override?.fillColor || styleConfig.fillColor;
-                    const plotFillOp = override?.fillOpacity !== undefined ? override.fillOpacity : styleConfig.fillOpacity;
-                    const plotHatch = override?.hatchPattern || styleConfig.hatchPattern;
-                    const plotBoundCol = override?.boundaryColor || styleConfig.boundaryColor;
-                    const plotBoundWidth = override?.boundaryLineWidth || styleConfig.boundaryLineWidth || 0.6;
-
-                    return (
-                      <div style={{ padding: '8px', background: 'rgba(56,189,248,0.04)', borderRadius: '6px', border: '1px solid rgba(56,189,248,0.2)' }}>
-                        <label className="checkbox-label" style={{ marginBottom: '8px' }}>
-                          <input
-                            type="checkbox"
-                            checked={isCustomEnabled}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                handleUpdatePlotShading(selectedShadingPlotId, {
-                                  fillColor: styleConfig.fillColor,
-                                  fillOpacity: styleConfig.fillOpacity,
-                                  hatchPattern: styleConfig.hatchPattern,
-                                  boundaryColor: styleConfig.boundaryColor,
-                                  boundaryLineWidth: styleConfig.boundaryLineWidth
-                                });
-                              } else {
-                                handleUpdatePlotShading(selectedShadingPlotId, null);
-                              }
-                            }}
-                          />
-                          <span style={{ fontWeight: 'bold', color: '#38bdf8' }}>
-                            Enable Custom Style for {targetPlot?.plotNumber || 'this plot'}
-                          </span>
-                        </label>
-
-                        {isCustomEnabled && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div className="form-row-2">
-                              <div className="form-group">
-                                <label>Plot Fill Color</label>
-                                <input
-                                  type="color"
-                                  value={plotFillCol}
-                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillColor: e.target.value })}
-                                  style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
-                                />
-                              </div>
-                              <div className="form-group">
-                                <label>Hatch Pattern</label>
-                                <select
-                                  value={plotHatch}
-                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { hatchPattern: e.target.value as any })}
-                                >
-                                  <option value="none">None / Wireframe</option>
-                                  <option value="tint">Solid Tint</option>
-                                  <option value="diagonal">45° Diagonal Hatch</option>
-                                  <option value="cross">Crosshatch Grid</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            <div className="form-group">
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                                <span>Plot Fill Opacity</span>
-                                <span>{(plotFillOp * 100).toFixed(0)}%</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={0}
-                                max={0.6}
-                                step={0.02}
-                                value={plotFillOp}
-                                onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillOpacity: parseFloat(e.target.value) || 0 })}
-                              />
-                            </div>
-
-                            <div className="form-row-2">
-                              <div className="form-group">
-                                <label>Border Color</label>
-                                <input
-                                  type="color"
-                                  value={plotBoundCol}
-                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { boundaryColor: e.target.value })}
-                                  style={{ width: '100%', height: '28px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
-                                />
-                              </div>
-                              <div className="form-group">
-                                <label>Border Width</label>
-                                <select
-                                  value={plotBoundWidth}
-                                  onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { boundaryLineWidth: parseFloat(e.target.value) || 0.6 })}
-                                >
-                                  <option value={0.3}>0.3 mm (Fine)</option>
-                                  <option value={0.6}>0.6 mm (Standard)</option>
-                                  <option value={0.9}>0.9 mm (Bold)</option>
-                                  <option value={1.4}>1.4 mm (Heavy)</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              className="btn-secondary-xs"
-                              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: '#fb7185', borderColor: 'rgba(251,113,133,0.3)', marginTop: '4px' }}
-                              onClick={() => handleUpdatePlotShading(selectedShadingPlotId, null)}
-                            >
-                              <RotateCcw size={11} />
-                              <span>Reset {targetPlot?.plotNumber} to Global Default</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                )}
-
-                {/* CAD Layout & Sheet Block Arrangement */}
-                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
-                  <Layout size={14} className="text-amber" />
-                  <span>Cadastral Layout & Regional Presets</span>
                 </div>
 
-                <div className="tdp-preset-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'fct_abuja_rofo' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('fct_abuja_rofo')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#10b981' }}>FCT Abuja R-of-O</div>
-                    <div className="tdp-preset-sub">Ministerial Header • Staff Grid</div>
+                {/* SECTION 2: True North & Geodetic Meridian */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#38bdf8', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Compass size={13} />
+                    <span>True North &amp; Geodetic Meridian</span>
                   </div>
-
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'surcon_standard' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('surcon_standard')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>SURCON Standard</div>
-                    <div className="tdp-preset-sub">Plan Shewing • 3-Box Footer</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'lagos_lasg_cadastral' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('lagos_lasg_cadastral')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>Lagos State LASG</div>
-                    <div className="tdp-preset-sub">UTM Zone 31 • Dual Frame</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'subdivision_layout' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('subdivision_layout')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#a855f7' }}>Estate Allotment</div>
-                    <div className="tdp-preset-sub">Being Plot X • Subdivided</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'state_lands_boxed' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('state_lands_boxed')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#f59e0b' }}>State Lands Boxed</div>
-                    <div className="tdp-preset-sub">Left Banner • Boxed Table</div>
-                  </div>
-
-                  <div
-                    className={`tdp-preset-card ${layoutArrangement.preset === 'right_sidebar' ? 'active' : ''}`}
-                    onClick={() => handleApplyLayoutPreset('right_sidebar')}
-                  >
-                    <div className="tdp-preset-title" style={{ color: '#ec4899' }}>Right Sidebar</div>
-                    <div className="tdp-preset-sub">Meta Column • Wide Canvas</div>
-                  </div>
-                </div>
-
-                {/* Framing & Regional Template Customization Fields */}
-                <div style={{ background: 'rgba(15, 23, 42, 0.45)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.15)', marginTop: '8px' }}>
-                  <label className="checkbox-label" style={{ marginBottom: '8px' }}>
-                    <input
-                      type="checkbox"
-                      checked={layoutArrangement.showNeatlineFrame !== false}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showNeatlineFrame: e.target.checked })}
-                    />
-                    <span>Draw Double Neatline Outer Border</span>
-                  </label>
 
                   <div className="form-group" style={{ marginBottom: '8px' }}>
-                    <label style={{ fontSize: '9px' }}>Header Template Archetype</label>
+                    <label>Meridian Mode</label>
                     <select
-                      value={layoutArrangement.headerTemplate || (layoutArrangement.preset === 'fct_abuja_rofo' ? 'fct_rofo' : layoutArrangement.preset === 'surcon_standard' ? 'shewing_property' : 'shewing_property')}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, headerTemplate: e.target.value as any })}
-                      style={{ fontSize: '10px', height: '26px' }}
+                      value={layoutArrangement.northArrowMode || 'origin_beacon'}
+                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowMode: e.target.value as any, preset: 'custom_free' })}
                     >
-                      <option value="fct_rofo">FCT Abuja Right of Occupancy (R-of-O)</option>
-                      <option value="shewing_property">SURCON Standard: Plan Shewing Property...</option>
-                      <option value="being_plot">Subdivision: Plan of Land Being Plot X...</option>
-                      <option value="custom">Standard / Custom Title Header</option>
+                      <option value="origin_beacon">Origin Meridian on Beacon</option>
+                      <option value="corner">Floating Corner North Arrow</option>
+                      <option value="both">Both (Origin Cross + Corner)</option>
                     </select>
                   </div>
 
-                  {/* FCT Abuja Specific Metadata Fields */}
-                  {(layoutArrangement.headerTemplate === 'fct_rofo' || layoutArrangement.preset === 'fct_abuja_rofo') && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px' }}>
-                      <div style={{ fontSize: '9.5px', fontWeight: 600, color: '#10b981' }}>FCT Right of Occupancy Parameters</div>
-                      <div className="form-row-2">
+                  {/* Dedicated Full-Width True North Styling & Extents Card */}
+                  {(layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both' || !layoutArrangement.northArrowMode) && (
+                    <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                      <div className="form-row-2" style={{ gap: '6px', marginBottom: '8px' }}>
                         <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>R-of-O Number</label>
+                          <label style={{ fontSize: '9px' }}>North Symbol</label>
+                          <select
+                            value={layoutArrangement.trueNorthStyle || 'UN'}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStyle: e.target.value as any, preset: 'custom_free' })}
+                            style={{ fontSize: '9.5px', height: '24px' }}
+                          >
+                            <option value="UN">U N (Universal North)</option>
+                            <option value="TN">T N (True North)</option>
+                            <option value="N">N (Grid North)</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '9px' }}>Origin Beacon</label>
+                          <select
+                            value={layoutArrangement.originBeaconId || targetPoints[0]?.id || ''}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originBeaconId: e.target.value, preset: 'custom_free' })}
+                            style={{ fontSize: '9.5px', height: '24px' }}
+                          >
+                            {targetPoints.map(p => (
+                              <option key={p.id} value={p.id}>{p.id}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="form-row-2" style={{ gap: '6px', marginBottom: '8px' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '9px' }}>Entity Color</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(15, 23, 42, 0.5)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+                            <input
+                              type="color"
+                              value={layoutArrangement.trueNorthColor || '#0f172a'}
+                              onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthColor: e.target.value, preset: 'custom_free' })}
+                              style={{ width: '20px', height: '20px', padding: 0, border: 'none', cursor: 'pointer', background: 'transparent' }}
+                            />
+                            <span style={{ fontSize: '10px', color: '#e2e8f0', fontFamily: 'monospace' }}>{layoutArrangement.trueNorthColor || '#0f172a'}</span>
+                          </div>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '9px' }}>Stroke Width</label>
+                          <select
+                            value={layoutArrangement.trueNorthStrokeWidth ?? 0.25}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStrokeWidth: Number(e.target.value), preset: 'custom_free' })}
+                            style={{ fontSize: '9.5px', height: '24px' }}
+                          >
+                            <option value="0.15">Fine (0.15mm)</option>
+                            <option value="0.25">Standard (0.25mm)</option>
+                            <option value="0.35">Medium (0.35mm)</option>
+                            <option value="0.50">Bold (0.50mm)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                          <span>Easting Text Gap</span>
+                          <span>{layoutArrangement.trueNorthTextOffset ?? 0.8}mm</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="3.0"
+                          step="0.1"
+                          value={layoutArrangement.trueNorthTextOffset ?? 0.8}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthTextOffset: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: '6px', background: 'rgba(15, 23, 42, 0.4)', padding: '4px 6px', borderRadius: '4px' }}>
+                        <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                          <span style={{ fontSize: '10px', color: '#e2e8f0' }}>Mask Parcel Interior (Clean Plot)</span>
                           <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.rOfONumber || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, rOfONumber: e.target.value }
-                            })}
-                            placeholder="FCT RLA/ 2002/ 016"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                            type="checkbox"
+                            checked={layoutArrangement.trueNorthMaskParcel !== false}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthMaskParcel: e.target.checked, preset: 'custom_free' })}
+                            style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="form-row-2" style={{ gap: '6px', marginBottom: '4px' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                            <span>North (Up)</span>
+                            <span>{layoutArrangement.trueNorthLengthNorth ?? 45}mm</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="20"
+                            max="120"
+                            value={layoutArrangement.trueNorthLengthNorth ?? 45}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthNorth: Number(e.target.value), preset: 'custom_free' })}
+                            style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
                           />
                         </div>
                         <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>Allottee Name</label>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                            <span>South (Down)</span>
+                            <span>{layoutArrangement.trueNorthLengthSouth ?? 18}mm</span>
+                          </div>
                           <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.allotteeName || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, allotteeName: e.target.value }
-                            })}
-                            placeholder="CHRIST THE KING CATHOLIC CHURCH"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                            type="range"
+                            min="5"
+                            max="80"
+                            value={layoutArrangement.trueNorthLengthSouth ?? 18}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthSouth: Number(e.target.value), preset: 'custom_free' })}
+                            style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
                           />
                         </div>
                       </div>
 
-                      <div className="form-row-2">
+                      <div className="form-row-2" style={{ gap: '6px' }}>
                         <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>District / Area</label>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                            <span>East (Right)</span>
+                            <span>{layoutArrangement.trueNorthLengthEast ?? 45}mm</span>
+                          </div>
                           <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.districtArea || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, districtArea: e.target.value }
-                            })}
-                            placeholder="GWAGWALADA"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                            type="range"
+                            min="15"
+                            max="120"
+                            value={layoutArrangement.trueNorthLengthEast ?? 45}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthEast: Number(e.target.value), preset: 'custom_free' })}
+                            style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
                           />
                         </div>
                         <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>Cadastral Zone</label>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                            <span>West (Left)</span>
+                            <span>{layoutArrangement.trueNorthLengthWest ?? 12}mm</span>
+                          </div>
                           <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.cadastralZone || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, cadastralZone: e.target.value }
-                            })}
-                            placeholder="CADASTRAL ZONE 04-07"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="form-row-2">
-                        <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>Layout Name</label>
-                          <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.layoutName || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, layoutName: e.target.value }
-                            })}
-                            placeholder="CKC EXT.   LAYOUT"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                          />
-                        </div>
-                        <div className="form-group" style={{ margin: 0 }}>
-                          <label style={{ fontSize: '8.5px' }}>Full Beacon Number</label>
-                          <input
-                            type="text"
-                            value={layoutArrangement.fctConfig?.fullBeaconNumber || ''}
-                            onChange={(e) => setLayoutArrangement({
-                              ...layoutArrangement,
-                              fctConfig: { ...layoutArrangement.fctConfig, fullBeaconNumber: e.target.value }
-                            })}
-                            placeholder="FCT PB 6371"
-                            style={{ fontSize: '9.5px', padding: '3px 6px' }}
+                            type="range"
+                            min="5"
+                            max="80"
+                            value={layoutArrangement.trueNorthLengthWest ?? 12}
+                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthWest: Number(e.target.value), preset: 'custom_free' })}
+                            style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
                           />
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* SURCON / State Lands Header & Location Fields */}
-                  {(layoutArrangement.headerTemplate === 'shewing_property' || layoutArrangement.preset === 'surcon_standard') && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: '6px' }}>
-                      <div style={{ fontSize: '9.5px', fontWeight: 600, color: '#0ea5e9' }}>SURCON Property & Locality Details</div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '8.5px' }}>Owner / Client Name</label>
-                        <input
-                          type="text"
-                          value={layoutArrangement.clientName || ''}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, clientName: e.target.value })}
-                          placeholder="e.g. MR. & MRS. TUNDE BAKARE"
-                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '8.5px' }}>Locality (Line 1)</label>
-                        <input
-                          type="text"
-                          value={layoutArrangement.locationLocality || ''}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLocality: e.target.value })}
-                          placeholder="e.g. AT OFF OLD IFE ROAD, KUMAPAYI AREA, OLODO"
-                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '8.5px' }}>LGA & State (Line 2)</label>
-                        <input
-                          type="text"
-                          value={layoutArrangement.locationLgaState || ''}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, locationLgaState: e.target.value })}
-                          placeholder="e.g. EGBEDA LOCAL GOVERNMENT, OYO STATE"
-                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '8.5px' }}>Origin Datum Note</label>
-                        <input
-                          type="text"
-                          value={layoutArrangement.originDatumName || ''}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originDatumName: e.target.value })}
-                          placeholder="e.g. ORIGIN: - OYO SOUTH BEACON (OSB 12T) NATIONAL CADASTRAL DATUM"
-                          style={{ fontSize: '9.5px', padding: '3px 6px' }}
-                        />
-                      </div>
+                  {(layoutArrangement.northArrowMode === 'corner' || layoutArrangement.northArrowMode === 'both') && (
+                    <div className="form-group" style={{ marginTop: '8px' }}>
+                      <label>Corner Arrow Position</label>
+                      <select
+                        value={layoutArrangement.northArrowPosition}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowPosition: e.target.value as any, preset: 'custom_free' })}
+                      >
+                        <option value="top_right">Top-Right (Default)</option>
+                        <option value="top_left">Top-Left</option>
+                        <option value="bottom_right">Bottom-Right</option>
+                      </select>
                     </div>
                   )}
                 </div>
 
-                {/* Detailed Block Positions */}
-                <div className="form-row-2" style={{ marginTop: '8px' }}>
-                  <div className="form-group">
+                {/* SECTION 3: Table Schedules & Block Positioning */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#0ea5e9', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Table size={13} />
+                    <span>Table Schedules &amp; Positions</span>
+                  </div>
+
+                  <div className="form-row-2" style={{ gap: '6px', marginBottom: '8px' }}>
+                    <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                      <label style={{ fontSize: '8.5px' }}>Coordinate Table</label>
+                      <select
+                        value={layoutArrangement.coordTablePosition}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, coordTablePosition: e.target.value as any, preset: 'custom_free' })}
+                        style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, fontSize: '9.5px' }}
+                      >
+                        <option value="bottom_left">Bottom-Left (Default)</option>
+                        <option value="bottom_right">Bottom-Right</option>
+                        <option value="right_column">Right Sidebar</option>
+                        <option value="top_right">Top-Right</option>
+                        <option value="hidden">Hidden</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                      <label style={{ fontSize: '8.5px' }}>Surveyor's Seal</label>
+                      <select
+                        value={layoutArrangement.sealBoxPosition}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, sealBoxPosition: e.target.value as any, preset: 'custom_free' })}
+                        style={{ width: '100%', boxSizing: 'border-box', minWidth: 0, fontSize: '9.5px' }}
+                      >
+                        <option value="bottom_right">Bottom-Right (Default)</option>
+                        <option value="bottom_left">Bottom-Left</option>
+                        <option value="bottom_center">Bottom-Center</option>
+                        <option value="right_column">Right Sidebar</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
                     <label>Header Title Align</label>
                     <select
                       value={layoutArrangement.headerAlign}
@@ -2035,333 +1851,458 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label>Coordinate Table</label>
-                    <select
-                      value={layoutArrangement.coordTablePosition}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, coordTablePosition: e.target.value as any, preset: 'custom_free' })}
-                    >
-                      <option value="bottom_left">Bottom-Left (Default)</option>
-                      <option value="bottom_right">Bottom-Right</option>
-                      <option value="right_column">Right Sidebar Column</option>
-                      <option value="top_right">Top-Right (Floating)</option>
-                      <option value="hidden">Hidden</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Surveyor's Seal Position</label>
-                    <select
-                      value={layoutArrangement.sealBoxPosition}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, sealBoxPosition: e.target.value as any, preset: 'custom_free' })}
-                    >
-                      <option value="bottom_right">Bottom-Right (Default)</option>
-                      <option value="bottom_left">Bottom-Left</option>
-                      <option value="bottom_center">Bottom-Center</option>
-                      <option value="right_column">Right Sidebar Column</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label>True North &amp; Meridian Mode</label>
-                    <select
-                      value={layoutArrangement.northArrowMode || 'origin_beacon'}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowMode: e.target.value as any, preset: 'custom_free' })}
-                    >
-                      <option value="origin_beacon">Origin Meridian on Beacon</option>
-                      <option value="corner">Floating Corner North Arrow</option>
-                      <option value="both">Both (Origin Cross + Corner)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Dedicated Full-Width True North Styling & Extents Card */}
-                {(layoutArrangement.northArrowMode === 'origin_beacon' || layoutArrangement.northArrowMode === 'both' || !layoutArrangement.northArrowMode) && (
-                  <div style={{ background: 'rgba(15, 23, 42, 0.55)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.25)', marginTop: '8px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#38bdf8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Compass size={13} />
-                      <span>True North &amp; Origin Meridian Specs</span>
+                  {/* Short Legs / Dimension Schedule Routing */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#38bdf8', marginBottom: '6px', textTransform: 'uppercase' }}>Short-Leg Schedule Routing</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Dimension Placement Strategy</label>
+                      <select
+                        value={layoutArrangement.shortLegScheduleMode || 'auto'}
+                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegScheduleMode: e.target.value as any, preset: 'custom_free' })}
+                        style={{ fontSize: '10px', height: '26px' }}
+                      >
+                        <option value="auto">Auto Offload Short Legs to Table (Default)</option>
+                        <option value="all_on_drawing">Keep All on Drawing (Leader line if moved)</option>
+                        <option value="all_in_schedule">Move All to Schedule Table</option>
+                        <option value="manual">Manual Assignment (Layers Tab)</option>
+                      </select>
                     </div>
 
-                    <div className="form-row-2" style={{ marginBottom: '8px' }}>
+                    {(!layoutArrangement.shortLegScheduleMode || layoutArrangement.shortLegScheduleMode === 'auto') && (
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label>North Symbol</label>
-                        <select
-                          value={layoutArrangement.trueNorthStyle || 'UN'}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStyle: e.target.value as any, preset: 'custom_free' })}
-                        >
-                          <option value="UN">U N (Universal North)</option>
-                          <option value="TN">T N (True North)</option>
-                          <option value="N">N (Grid North)</option>
-                        </select>
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Origin Beacon</label>
-                        <select
-                          value={layoutArrangement.originBeaconId || targetPoints[0]?.id || ''}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, originBeaconId: e.target.value, preset: 'custom_free' })}
-                        >
-                          {targetPoints.map(p => (
-                            <option key={p.id} value={p.id}>{p.id}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Color & Stroke Width Customization */}
-                    <div className="form-row-2" style={{ marginBottom: '8px' }}>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Entity Color</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(30, 41, 59, 0.6)', padding: '3px 8px', borderRadius: '4px', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
-                          <input
-                            type="color"
-                            value={layoutArrangement.trueNorthColor || '#0f172a'}
-                            onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthColor: e.target.value, preset: 'custom_free' })}
-                            style={{ width: '24px', height: '22px', padding: 0, border: 'none', cursor: 'pointer', background: 'transparent', borderRadius: '2px' }}
-                          />
-                          <span style={{ fontSize: '11px', color: '#e2e8f0', fontFamily: 'monospace' }}>{layoutArrangement.trueNorthColor || '#0f172a'}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8', marginBottom: '3px' }}>
+                          <span>Short Leg Distance Cutoff</span>
+                          <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{layoutArrangement.shortLegThresholdMeters ?? 6.0}m</span>
                         </div>
+                        <input
+                          type="range"
+                          min="1.0"
+                          max="20.0"
+                          step="0.5"
+                          value={layoutArrangement.shortLegThresholdMeters ?? 6.0}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegThresholdMeters: Number(e.target.value), preset: 'custom_free' })}
+                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
+                        />
                       </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Stroke Width</label>
-                        <select
-                          value={layoutArrangement.trueNorthStrokeWidth ?? 0.25}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthStrokeWidth: Number(e.target.value), preset: 'custom_free' })}
-                        >
-                          <option value="0.15">Fine (0.15mm)</option>
-                          <option value="0.25">Standard (0.25mm)</option>
-                          <option value="0.35">Medium (0.35mm)</option>
-                          <option value="0.50">Bold (0.50mm)</option>
-                        </select>
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Easting Text Gap Micro-Adjustment */}
-                    <div className="form-group" style={{ marginBottom: '8px' }}>
-                      <label style={{ fontSize: '10px', color: '#94a3b8' }}>Easting Text Gap: {layoutArrangement.trueNorthTextOffset ?? 0.8}mm</label>
-                      <input
-                        type="range"
-                        min="0.2"
-                        max="3.0"
-                        step="0.1"
-                        value={layoutArrangement.trueNorthTextOffset ?? 0.8}
-                        onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthTextOffset: Number(e.target.value), preset: 'custom_free' })}
-                        style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                      />
-                    </div>
-
-                    {/* Mask Parcel Interior Toggle */}
-                    <div className="form-group" style={{ marginBottom: '8px', background: 'rgba(30, 41, 59, 0.4)', padding: '6px 8px', borderRadius: '4px' }}>
+                    <div className="form-group" style={{ margin: '6px 0 0 0' }}>
                       <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
-                        <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Mask Parcel Interior (Clean Plot)</span>
+                        <span style={{ fontSize: '9.5px', color: '#e2e8f0' }}>Show Scheduled Dimensions on Drawing</span>
                         <input
                           type="checkbox"
-                          checked={layoutArrangement.trueNorthMaskParcel !== false}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthMaskParcel: e.target.checked, preset: 'custom_free' })}
+                          checked={layoutArrangement.showScheduledDimensionsOnDrawing === true}
+                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showScheduledDimensionsOnDrawing: e.target.checked, preset: 'custom_free' })}
                           style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
                         />
                       </label>
                     </div>
-
-                    {/* Length Extent Sliders */}
-                    <div className="form-row-2" style={{ gap: '8px', marginBottom: '6px' }}>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>North (Up): {layoutArrangement.trueNorthLengthNorth ?? 45}mm</label>
-                        <input
-                          type="range"
-                          min="20"
-                          max="120"
-                          value={layoutArrangement.trueNorthLengthNorth ?? 45}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthNorth: Number(e.target.value), preset: 'custom_free' })}
-                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>South (Down): {layoutArrangement.trueNorthLengthSouth ?? 18}mm</label>
-                        <input
-                          type="range"
-                          min="5"
-                          max="80"
-                          value={layoutArrangement.trueNorthLengthSouth ?? 18}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthSouth: Number(e.target.value), preset: 'custom_free' })}
-                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="form-row-2" style={{ gap: '8px' }}>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>East (Right): {layoutArrangement.trueNorthLengthEast ?? 45}mm</label>
-                        <input
-                          type="range"
-                          min="15"
-                          max="120"
-                          value={layoutArrangement.trueNorthLengthEast ?? 45}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthEast: Number(e.target.value), preset: 'custom_free' })}
-                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '10px', color: '#94a3b8' }}>West (Left): {layoutArrangement.trueNorthLengthWest ?? 12}mm</label>
-                        <input
-                          type="range"
-                          min="5"
-                          max="80"
-                          value={layoutArrangement.trueNorthLengthWest ?? 12}
-                          onChange={(e) => setLayoutArrangement({ ...layoutArrangement, trueNorthLengthWest: Number(e.target.value), preset: 'custom_free' })}
-                          style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                        />
-                      </div>
-                    </div>
                   </div>
-                )}
+                </div>
 
-                {(layoutArrangement.northArrowMode === 'corner' || layoutArrangement.northArrowMode === 'both') && (
-                  <div className="form-group">
-                    <label>Corner Arrow Position</label>
-                    <select
-                      value={layoutArrangement.northArrowPosition}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, northArrowPosition: e.target.value as any, preset: 'custom_free' })}
+                {/* SECTION 4: Linework, Beacons & Symbology */}
+                <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '8px', padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#10b981', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Palette size={13} />
+                    <span>Linework, Beacons &amp; Symbology</span>
+                  </div>
+
+                  {/* Theme Presets */}
+                  <div className="tdp-preset-grid" style={{ marginBottom: '10px' }}>
+                    <div
+                      className={`tdp-preset-card ${styleConfig.themePreset === 'federal_standard' ? 'active' : ''}`}
+                      onClick={() => handleApplyTheme('federal_standard')}
                     >
-                      <option value="top_right">Top-Right (Default)</option>
-                      <option value="top_left">Top-Left</option>
-                      <option value="bottom_right">Bottom-Right</option>
-                    </select>
-                  </div>
-                )}
-
-                {/* Short Legs & Dimension Schedule Table Routing */}
-                <div className="sidebar-section-title" style={{ marginTop: '14px' }}>
-                  <Table size={14} className="text-cyan" />
-                  <span>Non-Fitting / Short Legs Schedule Routing</span>
-                </div>
-
-                <div className="form-group">
-                  <label>Dimension Placement Strategy</label>
-                  <select
-                    value={layoutArrangement.shortLegScheduleMode || 'auto'}
-                    onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegScheduleMode: e.target.value as any, preset: 'custom_free' })}
-                    style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                  >
-                    <option value="auto">Auto Offload Short Legs to Table (Default)</option>
-                    <option value="all_on_drawing">Keep All on Drawing (Leader line if moved)</option>
-                    <option value="all_in_schedule">Move All to Schedule Table</option>
-                    <option value="manual">Manual Assignment (Layers Tab)</option>
-                  </select>
-                </div>
-
-                {(!layoutArrangement.shortLegScheduleMode || layoutArrangement.shortLegScheduleMode === 'auto') && (
-                  <div className="form-group">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#cbd5e1', marginBottom: '3px' }}>
-                      <span>Short Leg Distance Cutoff</span>
-                      <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{layoutArrangement.shortLegThresholdMeters ?? 6.0}m</span>
+                      <div className="tdp-preset-title" style={{ color: '#10b981' }}>Federal SURCON</div>
+                      <div className="tdp-preset-sub">Cadastral Green • Solid</div>
                     </div>
-                    <input
-                      type="range"
-                      min="1.0"
-                      max="20.0"
-                      step="0.5"
-                      value={layoutArrangement.shortLegThresholdMeters ?? 6.0}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, shortLegThresholdMeters: Number(e.target.value), preset: 'custom_free' })}
-                      style={{ width: '100%', height: '4px', accentColor: '#38bdf8' }}
-                    />
-                    <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px' }}>
-                      Boundary segments shorter than this distance will be routed to the Beacon No. Distance Bearing schedule table.
+
+                    <div
+                      className={`tdp-preset-card ${styleConfig.themePreset === 'state_lands' ? 'active' : ''}`}
+                      onClick={() => handleApplyTheme('state_lands')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#3b82f6' }}>State Lands</div>
+                      <div className="tdp-preset-sub">Navy Blue • Hatch Fill</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${styleConfig.themePreset === 'executive_deed' ? 'active' : ''}`}
+                      onClick={() => handleApplyTheme('executive_deed')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#d97706' }}>Executive Deed</div>
+                      <div className="tdp-preset-sub">Charcoal • Gold Accents</div>
+                    </div>
+
+                    <div
+                      className={`tdp-preset-card ${styleConfig.themePreset === 'cad_blueprint' ? 'active' : ''}`}
+                      onClick={() => handleApplyTheme('cad_blueprint')}
+                    >
+                      <div className="tdp-preset-title" style={{ color: '#0ea5e9' }}>CAD Blueprint</div>
+                      <div className="tdp-preset-sub">Cyan • Crosshatch</div>
                     </div>
                   </div>
-                )}
 
-                <div className="form-group" style={{ background: 'rgba(30, 41, 59, 0.4)', padding: '6px 8px', borderRadius: '4px', marginBottom: '10px' }}>
-                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Show Scheduled Dimensions on Drawing</span>
-                    <input
-                      type="checkbox"
-                      checked={layoutArrangement.showScheduledDimensionsOnDrawing === true}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, showScheduledDimensionsOnDrawing: e.target.checked, preset: 'custom_free' })}
-                      style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
-                    />
-                  </label>
-                </div>
+                  {/* Boundary Linework */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#10b981', marginBottom: '6px', textTransform: 'uppercase' }}>Boundary Linework &amp; Stroke</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Boundary Color</label>
+                      <div className="color-swatch-row">
+                        {['#10b981', '#1e3a8a', '#dc2626', '#0f172a', '#d97706', '#0284c7'].map(col => (
+                          <button
+                            key={col}
+                            type="button"
+                            className={`color-swatch-btn ${styleConfig.boundaryColor === col ? 'active' : ''}`}
+                            style={{ background: col }}
+                            onClick={() => setStyleConfig({ ...styleConfig, boundaryColor: col, themePreset: 'custom' })}
+                          />
+                        ))}
+                        <input
+                          type="color"
+                          value={styleConfig.boundaryColor}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, boundaryColor: e.target.value, themePreset: 'custom' })}
+                          style={{ width: '22px', height: '22px', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                        />
+                      </div>
+                    </div>
 
-                {/* Custom Text Overrides */}
-                <div className="sidebar-section-title" style={{ marginTop: '12px' }}>
-                  <Type size={14} className="text-cyan" />
-                  <span>Custom Header &amp; Plan Text Overrides</span>
-                </div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                        <span>Line Width</span>
+                        <span>{(styleConfig.boundaryLineWidth || 0.6).toFixed(2)} mm</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={2.5}
+                        step={0.05}
+                        value={styleConfig.boundaryLineWidth || 0.6}
+                        onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineWidth: parseFloat(e.target.value) || 0.6, themePreset: 'custom' })}
+                      />
+                    </div>
 
-                <div className="form-group">
-                  <label>Plan Title Text</label>
-                  <input
-                    type="text"
-                    value={layoutArrangement.customTitleText || ''}
-                    onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customTitleText: e.target.value || undefined, preset: 'custom_free' })}
-                    placeholder="TITLE DEED PLAN"
-                    style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Subtitle / Description</label>
-                  <input
-                    type="text"
-                    value={layoutArrangement.customSubtitleText || ''}
-                    onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customSubtitleText: e.target.value || undefined, preset: 'custom_free' })}
-                    placeholder="e.g. PLAN SHOWING PLOT 12 (ALLOTTEE: JOHN DOE)"
-                    style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                  />
-                </div>
-
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Location & Datum</label>
-                    <input
-                      type="text"
-                      value={layoutArrangement.customLocationText || ''}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customLocationText: e.target.value || undefined, preset: 'custom_free' })}
-                      placeholder={`SITUATED AT: ${project.location.toUpperCase()}`}
-                      style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                    />
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '8.5px' }}>Line Style</label>
+                      <select
+                        value={styleConfig.boundaryLineStyle}
+                        onChange={(e) => setStyleConfig({ ...styleConfig, boundaryLineStyle: e.target.value as any, themePreset: 'custom' })}
+                        style={{ fontSize: '9.5px', height: '24px' }}
+                      >
+                        <option value="solid">Solid Line (Continuous)</option>
+                        <option value="dashed">Dashed Line</option>
+                        <option value="dashdot">Dash-Dot (Boundary Standard)</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Plan / Job No</label>
-                    <input
-                      type="text"
-                      value={layoutArrangement.customPlanNoText || ''}
-                      onChange={(e) => setLayoutArrangement({ ...layoutArrangement, customPlanNoText: e.target.value || undefined, preset: 'custom_free' })}
-                      placeholder={project.code || 'PLAN-001'}
-                      style={{ fontSize: '11px', padding: '4px 6px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
-                    />
+
+                  {/* Beacon Marker Styling */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#fb7185', marginBottom: '6px', textTransform: 'uppercase' }}>Beacon &amp; Pillar Markers</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Marker Symbol</label>
+                      <select
+                        value={styleConfig.beaconSymbolStyle || 'circle_cross'}
+                        onChange={(e) => setStyleConfig({ ...styleConfig, beaconSymbolStyle: e.target.value as any, themePreset: 'custom' })}
+                        style={{ fontSize: '9.5px', height: '24px' }}
+                      >
+                        <option value="circle_cross">SURCON Monument (Circle with Crosshairs)</option>
+                        <option value="filled_circle">Filled Concrete Pillar (Dot)</option>
+                        <option value="open_circle">Open Ring Marker</option>
+                        <option value="square">Square Boundary Beacon</option>
+                        <option value="triangle">Triangulation Benchmark</option>
+                      </select>
+                    </div>
+
+                    <div className="form-row-2" style={{ gap: '6px', marginBottom: '6px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Beacon Color</label>
+                        <input
+                          type="color"
+                          value={styleConfig.beaconColor}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, beaconColor: e.target.value, themePreset: 'custom' })}
+                          style={{ width: '100%', height: '24px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '8.5px' }}>Control Stn Color</label>
+                        <input
+                          type="color"
+                          value={styleConfig.controlColor || '#f59e0b'}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, controlColor: e.target.value, themePreset: 'custom' })}
+                          style={{ width: '100%', height: '24px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94a3b8' }}>
+                        <span>Marker Radius</span>
+                        <span>{(styleConfig.beaconSize || 1.4).toFixed(1)} mm</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={4.0}
+                        step={0.1}
+                        value={styleConfig.beaconSize || 1.4}
+                        onChange={(e) => setStyleConfig({ ...styleConfig, beaconSize: parseFloat(e.target.value) || 1.4, themePreset: 'custom' })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Typography Scales */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#38bdf8', marginBottom: '6px', textTransform: 'uppercase' }}>Typography Scales</div>
+                    <div className="form-row-2" style={{ gap: '6px', marginBottom: '4px' }}>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                          <span>Bearing/Dist</span>
+                          <span>{styleConfig.bearingFontSize} pt</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={4.5}
+                          max={9}
+                          step={0.25}
+                          value={styleConfig.bearingFontSize}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, bearingFontSize: parseFloat(e.target.value) || 5.5, themePreset: 'custom' })}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                          <span>Beacon ID</span>
+                          <span>{styleConfig.beaconFontSize} pt</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={4.5}
+                          max={9}
+                          step={0.25}
+                          value={styleConfig.beaconFontSize}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, beaconFontSize: parseFloat(e.target.value) || 6.0, themePreset: 'custom' })}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row-2" style={{ gap: '6px' }}>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                          <span>Plot Title</span>
+                          <span>{styleConfig.titleFontSize} pt</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={8}
+                          max={16}
+                          step={0.5}
+                          value={styleConfig.titleFontSize}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, titleFontSize: parseFloat(e.target.value) || 10, themePreset: 'custom' })}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                          <span>Area Metric</span>
+                          <span>{styleConfig.areaFontSize} pt</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={5.5}
+                          max={11}
+                          step={0.5}
+                          value={styleConfig.areaFontSize}
+                          onChange={(e) => setStyleConfig({ ...styleConfig, areaFontSize: parseFloat(e.target.value) || 7.5, themePreset: 'custom' })}
+                          style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Granular Plot Shading & Styles */}
+                  <div style={{ background: 'rgba(30, 41, 59, 0.45)', padding: '8px', borderRadius: '6px', border: '1px solid rgba(148, 163, 184, 0.12)' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 600, color: '#f59e0b', marginBottom: '6px', textTransform: 'uppercase' }}>Granular Plot Shading</div>
+                    <div className="form-group" style={{ marginBottom: '6px' }}>
+                      <label style={{ fontSize: '8.5px' }}>Target Plot to Style</label>
+                      <select
+                        value={selectedShadingPlotId}
+                        onChange={(e) => setSelectedShadingPlotId(e.target.value)}
+                        style={{ fontSize: '9.5px', height: '24px', fontWeight: selectedShadingPlotId === 'global' ? 'normal' : 'bold', color: selectedShadingPlotId === 'global' ? undefined : '#38bdf8' }}
+                      >
+                        <option value="global">🌐 Global Default (All Plots)</option>
+                        {parcels.map(p => {
+                          const hasOverride = !!styleConfig.parcelShadingOverrides?.[p.id];
+                          return (
+                            <option key={p.id} value={p.id}>
+                              {p.plotNumber} {p.ownerName ? `(${p.ownerName})` : ''} {hasOverride ? '• [Custom Styled]' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {selectedShadingPlotId === 'global' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div className="form-row-2" style={{ gap: '6px' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Hatch Pattern</label>
+                            <select
+                              value={styleConfig.hatchPattern}
+                              onChange={(e) => setStyleConfig({ ...styleConfig, hatchPattern: e.target.value as any, themePreset: 'custom' })}
+                              style={{ fontSize: '9.5px', height: '24px' }}
+                            >
+                              <option value="none">None / Wireframe</option>
+                              <option value="tint">Solid Tint</option>
+                              <option value="diagonal">45° Diagonal Hatch</option>
+                              <option value="cross">Crosshatch Grid</option>
+                            </select>
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label style={{ fontSize: '8.5px' }}>Fill Tint Color</label>
+                            <input
+                              type="color"
+                              value={styleConfig.fillColor}
+                              onChange={(e) => setStyleConfig({ ...styleConfig, fillColor: e.target.value, themePreset: 'custom' })}
+                              style={{ width: '100%', height: '24px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                            <span>Global Shading Opacity</span>
+                            <span>{((styleConfig.fillOpacity || 0) * 100).toFixed(0)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={0.5}
+                            step={0.02}
+                            value={styleConfig.fillOpacity}
+                            onChange={(e) => setStyleConfig({ ...styleConfig, fillOpacity: parseFloat(e.target.value) || 0, themePreset: 'custom' })}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      (() => {
+                        const targetPlot = parcels.find(p => p.id === selectedShadingPlotId);
+                        const override = styleConfig.parcelShadingOverrides?.[selectedShadingPlotId];
+                        const isCustomEnabled = !!override;
+                        const plotFillCol = override?.fillColor || styleConfig.fillColor;
+                        const plotFillOp = override?.fillOpacity !== undefined ? override.fillOpacity : styleConfig.fillOpacity;
+                        const plotHatch = override?.hatchPattern || styleConfig.hatchPattern;
+
+                        return (
+                          <div style={{ padding: '6px', background: 'rgba(56,189,248,0.04)', borderRadius: '4px', border: '1px solid rgba(56,189,248,0.2)' }}>
+                            <label className="checkbox-label" style={{ marginBottom: '6px' }}>
+                              <input
+                                type="checkbox"
+                                checked={isCustomEnabled}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    handleUpdatePlotShading(selectedShadingPlotId, {
+                                      fillColor: styleConfig.fillColor,
+                                      fillOpacity: styleConfig.fillOpacity,
+                                      hatchPattern: styleConfig.hatchPattern,
+                                      boundaryColor: styleConfig.boundaryColor,
+                                      boundaryLineWidth: styleConfig.boundaryLineWidth
+                                    });
+                                  } else {
+                                    handleUpdatePlotShading(selectedShadingPlotId, null);
+                                  }
+                                }}
+                              />
+                              <span style={{ fontWeight: 'bold', fontSize: '10px', color: '#38bdf8' }}>
+                                Enable Custom Style for {targetPlot?.plotNumber || 'this plot'}
+                              </span>
+                            </label>
+
+                            {isCustomEnabled && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div className="form-row-2" style={{ gap: '6px' }}>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '8.5px' }}>Fill Color</label>
+                                    <input
+                                      type="color"
+                                      value={plotFillCol}
+                                      onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillColor: e.target.value })}
+                                      style={{ width: '100%', height: '22px', padding: 0, border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', cursor: 'pointer', borderRadius: '4px' }}
+                                    />
+                                  </div>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '8.5px' }}>Hatch</label>
+                                    <select
+                                      value={plotHatch}
+                                      onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { hatchPattern: e.target.value as any })}
+                                      style={{ fontSize: '9.5px', height: '22px' }}
+                                    >
+                                      <option value="none">None</option>
+                                      <option value="tint">Tint</option>
+                                      <option value="diagonal">45°</option>
+                                      <option value="cross">Cross</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8.5px', color: '#94a3b8' }}>
+                                    <span>Opacity</span>
+                                    <span>{(plotFillOp * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={0.6}
+                                    step={0.02}
+                                    value={plotFillOp}
+                                    onChange={(e) => handleUpdatePlotShading(selectedShadingPlotId, { fillOpacity: parseFloat(e.target.value) || 0 })}
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className="btn-secondary-xs"
+                                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: '#fb7185', borderColor: 'rgba(251,113,133,0.3)', marginTop: '2px' }}
+                                  onClick={() => handleUpdatePlotShading(selectedShadingPlotId, null)}
+                                >
+                                  <RotateCcw size={10} />
+                                  <span>Reset to Global Default</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
                 </div>
 
                 {/* Preset Management Actions */}
-                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
                   <button
                     type="button"
                     className="btn-primary"
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '11px', padding: '6px 12px' }}
                     onClick={handleSaveAsFirmPreset}
                   >
-                    <Save size={14} />
+                    <Save size={13} />
                     <span>Save As Default Firm Preset</span>
                   </button>
 
                   <button
                     type="button"
                     className="btn-secondary"
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '11px', padding: '6px 12px' }}
                     onClick={() => {
                       setStyleConfig({ ...DEFAULT_TDP_STYLE });
                       setLayoutArrangement({ ...DEFAULT_TDP_LAYOUT });
                     }}
                   >
-                    <RotateCcw size={14} />
+                    <RotateCcw size={13} />
                     <span>Reset to Federal SURCON</span>
                   </button>
                 </div>
-              </>
+              </div>
             )}
 
             {/* TAB 3: ELEMENT LAYERS INSPECTOR */}

@@ -541,6 +541,7 @@ export interface TdpRenderOptions {
   firmSealUrl?: string;
   surconNumber?: string;
   surveyorTitle?: string;
+  surveyorName?: string;
   style?: TdpStyleConfig;
   adjoining?: TdpAdjoiningConfig;
   layout?: TdpLayoutArrangement;
@@ -716,33 +717,39 @@ export function generateTitleDeedPlanPDF(
     doc.text(fct.zonalSurveyorTitle || 'ZONAL LAND SURVEYOR', pageWidth / 2, headerY + 33, { align: 'center' });
 
   } else if (isShewingProperty) {
-    const client = layout.clientName || selectedParcel?.ownerName || project.title || 'CLIENT NAME';
-    const loc1 = layout.locationLocality || `AT ${project.location.toUpperCase()}`;
-    const loc2 = layout.locationLgaState || 'LOCAL GOVT. AREA, STATE';
+    const client = (layout.clientName || selectedParcel?.ownerName || targetParcels[0]?.ownerName || 'MR. & MRS. TUNDE BAKARE').toUpperCase();
+    const loc1 = (layout.locationLocality || project.location || 'AT OFF OLD IFE ROAD, KUMAPAYI AREA, OLODO').toUpperCase();
+    const loc2 = (layout.locationLgaState || 'EGBEDA LOCAL GOVERNMENT, OYO STATE').toUpperCase();
+    const origin = layout.originDatumName || 'ORIGIN: - OYO SOUTH BEACON (OSB 12T) NATIONAL CADASTRAL DATUM';
 
+    // Line 1: Header Title
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
-    doc.text('PLAN SHEWING PROPERTY', pageWidth / 2, headerY + 1, { align: 'center' });
+    doc.text('PLAN SHEWING PROPERTY SAID TO BELONG TO', pageWidth / 2, headerY + 2, { align: 'center' });
 
-    doc.setFontSize(7.0);
-    doc.setFont('helvetica', 'normal');
-    doc.text('SAID TO BELONG TO', pageWidth / 2, headerY + 4.8, { align: 'center' });
+    // Line 2: Client Name with Vector Underline
+    doc.setFontSize(11.5);
+    doc.text(client, pageWidth / 2, headerY + 7.5, { align: 'center', maxWidth: outerW - 30 });
+    if (layout.showAreaUnderline !== false) {
+      const clientW = Math.min(doc.getTextWidth(client), outerW - 30);
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.4);
+      doc.line(pageWidth / 2 - clientW / 2, headerY + 8.8, pageWidth / 2 + clientW / 2, headerY + 8.8);
+    }
 
+    // Line 3 & 4: Locality & LGA/State
+    doc.setFontSize(8.0);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text(client.toUpperCase(), pageWidth / 2, headerY + 9.5, { align: 'center', maxWidth: outerW - 40 });
+    doc.setTextColor(30, 41, 59);
+    doc.text(loc1, pageWidth / 2, headerY + 13.0, { align: 'center', maxWidth: outerW - 30 });
+    doc.text(loc2, pageWidth / 2, headerY + 16.8, { align: 'center', maxWidth: outerW - 30 });
 
-    doc.setFontSize(7.0);
-    doc.setFont('helvetica', 'normal');
+    // Line 5: Origin Datum Note
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.5);
     doc.setTextColor(71, 85, 105);
-    doc.text(loc1.toUpperCase(), pageWidth / 2, headerY + 13.5, { align: 'center', maxWidth: outerW - 40 });
-    doc.text(loc2.toUpperCase(), pageWidth / 2, headerY + 17, { align: 'center', maxWidth: outerW - 40 });
-
-    // Divider Line
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(203, 213, 225);
-    doc.line(outerX + 3, headerY + 19, outerX + outerW - 3, headerY + 19);
+    doc.text(origin, pageWidth / 2, headerY + 20.5, { align: 'center', maxWidth: outerW - 30 });
 
   } else if (isBeingPlot) {
     const plotNo = selectedParcel?.plotNumber || '1';
@@ -812,7 +819,7 @@ export function generateTitleDeedPlanPDF(
       : 25;
 
   const drawAreaX = outerX + 6;
-  const drawAreaY = headerY + 20;
+  const drawAreaY = headerY + 22;
   const drawAreaW = outerW - 12 - rightColW;
   const drawAreaH = outerH - (drawAreaY - outerY) - bottomPanelHeight;
 
@@ -837,14 +844,16 @@ export function generateTitleDeedPlanPDF(
   const sheetIndices = determineCadastralSheets(centPoint.easting, centPoint.northing);
   const primarySheet = sheetIndices.find(s => s.scale === effectiveScale) || sheetIndices[0];
 
-  // Draw Sheet Info in Top Right
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(`SCALE 1:${effectiveScale}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
-  doc.text(`JOB NO: ${layout.customPlanNoText || project.code || 'TDP'}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
+  // Draw Sheet Info in Top Right (Only for custom/standard layout, NOT for shewing_property or fct_rofo)
+  if (!isShewingProperty && !isFctRofO && layout.headerTemplate !== 'shewing_property' && layout.headerTemplate !== 'fct_rofo') {
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`SHEET NO: ${primarySheet.sheetNumber}`, outerX + outerW - 6, headerY + 4, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`SCALE 1:${effectiveScale}`, outerX + outerW - 6, headerY + 8, { align: 'right' });
+    doc.text(`JOB NO: ${layout.customPlanNoText || project.code || 'TDP'}`, outerX + outerW - 6, headerY + 12, { align: 'right' });
+  }
 
   // 6. Draw Coordinate Grid Crosses
   if (options.showGridCrosses) {
@@ -1535,7 +1544,7 @@ export function generateTitleDeedPlanPDF(
         const parcelMaxY = Math.max(...targetPoints.map(p => toMapY(p.northing)));
         const jumpStartY = Math.max(oy + 6, parcelMaxY + 6);
         const jumpEndY = Math.min(drawAreaY + drawAreaH - 4, Math.max(jumpStartY + 10, oy + lenS));
-        if (jumpEndY > jumpStartY + 3) {
+        if (jumpEndY > jumpStartY + 6 && (oy + lenS) > parcelMaxY + 8) {
           doc.line(ox, jumpStartY, ox, jumpEndY);
         }
       } else {
@@ -1768,6 +1777,11 @@ export function generateTitleDeedPlanPDF(
     doc.line(outerX + col1W, boxY, outerX + col1W, boxY + boxH);
     doc.line(outerX + col1W + col2W, boxY, outerX + col1W + col2W, boxY + boxH);
 
+    // Clean Surveyor Name without duplicate prefixes
+    const rawSurv = (options.surveyorName || project.surveyorName || 'SURVEYOR').toUpperCase();
+    const titlePrefix = (options.surveyorTitle || '').trim().toUpperCase();
+    const survName = titlePrefix && !rawSurv.startsWith(titlePrefix) ? `${titlePrefix} ${rawSurv}` : rawSurv;
+
     // Cell 1: PLAN NO.
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.0);
@@ -1781,59 +1795,45 @@ export function generateTitleDeedPlanPDF(
 
     // Cell 2: Surveyor Firm Contact
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.0);
-    doc.text((options.surveyorTitle ? `${options.surveyorTitle} ` : '') + (project.surveyorName || 'REGISTERED SURVEYOR').toUpperCase(), outerX + col1W + 6, boxY + 6);
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(survName, outerX + col1W + 4, boxY + 5.5, { maxWidth: col2W - 8 });
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.2);
+    doc.setFontSize(6.0);
     doc.setTextColor(51, 65, 85);
-    const firmAddr = layout.surveyorFirmAddress || project.surveyFirm || 'OFFICE ADDRESS / CONTACT';
+    const firmAddr = (layout.surveyorFirmAddress || project.surveyFirm || 'OFFICE ADDRESS / CONTACT').toUpperCase();
     const firmPhone = layout.surveyorPhone || 'TEL: 0800-SURVEYOR';
-    doc.text(firmAddr.toUpperCase(), outerX + col1W + 6, boxY + 11, { maxWidth: col2W - 12 });
-    doc.text(firmPhone, outerX + col1W + 6, boxY + 17);
+    doc.text(firmAddr, outerX + col1W + 4, boxY + 10.5, { maxWidth: col2W - 8 });
+    doc.text(firmPhone, outerX + col1W + 4, boxY + 18.0);
 
     // Cell 3: Registered Surveyor Seal & Signature Block
     const c3X = outerX + col1W + col2W;
+    const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
 
     if (options.surveyorSignatureUrl) {
       try {
-        doc.addImage(options.surveyorSignatureUrl, 'PNG', c3X + 4, boxY + 2, 22, 6);
+        doc.addImage(options.surveyorSignatureUrl, 'PNG', c3X + col3W / 2 - 12, boxY + 1.5, 24, 6);
       } catch (e) {
         console.warn('Failed to embed signature image', e);
       }
+    } else if (sealStampUrl && options.showSealBox) {
+      try {
+        doc.addImage(sealStampUrl, 'PNG', c3X + col3W / 2 - 7, boxY + 1.2, 14, 6.5);
+      } catch (e) {}
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.0);
     doc.setTextColor(15, 23, 42);
-    doc.text((project.surveyorName || 'SURVEYOR').toUpperCase(), c3X + col3W / 2, boxY + 10.5, { align: 'center' });
+    doc.text(survName, c3X + col3W / 2, boxY + 11.0, { align: 'center', maxWidth: col3W - 6 });
 
-    doc.setFontSize(6.5);
+    doc.setFontSize(6.0);
     doc.text('SURVEYOR', c3X + col3W / 2, boxY + 14.5, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.8);
-    doc.text(project.date || new Date().toISOString().split('T')[0], c3X + col3W / 2, boxY + 18.5, { align: 'center' });
-
-    // Official SURCON Stamp / Seal Box on Left of plan if enabled
-    if (options.showSealBox) {
-      const sealStampUrl = options.surveyorSealUrl || options.firmSealUrl;
-      const sealBoxW = 20;
-      const sealBoxH = 18;
-      const sealImgX = outerX + 4;
-      const sealImgY = drawAreaY + drawAreaH * 0.45;
-
-      if (sealStampUrl) {
-        try {
-          doc.addImage(sealStampUrl, 'PNG', sealImgX, sealImgY, sealBoxW, sealBoxH, undefined, 'FAST');
-        } catch (e) {
-          doc.setDrawColor(203, 213, 225);
-          doc.circle(sealImgX + 10, sealImgY + 9, 8);
-          doc.setFontSize(4.5);
-          doc.text('SURCON\nSEAL', sealImgX + 10, sealImgY + 8, { align: 'center' });
-        }
-      }
-    }
+    doc.setFontSize(5.5);
+    doc.text(project.date || new Date().toISOString().split('T')[0], c3X + col3W / 2, boxY + 18.0, { align: 'center' });
 
   } else {
     // ----------------------------------------------------

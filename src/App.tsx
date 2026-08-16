@@ -886,13 +886,16 @@ export const App: React.FC = () => {
         />
       ) : (
         <>
-          {/* 2. CAD Tool Palette Toolbar with Panel Toggles */}
+          {/* 2. CAD Tool Palette Toolbar with Panel Toggles & Studio Launchers */}
           <Toolbar
             activeTool={activeTool}
             onSelectTool={setActiveTool}
             onOpenCogo={() => setIsCogoOpen(true)}
-            onOpenCadStudio={() => checkFeatureOrRun('DXF_STUDIO', () => setActiveView('cad_studio'))}
             onOpenEarthView={() => checkFeatureOrRun('EARTH_VIEW_STUDIO', () => setIsEarthViewOpen(true))}
+            onOpenTraverse={() => checkFeatureOrRun('TRAVERSE_BALANCING', () => setIsTraverseOpen(true))}
+            onOpenCadStudio={() => checkFeatureOrRun('DXF_STUDIO', () => setActiveView(v => v === 'cad_studio' ? 'workspace' : 'cad_studio'))}
+            onOpenTdp={() => checkFeatureOrRun('TDP_PRINT_STUDIO', () => setActiveView(v => v === 'tdp_studio' ? 'workspace' : 'tdp_studio'))}
+            activeView={activeView}
             onOpenHistory={() => setIsHistoryOpen(true)}
             canUndo={undoStack.length > 0}
             canRedo={redoStack.length > 0}
