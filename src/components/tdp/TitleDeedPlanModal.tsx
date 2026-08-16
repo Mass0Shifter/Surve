@@ -4558,7 +4558,15 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
 
                     {/* Standard Bottom Footer (when not right sidebar) */}
                     {layoutArrangement.coordTablePosition !== 'right_column' && layoutArrangement.sealBoxPosition !== 'right_column' && (
-                      <div className="tdp-plan-footer" style={{ borderTop: layoutArrangement.showNeatlineFrame === false ? 'none' : undefined }}>
+                      <div
+                        className="tdp-plan-footer"
+                        style={{
+                          borderTop: (layoutArrangement.showNeatlineFrame === false || layoutArrangement.footerStyle === 'surcon_3box' || layoutArrangement.preset === 'surcon_standard' || layoutArrangement.headerTemplate === 'shewing_property' || layoutArrangement.footerStyle === 'fct_staff_grid') ? 'none' : undefined,
+                          display: (layoutArrangement.footerStyle === 'surcon_3box' || layoutArrangement.preset === 'surcon_standard' || layoutArrangement.headerTemplate === 'shewing_property' || layoutArrangement.footerStyle === 'fct_staff_grid') ? 'block' : undefined,
+                          paddingTop: (layoutArrangement.footerStyle === 'surcon_3box' || layoutArrangement.preset === 'surcon_standard' || layoutArrangement.headerTemplate === 'shewing_property') ? 0 : undefined,
+                          width: '100%'
+                        }}
+                      >
                         {/* 1. FCT Abuja Origin Note & Staff Sign-off Grid */}
                         {(layoutArrangement.preset === 'fct_abuja_rofo' || layoutArrangement.footerStyle === 'fct_staff_grid') ? (() => {
                           const fct = layoutArrangement.fctConfig || {};
@@ -4610,10 +4618,13 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                           const planNoFormatted = layoutArrangement.customPlanNoText || project.code || 'OY / 0327 / 2017 / 004';
                           const firmAddr = (layoutArrangement.surveyorFirmAddress || project.surveyFirm || 'OFFICE ADDRESS / CONTACT').toUpperCase();
                           const firmPhone = layoutArrangement.surveyorPhone || 'TEL: 0800-SURVEYOR';
-                          const survName = ((currentUser?.title ? `${currentUser.title} ` : '') + (currentUser?.fullName || project.surveyorName)).toUpperCase();
+                          const rawSurv = (currentUser?.fullName || project.surveyorName || 'SURVEYOR').toUpperCase();
+                          const titlePrefix = (currentUser?.title || '').trim().toUpperCase();
+                          const survName = titlePrefix && !rawSurv.startsWith(titlePrefix) ? `${titlePrefix} ${rawSurv}` : rawSurv;
+                          const sealStampUrl = currentUser?.digitalSealUrl || activeOrg?.officialSealUrl;
 
                           return (
-                            <div style={{ display: 'grid', gridTemplateColumns: '28% 42% 30%', width: '100%', border: '1.5px solid #0f172a', background: '#ffffff', minHeight: '65px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '28% 42% 30%', width: '100%', border: '1.5px solid #0f172a', background: '#ffffff', minHeight: '65px', boxSizing: 'border-box' }}>
                               {/* Box 1: Plan No */}
                               <div style={{ borderRight: '1.5px solid #0f172a', padding: '6px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '9px' }}>
@@ -4639,9 +4650,11 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                               </div>
 
                               {/* Box 3: Seal & Signature */}
-                              <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                              <div style={{ padding: '4px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
                                 {currentUser?.signatureUrl ? (
                                   <img src={currentUser.signatureUrl} alt="Signature" style={{ height: '22px', maxWidth: '90px', objectFit: 'contain' }} />
+                                ) : sealStampUrl ? (
+                                  <img src={sealStampUrl} alt="Official Seal" style={{ height: '24px', maxWidth: '90px', objectFit: 'contain' }} />
                                 ) : (
                                   <div style={{ height: '18px' }} />
                                 )}
