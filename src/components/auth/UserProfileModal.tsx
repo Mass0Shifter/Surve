@@ -62,6 +62,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       alert('Please upload a valid image file (PNG with transparency recommended).');
       return;
     }
+    if (file.size > 512 * 1024) {
+      alert('Image is too large. Please use a file under 512 KB.');
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -76,6 +80,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
     if (!file.type.startsWith('image/')) {
       alert('Please upload a valid image file (PNG with transparency recommended).');
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      alert('Image is too large. Please use a file under 512 KB.');
       return;
     }
 
@@ -232,7 +240,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <input
                     type="text"
                     className="auth-input"
-                    placeholder="e.g. Geotrek Survey & Engineering Services Ltd"
+                    placeholder="e.g. Your Survey & Engineering Ltd"
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
                   />

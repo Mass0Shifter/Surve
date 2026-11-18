@@ -5825,3 +5825,26 @@ input.auth-input.no-icon,
 }
 
 
+
+/* ─── Production additions ─────────────────────────────────────────────── */
+.banner-success {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #6ee7b7 !important;
+}
+.app-boot-screen {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; background: #0b1120; color: #94a3b8;
+  font-family: Inter, system-ui, sans-serif; font-size: 13px;
+}
+.app-boot-spinner {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: #10b981;
+  animation: app-boot-spin 0.8s linear infinite;
+}
+@keyframes app-boot-spin { to { transform: rotate(360deg); } }
+.offline-pill {
+  position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  background: #78350f; color: #fde68a; border: 1px solid #b45309; border-radius: 999px;
+  padding: 4px 12px; font-size: 12px; font-family: Inter, system-ui, sans-serif;
+}

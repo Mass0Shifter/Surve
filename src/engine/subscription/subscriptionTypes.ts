@@ -1,7 +1,6 @@
 /**
  * Subscription Models & Multi-Gateway Billing Types
- * Supports Nigerian Paystack (₦ NGN), International Stripe ($ USD),
- * and Cryptographic Offline Fieldwork Licenses.
+ * Checkout is Paystack (NGN), verified server-side.
  */
 
 import { SubscriptionTier } from '../auth/authTypes';
@@ -43,16 +42,4 @@ export interface PaymentTransaction {
   status: 'SUCCESS' | 'PENDING' | 'FAILED';
   timestamp: number;
   receiptNumber: string;
-  surconInvoiceRef?: string;
-}
-
-export interface OfflineLicensePayload {
-  version: '1.0';
-  userId: string;
-  userEmail: string;
-  surconNumber?: string;
-  tier: SubscriptionTier;
-  issuedAt: number;
-  expiresAt: number;
-  signature: string;
 }

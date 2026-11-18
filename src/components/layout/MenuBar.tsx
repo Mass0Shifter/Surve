@@ -257,7 +257,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
             <div className="menu-dropdown-item" onClick={() => handleAction(onLoadDemo)}>
               <div className="menu-item-left">
                 <RefreshCw size={14} className="text-emerald" />
-                <span>Load Demo Benchmark (CKC Extension)</span>
+                <span>Load Sample Project</span>
               </div>
             </div>
 

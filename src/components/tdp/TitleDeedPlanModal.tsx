@@ -1720,7 +1720,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 ...layoutArrangement,
                                 fctConfig: { ...layoutArrangement.fctConfig, layoutName: e.target.value }
                               })}
-                              placeholder="CKC EXT.   LAYOUT"
+                              placeholder="e.g. SUNRISE ESTATE LAYOUT"
                               style={{ fontSize: '9.5px', padding: '3px 6px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '4px', color: '#f8fafc' }}
                             />
                           </div>
@@ -3284,7 +3284,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                               FEDERAL CAPITAL TERRITORY
                             </div>
                             <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#0f172a', marginTop: '2px', letterSpacing: '0.04em' }}>
-                              RIGHT OF OCCUPANCY NO. {fct.rOfONumber || 'FCT RLA/ 2002/ 016'}
+                              RIGHT OF OCCUPANCY NO. {fct.rOfONumber || '________'}
                             </div>
                             <div style={{ fontSize: '8.5px', fontWeight: 'bold', color: '#1e293b', marginTop: '2px' }}>
                               PLAN SHEWING PLOT NO. {plotNo} {fct.districtArea || 'GWAGWALADA'} {fct.cadastralZone || 'CADASTRAL ZONE 04-07'}
@@ -4582,7 +4582,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                 <div style={{ fontFamily: 'monospace' }}>N = {originPt.northing.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</div>
                                 <div style={{ fontFamily: 'monospace' }}>E = {originPt.easting.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</div>
                                 <div>{fct.coordinateSystemText || 'COORDINATE SYSTEM UTM 32N'}</div>
-                                <div style={{ fontWeight: 'bold', marginTop: '3px' }}>SURVEYED BY: {(project.surveyFirm || 'C. S. AGHA & ASSOCIATES').toUpperCase()}</div>
+                                <div style={{ fontWeight: 'bold', marginTop: '3px' }}>SURVEYED BY: {(project.surveyFirm || '').toUpperCase()}</div>
                                 <div>DRAWN BY: {fct.drawnBy || '___________________'}</div>
                                 <div>CHECKED BY: {fct.checkedBy || '_________________'}</div>
                                 <div>PASSED BY: {fct.passedBy || '__________________'}</div>
@@ -4608,7 +4608,7 @@ export const TitleDeedPlanModal: React.FC<TitleDeedPlanModalProps> = ({
                                     {fct.cadastralMapScaleText || `CADASTRAL MAP 1: ${effectiveScaleRatio}`}
                                   </div>
                                   <div style={{ border: '1.5px solid #0f172a', padding: '4px 12px', fontWeight: 'bold', fontSize: '9px', letterSpacing: '0.06em' }}>
-                                    {(fct.layoutName || project.title || 'CKC EXT.   LAYOUT').toUpperCase()}
+                                    {(fct.layoutName || project.title || '').toUpperCase()}
                                   </div>
                                 </div>
                               </div>
