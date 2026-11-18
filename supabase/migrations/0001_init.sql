@@ -342,3 +342,8 @@ revoke execute on function public.is_org_member(uuid) from public, anon;
 grant execute on function public.is_org_member(uuid) to authenticated;
 revoke execute on function public.org_role(uuid) from public, anon;
 grant execute on function public.org_role(uuid) to authenticated;
+
+-- Trigger/internal helpers are never called directly by clients.
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+revoke execute on function public.protect_profile_billing() from public, anon, authenticated;
+revoke execute on function public.check_active_org() from public, anon, authenticated;
