@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import {
   loginUser,
   registerUser,
-  requestPasswordReset
+  requestPasswordReset,
+  setNewPassword,
+  isAccountsEnabled
 } from '../../engine/auth/authEngine';
 import { UserProfile } from '../../engine/auth/authTypes';
 import {
@@ -15,8 +17,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowRight,
-  ShieldCheck,
-  Zap
+  ShieldCheck
 } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
@@ -24,7 +25,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAuthSuccess: (user: UserProfile) => void;
-  initialTab?: 'login' | 'register' | 'forgot';
+  initialTab?: 'login' | 'register' | 'forgot' | 'recovery';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -33,12 +34,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onAuthSuccess,
   initialTab = 'login'
 }) => {
-  const [tab, setTab] = useState<'login' | 'register' | 'forgot'>(initialTab);
+  const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'recovery'>(initialTab);
+  React.useEffect(() => {
+    if (isOpen) setTab(initialTab);
+  }, [isOpen, initialTab]);
+
+  // New password (after following a reset link)
+  const [newPassword, setNewPasswordValue] = useState('');
+  const [newPassword2, setNewPassword2] = useState('');
 
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true);
 
   // Register Form State
   const [regFullName, setRegFullName] = useState('');
@@ -69,8 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const user = await loginUser({
         email: loginEmail,
-        password: loginPassword,
-        rememberMe
+        password: loginPassword
       });
       setSuccessMsg(`Welcome back, ${user.title || ''} ${user.fullName}!`);
       setTimeout(() => {
@@ -101,7 +107,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         companyName: regCompany,
         phone: regPhone
       });
-      setSuccessMsg(`Account created successfully! Welcome to NSurvey PRO, ${user.fullName}.`);
+      if (!user) {
+        setSuccessMsg(`Almost done — we sent a confirmation link to ${regEmail.trim()}. Open it to activate your account, then sign in.`);
+        setRegPassword('');
+        setTab('login');
+        setLoginEmail(regEmail.trim());
+        return;
+      }
+      setSuccessMsg(`Account created. Welcome to NSurvey PRO, ${user.fullName}.`);
       setTimeout(() => {
         onAuthSuccess(user);
         onClose();
@@ -129,23 +142,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleQuickDemoLogin = async (type: 'pro' | 'free') => {
-    setLoading(true);
+  const handleNewPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setErrorMsg(null);
-    const email = type === 'pro' ? 'surv.chikezie@geotrek.ng' : 'cadastral.demo@nsurvey.app';
+    setSuccessMsg(null);
+    if (newPassword !== newPassword2) {
+      setErrorMsg('The two passwords do not match.');
+      return;
+    }
+    setLoading(true);
     try {
-      const user = await loginUser({ email, password: 'password123', rememberMe: true });
-      setSuccessMsg(`Logged in as ${type === 'pro' ? 'Professional Licensed Surveyor' : 'Community User'}`);
-      setTimeout(() => {
-        onAuthSuccess(user);
-        onClose();
-      }, 400);
+      await setNewPassword(newPassword);
+      setSuccessMsg('Password updated. You are signed in.');
+      setNewPasswordValue('');
+      setNewPassword2('');
+      setTimeout(onClose, 900);
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(err.message || 'Could not update password.');
     } finally {
       setLoading(false);
     }
   };
+
+  const accountsEnabled = isAccountsEnabled();
 
   return (
     <ErrorBoundary>
@@ -162,6 +181,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {tab === 'login' && 'Sign in to access your surveyor profile, organizations, and project cloud.'}
                 {tab === 'register' && 'Register your professional surveyor credentials and workspace.'}
                 {tab === 'forgot' && 'Reset your account security password.'}
+                {tab === 'recovery' && 'Choose a new password for your account.'}
               </p>
             </div>
             <button className="icon-btn auth-close-btn" onClick={onClose}>✕</button>
@@ -189,6 +209,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </div>
 
+          {!accountsEnabled && (
+            <div className="form-warning-banner" style={{ margin: '12px 20px 0' }}>
+              <AlertCircle size={14} />
+              <span>Online accounts are not configured for this deployment yet. All drafting tools still work offline on this device.</span>
+            </div>
+          )}
+
           {/* Notification Alerts */}
           {errorMsg && (
             <div className="form-error-banner" style={{ margin: '12px 20px 0' }}>
@@ -214,7 +241,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type="email"
                     className="auth-input"
-                    placeholder="e.g. surveyor@geotrek.ng"
+                    placeholder="you@yourfirm.com"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     required
@@ -237,6 +264,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Lock size={15} className="auth-input-icon" />
                   <input
                     type="password"
+                    autoComplete="current-password"
                     className="auth-input"
                     placeholder="••••••••••••"
                     value={loginPassword}
@@ -246,54 +274,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <div className="auth-checkbox-row">
-                <label className="auth-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  />
-                  <span>Keep me signed in on this workstation</span>
-                </label>
-              </div>
-
               <button type="submit" className="btn-primary-auth" disabled={loading}>
                 {loading ? 'Authenticating...' : 'Sign In to Workspace'}
                 <ArrowRight size={15} />
               </button>
 
-              {/* Quick Demo Login Preset Buttons */}
-              <div className="auth-demo-divider">
-                <span>Quick Demonstration Logins</span>
-              </div>
-
-              <div className="auth-demo-buttons">
-                <button
-                  type="button"
-                  className="auth-demo-btn pro-demo"
-                  onClick={() => handleQuickDemoLogin('pro')}
-                  disabled={loading}
-                >
-                  <Zap size={14} className="text-emerald" />
-                  <div>
-                    <strong>Pro Surveyor Account</strong>
-                    <small>Surv. (Dr.) Precious Chikezie (SURCON Reg. 1984)</small>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className="auth-demo-btn free-demo"
-                  onClick={() => handleQuickDemoLogin('free')}
-                  disabled={loading}
-                >
-                  <User size={14} className="text-cyan" />
-                  <div>
-                    <strong>Community Free User</strong>
-                    <small>Abubakar Ibrahim (Cadastral Consult)</small>
-                  </div>
-                </button>
-              </div>
             </form>
           )}
 
@@ -358,10 +343,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <input
                       type="password"
                       className="auth-input"
-                      placeholder="At least 8 characters"
+                      placeholder="At least 8 characters, letters and numbers"
+                      autoComplete="new-password"
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
-                      minLength={6}
+                      minLength={8}
                       required
                     />
                   </div>
@@ -432,11 +418,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </form>
           )}
 
+          {/* ─── NEW PASSWORD (from reset link) ─────────────────────────────── */}
+          {tab === 'recovery' && (
+            <form className="auth-form-body" onSubmit={handleNewPasswordSubmit}>
+              <div className="auth-field-group">
+                <label className="auth-label">New Password</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={15} className="auth-input-icon" />
+                  <input type="password" className="auth-input" autoComplete="new-password" minLength={8}
+                    value={newPassword} onChange={(e) => setNewPasswordValue(e.target.value)} required />
+                </div>
+              </div>
+              <div className="auth-field-group">
+                <label className="auth-label">Confirm New Password</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={15} className="auth-input-icon" />
+                  <input type="password" className="auth-input" autoComplete="new-password" minLength={8}
+                    value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)} required />
+                </div>
+              </div>
+              <p className="auth-info-note">At least 8 characters, with letters and numbers.</p>
+              <button type="submit" className="btn-primary-auth" disabled={loading}>
+                {loading ? 'Saving…' : 'Save New Password'}
+                <ArrowRight size={15} />
+              </button>
+            </form>
+          )}
+
           {/* ─── TAB 3: RESET PASSWORD ───────────────────────────────────────── */}
           {tab === 'forgot' && (
             <form className="auth-form-body" onSubmit={handleResetSubmit}>
               <p className="auth-info-note">
-                Enter your registered email address and we will dispatch a secure link to reset your account password.
+                Enter your registered email address and we will send you a link to reset your password.
               </p>
 
               <div className="auth-field-group">
@@ -446,7 +459,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type="email"
                     className="auth-input"
-                    placeholder="e.g. surveyor@geotrek.ng"
+                    placeholder="you@yourfirm.com"
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     required

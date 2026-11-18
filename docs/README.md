@@ -6,13 +6,13 @@ Welcome to the **NSurvey PRO** documentation hub. This directory contains archit
 
 ## 📚 Documentation Index
 
-1. [**Future Roadmap & Improvement Ideas**](file:///d:/Store/Nacham%20Works/Surve/docs/FUTURE_ROADMAP_AND_IMPROVEMENTS.md)
+1. [**Future Roadmap & Improvement Ideas**](./FUTURE_ROADMAP_AND_IMPROVEMENTS.md)
    - Detailed feature proposals for 3D WebGL terrain orbit viewer, cadastral boundary overlap & encroachment conflict detector, GNSS RTK baseline QC, GIS satellite imagery layers, road corridor templates, and native desktop packaging.
 
-2. [**Modern Rebuild Implementation Plan**](file:///d:/Store/Nacham%20Works/Surve/docs/MODERN_REBUILD_IMPLEMENTATION_PLAN.md)
+2. [**Modern Rebuild Implementation Plan**](./MODERN_REBUILD_IMPLEMENTATION_PLAN.md)
    - The foundational architecture design and progressive module breakdown transitioning from legacy SurvPack 3.0 to the modern TypeScript/React CAD platform.
 
-3. [**Legacy SurvPack 3.0 Architecture**](file:///d:/Store/Nacham%20Works/Surve/docs/LEGACY_ARCHITECTURE.md)
+3. [**Legacy SurvPack 3.0 Architecture**](./LEGACY_ARCHITECTURE.md)
    - Comprehensive reverse-engineering notes, file formats (`.DAT`, `.PNT`, `.SUR`, `.DXF`, `.SCR`), coordinate transformations, and algorithms from the original legacy Visual Basic / FORTRAN survey codebase.
 
 ---

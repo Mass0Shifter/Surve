@@ -1,212 +1,274 @@
 /**
- * Offline-Ready Authentication & User Profile Engine
- * Manages user authentication, session persistence, surveyor credentials, and security state.
+ * Authentication & User Profile Engine (Supabase Auth backed).
+ *
+ * The rest of the app reads the signed-in user synchronously via getCurrentUser();
+ * this module keeps an in-memory copy of the profile, hydrated from Supabase on
+ * start-up and on every auth change, and broadcasts `nsurvey_auth_changed`.
  */
 
-import { UserProfile, LoginCredentials, RegisterCredentials, AuthSession } from './authTypes';
+import { UserProfile, LoginCredentials, RegisterCredentials } from './authTypes';
+import { supabase, requireSupabase, friendlyError, isBackendConfigured } from '../../lib/supabase';
 
-const AUTH_STORAGE_KEY = 'nsurvey_auth_session_v1';
-const USERS_DB_KEY = 'nsurvey_registered_users_v1';
+const PROFILE_CACHE_KEY = 'nsurvey_profile_cache_v2';
 
-// Seed demo users for immediate testing out of the box
-const SEED_USERS: UserProfile[] = [
-  {
-    id: 'usr_pro_001',
-    email: 'surv.chikezie@geotrek.ng',
-    fullName: 'Precious Chikezie',
-    title: 'Surv. (Dr.)',
-    surconNumber: 'SURCON Reg. No. 1984/2019',
-    nisChapter: 'FCT Abuja Chapter',
-    phone: '+234 803 123 4567',
-    companyName: 'Geotrek Survey & Engineering Services Ltd',
-    officeAddress: 'Suite 402, Reinsurance Plaza, Central Business District, Abuja, Nigeria',
-    digitalSealUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><circle cx='80' cy='80' r='74' fill='none' stroke='%23059669' stroke-width='4'/><circle cx='80' cy='80' r='64' fill='none' stroke='%23059669' stroke-width='1.5' stroke-dasharray='4,2'/><text x='80' y='36' font-family='Arial,sans-serif' font-size='10' font-weight='bold' fill='%23059669' text-anchor='middle'>SURVEYORS COUNCIL</text><text x='80' y='50' font-family='Arial,sans-serif' font-size='9' font-weight='bold' fill='%23059669' text-anchor='middle'>OF NIGERIA</text><polygon points='80,62 84,74 96,74 86,82 90,94 80,86 70,94 74,82 64,74 76,74' fill='%23059669'/><text x='80' y='110' font-family='Arial,sans-serif' font-size='10' font-weight='bold' fill='%23059669' text-anchor='middle'>REG. NO. 1984/2019</text><text x='80' y='130' font-family='Arial,sans-serif' font-size='9' font-weight='bold' fill='%23059669' text-anchor='middle'>P. CHIKEZIE, mnis</text></svg>",
-    signatureUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='60' viewBox='0 0 200 60'><path d='M20,40 Q40,10 60,35 T100,25 T140,40 T180,20 M70,45 Q90,30 110,48' fill='none' stroke='%231e3a8a' stroke-width='2.5' stroke-linecap='round'/></svg>",
-    subscriptionTier: 'PROFESSIONAL',
-    subscriptionExpiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365, // 1 Year active
-    activeOrganizationId: 'org_geotrek_001',
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 60
-  },
-  {
-    id: 'usr_free_002',
-    email: 'cadastral.demo@nsurvey.app',
-    fullName: 'Abubakar Ibrahim',
-    title: 'Surv.',
-    surconNumber: 'SURCON Reg. No. 2450/2023',
-    nisChapter: 'Kaduna State Branch',
-    phone: '+234 812 987 6543',
-    companyName: 'Northern Cadastral Consult',
-    officeAddress: '12 Yakubu Gowon Way, Kaduna, Nigeria',
-    subscriptionTier: 'COMMUNITY',
-    activeOrganizationId: null,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 10
-  }
-];
+let currentUser: UserProfile | null = readCache();
 
-function getStoredUsers(): UserProfile[] {
+function readCache(): UserProfile | null {
   try {
-    const raw = localStorage.getItem(USERS_DB_KEY);
-    if (!raw) {
-      localStorage.setItem(USERS_DB_KEY, JSON.stringify(SEED_USERS));
-      return SEED_USERS;
-    }
-    return JSON.parse(raw);
-  } catch {
-    return SEED_USERS;
-  }
-}
-
-function saveUsers(users: UserProfile[]): void {
-  try {
-    localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
-  } catch (err) {
-    console.error('Failed to save users database', err);
-  }
-}
-
-// ─── Active Session Management ────────────────────────────────────────────────
-
-export function getCurrentSession(): AuthSession | null {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const session: AuthSession = JSON.parse(raw);
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      logout();
-      return null;
-    }
-    return session;
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as UserProfile) : null;
   } catch {
     return null;
   }
 }
 
-export function getCurrentUser(): UserProfile | null {
-  const session = getCurrentSession();
-  return session ? session.user : null;
-}
-
-function saveSession(user: UserProfile, rememberMe: boolean = true): AuthSession {
-  const expiresAt = rememberMe
-    ? Date.now() + 1000 * 60 * 60 * 24 * 30 // 30 days
-    : Date.now() + 1000 * 60 * 60 * 24;     // 1 day
-
-  const session: AuthSession = {
-    user,
-    token: `jwt_nsurvey_${user.id}_${Date.now()}`,
-    expiresAt
-  };
-
+function setCurrent(user: UserProfile | null): void {
+  currentUser = user;
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-    window.dispatchEvent(new CustomEvent('nsurvey_auth_changed', { detail: user }));
-  } catch (err) {
-    console.error('Failed to save auth session', err);
+    if (user) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch {
+    /* storage full or blocked — in-memory copy still works */
   }
-
-  return session;
+  window.dispatchEvent(new CustomEvent('nsurvey_auth_changed', { detail: user }));
 }
 
-// ─── Auth Actions ─────────────────────────────────────────────────────────────
+// ─── Row mapping ─────────────────────────────────────────────────────────────
+
+interface ProfileRow {
+  id: string;
+  email: string;
+  full_name: string;
+  title: string | null;
+  surcon_number: string | null;
+  nis_chapter: string | null;
+  phone: string | null;
+  company_name: string | null;
+  office_address: string | null;
+  avatar_url: string | null;
+  digital_seal_url: string | null;
+  signature_url: string | null;
+  subscription_tier: UserProfile['subscriptionTier'];
+  subscription_expires_at: string | null;
+  active_organization_id: string | null;
+  created_at: string;
+}
+
+const u = (v: string | null | undefined) => (v == null || v === '' ? undefined : v);
+
+function fromRow(r: ProfileRow): UserProfile {
+  return {
+    id: r.id,
+    email: r.email,
+    fullName: r.full_name,
+    title: u(r.title),
+    surconNumber: u(r.surcon_number),
+    nisChapter: u(r.nis_chapter),
+    phone: u(r.phone),
+    companyName: u(r.company_name),
+    officeAddress: u(r.office_address),
+    avatarUrl: u(r.avatar_url),
+    digitalSealUrl: u(r.digital_seal_url),
+    signatureUrl: u(r.signature_url),
+    subscriptionTier: r.subscription_tier,
+    subscriptionExpiresAt: r.subscription_expires_at ? Date.parse(r.subscription_expires_at) : undefined,
+    activeOrganizationId: r.active_organization_id,
+    createdAt: Date.parse(r.created_at)
+  };
+}
+
+const EDITABLE: Record<string, keyof ProfileRow> = {
+  fullName: 'full_name',
+  title: 'title',
+  surconNumber: 'surcon_number',
+  nisChapter: 'nis_chapter',
+  phone: 'phone',
+  companyName: 'company_name',
+  officeAddress: 'office_address',
+  avatarUrl: 'avatar_url',
+  digitalSealUrl: 'digital_seal_url',
+  signatureUrl: 'signature_url',
+  activeOrganizationId: 'active_organization_id'
+};
+
+async function fetchProfile(userId: string): Promise<UserProfile | null> {
+  const sb = requireSupabase();
+  const { data, error } = await sb.from('profiles').select('*').eq('id', userId).maybeSingle();
+  if (error) throw friendlyError(error);
+  return data ? fromRow(data as ProfileRow) : null;
+}
+
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
+
+let initialised = false;
+let recoveryListener: (() => void) | null = null;
+
+/** Call once at start-up. Hydrates the session and subscribes to auth changes. */
+export async function initAuth(): Promise<UserProfile | null> {
+  if (!supabase) {
+    if (currentUser) setCurrent(null);
+    return null;
+  }
+  if (!initialised) {
+    initialised = true;
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') recoveryListener?.();
+      if (event === 'SIGNED_OUT' || !session) {
+        setCurrent(null);
+        return;
+      }
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+        // Defer: Supabase recommends not awaiting other calls inside this callback.
+        setTimeout(() => { void refreshCurrentUser(); }, 0);
+      }
+    });
+  }
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) {
+    setCurrent(null);
+    return null;
+  }
+  return refreshCurrentUser();
+}
+
+/** Re-reads the profile from the server (e.g. after a payment). */
+export async function refreshCurrentUser(): Promise<UserProfile | null> {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  const sessionUser = data.session?.user;
+  if (!sessionUser) {
+    setCurrent(null);
+    return null;
+  }
+  try {
+    await supabase.rpc('claim_org_invites');
+  } catch {
+    /* non-fatal */
+  }
+  const profile = await fetchProfile(sessionUser.id);
+  setCurrent(profile);
+  return profile;
+}
+
+export function onPasswordRecovery(cb: () => void): void {
+  recoveryListener = cb;
+}
+
+export function getCurrentUser(): UserProfile | null {
+  return currentUser;
+}
+
+export function isAccountsEnabled(): boolean {
+  return isBackendConfigured;
+}
+
+// ─── Auth actions ────────────────────────────────────────────────────────────
 
 export async function loginUser(creds: LoginCredentials): Promise<UserProfile> {
-  const emailNorm = creds.email.trim().toLowerCase();
-  const users = getStoredUsers();
+  const sb = requireSupabase();
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: creds.email.trim().toLowerCase(),
+    password: creds.password
+  });
+  if (error || !data.user) throw friendlyError(error, 'Sign-in failed.');
+  const profile = await fetchProfile(data.user.id);
+  if (!profile) throw new Error('Your profile could not be loaded. Please contact support.');
+  setCurrent(profile);
+  return profile;
+}
 
-  const found = users.find(u => u.email.toLowerCase() === emailNorm);
-  if (!found) {
-    // If it's the demo account password or any password for mock, create or throw
-    if (emailNorm === 'surv.chikezie@geotrek.ng' || emailNorm === 'cadastral.demo@nsurvey.app') {
-      // Seed account exists
-      const user = users.find(u => u.email.toLowerCase() === emailNorm)!;
-      saveSession(user, creds.rememberMe);
-      return user;
+export function validatePassword(pw: string): string | null {
+  if (pw.length < 8) return 'Password must be at least 8 characters.';
+  if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'Password must contain letters and numbers.';
+  return null;
+}
+
+/**
+ * Creates an account. Returns the profile when the session starts immediately,
+ * or null when Supabase requires email confirmation first.
+ */
+export async function registerUser(creds: RegisterCredentials): Promise<UserProfile | null> {
+  const sb = requireSupabase();
+  const pwErr = validatePassword(creds.password);
+  if (pwErr) throw new Error(pwErr);
+  if (!creds.fullName.trim()) throw new Error('Please enter your full name.');
+
+  const { data, error } = await sb.auth.signUp({
+    email: creds.email.trim().toLowerCase(),
+    password: creds.password,
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: {
+        full_name: creds.fullName.trim(),
+        title: creds.title || 'Surv.',
+        surcon_number: creds.surconNumber?.trim() || null,
+        nis_chapter: creds.nisChapter?.trim() || null,
+        phone: creds.phone?.trim() || null,
+        company_name: creds.companyName?.trim() || null
+      }
     }
-    throw new Error('Invalid email or password. Please verify your credentials or register a new account.');
+  });
+  if (error) throw friendlyError(error, 'Registration failed.');
+  // Supabase returns a user with no identities when the email is already registered.
+  if (data.user && data.user.identities && data.user.identities.length === 0) {
+    throw new Error('An account with this email already exists. Please sign in instead.');
   }
-
-  saveSession(found, creds.rememberMe);
-  return found;
+  if (!data.session || !data.user) return null;
+  const profile = await fetchProfile(data.user.id);
+  setCurrent(profile);
+  return profile;
 }
 
-export async function registerUser(creds: RegisterCredentials): Promise<UserProfile> {
-  const emailNorm = creds.email.trim().toLowerCase();
-  const users = getStoredUsers();
-
-  if (users.some(u => u.email.toLowerCase() === emailNorm)) {
-    throw new Error('An account with this email address already exists. Please sign in instead.');
-  }
-
-  const newUser: UserProfile = {
-    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    email: emailNorm,
-    fullName: creds.fullName.trim(),
-    title: creds.title || 'Surv.',
-    surconNumber: creds.surconNumber?.trim() || undefined,
-    nisChapter: creds.nisChapter?.trim() || undefined,
-    phone: creds.phone?.trim() || undefined,
-    companyName: creds.companyName?.trim() || undefined,
-    subscriptionTier: 'COMMUNITY', // New users start on Community tier
-    activeOrganizationId: null,
-    createdAt: Date.now()
-  };
-
-  users.push(newUser);
-  saveUsers(users);
-  saveSession(newUser, true);
-
-  return newUser;
-}
-
-export function logout(): void {
+export async function logout(): Promise<void> {
   try {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    window.dispatchEvent(new CustomEvent('nsurvey_auth_changed', { detail: null }));
-  } catch (err) {
-    console.error('Failed to clear session', err);
+    await supabase?.auth.signOut();
+  } finally {
+    setCurrent(null);
   }
 }
 
 export async function updateUserProfile(updates: Partial<UserProfile>): Promise<UserProfile> {
-  const current = getCurrentUser();
-  if (!current) throw new Error('No active user session. Please sign in.');
+  const sb = requireSupabase();
+  const current = currentUser;
+  if (!current) throw new Error('Please sign in first.');
 
-  const updated: UserProfile = {
-    ...current,
-    ...updates,
-    id: current.id,
-    email: current.email // preserve email
-  };
-
-  // Update in users database
-  const users = getStoredUsers();
-  const idx = users.findIndex(u => u.id === current.id);
-  if (idx !== -1) {
-    users[idx] = updated;
-    saveUsers(users);
+  const row: Record<string, unknown> = {};
+  for (const [k, col] of Object.entries(EDITABLE)) {
+    if (k in updates) {
+      const v = (updates as Record<string, unknown>)[k];
+      row[col] = v === undefined || v === '' ? null : v;
+    }
   }
+  if (Object.keys(row).length === 0) return current;
 
-  // Update in active session
-  saveSession(updated, true);
-  return updated;
+  const { data, error } = await sb.from('profiles').update(row).eq('id', current.id).select('*').single();
+  if (error) throw friendlyError(error, 'Could not save your profile.');
+  const profile = fromRow(data as ProfileRow);
+  setCurrent(profile);
+  return profile;
 }
 
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+  const sb = requireSupabase();
   const emailNorm = email.trim().toLowerCase();
-  const users = getStoredUsers();
-  const found = users.find(u => u.email.toLowerCase() === emailNorm);
-
-  if (!found) {
-    throw new Error('No registered account was found with this email address.');
-  }
-
+  const { error } = await sb.auth.resetPasswordForEmail(emailNorm, { redirectTo: window.location.origin });
+  if (error) throw friendlyError(error, 'Could not send the reset email.');
+  // Same message whether or not the account exists, to avoid account enumeration.
   return {
     success: true,
-    message: `A password reset link has been dispatched to ${emailNorm}. Please check your inbox and follow the instructions.`
+    message: `If an account exists for ${emailNorm}, a password reset link is on its way. Check your inbox.`
   };
 }
 
-// ─── Subscription & Permission Helpers ────────────────────────────────────────
+export async function setNewPassword(password: string): Promise<void> {
+  const sb = requireSupabase();
+  const pwErr = validatePassword(password);
+  if (pwErr) throw new Error(pwErr);
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) throw friendlyError(error, 'Could not update your password.');
+}
+
+// ─── Subscription helpers ────────────────────────────────────────────────────
 
 export function isPaidSubscription(user?: UserProfile | null): boolean {
   if (!user) return false;

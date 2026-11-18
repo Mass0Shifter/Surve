@@ -9,39 +9,44 @@ import { CoordinateTable } from './components/tables/CoordinateTable';
 import { ParcelInspector } from './components/panels/ParcelInspector';
 import { LayerManager } from './components/panels/LayerManager';
 import { CogoCalculator } from './components/panels/CogoCalculator';
-import { HistoryModal } from './components/panels/HistoryModal';
-import { BeaconRenumberModal } from './components/panels/BeaconRenumberModal';
-import { TitleDeedPlanModal } from './components/tdp/TitleDeedPlanModal';
-import { TraverseStudioModal } from './components/traverse/TraverseStudioModal';
-import { LevelingStudioModal } from './components/leveling/LevelingStudioModal';
-import { TacheometryStudioModal } from './components/tacheometry/TacheometryStudioModal';
-import { SetoutStudioModal } from './components/setout/SetoutStudioModal';
-import { DatumTransformModal } from './components/transform/DatumTransformModal';
-import { EarthViewStudioModal } from './components/gis/EarthViewStudioModal';
-import { AlignmentStudioModal } from './components/alignment/AlignmentStudioModal';
-import { VerticalAlignmentModal } from './components/alignment/VerticalAlignmentModal';
-import { SubdivisionStudioModal } from './components/subdivision/SubdivisionStudioModal';
-import { DxfStudioModal } from './components/dxf/DxfStudioModal';
-import { CadStudioModal } from './components/cad/CadStudioModal';
-import { ResectionStudioModal } from './components/resection/ResectionStudioModal';
-import { CsvImporterModal } from './components/importer/CsvImporterModal';
-import { SurvPackMigrationModal } from './components/importer/SurvPackMigrationModal';
-import { AuthModal } from './components/auth/AuthModal';
-import { UserProfileModal } from './components/auth/UserProfileModal';
-import { OrganizationStudioModal } from './components/organization/OrganizationStudioModal';
-import { ProjectLibraryModal } from './components/library/ProjectLibraryModal';
-import { SubscriptionStudioModal } from './components/subscription/SubscriptionStudioModal';
-import { UpgradePromptModal } from './components/subscription/UpgradePromptModal';
 import { FeatureId, hasFeatureAccess } from './engine/subscription/featureGating';
 import { UserProfile } from './engine/auth/authTypes';
 import { Organization } from './engine/organization/orgTypes';
 import { NSurveyBundle, downloadNSurvBundle, parseNSurvBundle } from './engine/storage/nsurvBundle';
 import { saveActiveSessionState, loadActiveSessionState, updateProjectInLibrary } from './engine/storage/projectDatabase';
-import { getCurrentUser, logout, updateUserProfile } from './engine/auth/authEngine';
-import { getOrganizationsForUser, getActiveOrganization } from './engine/organization/orgEngine';
+import { getCurrentUser, logout, updateUserProfile, initAuth, onPasswordRecovery } from './engine/auth/authEngine';
+import { getOrganizationsForUser, getActiveOrganization, refreshOrganizations } from './engine/organization/orgEngine';
+import { confirmCheckout, loadOfflineLicense } from './engine/subscription/subscriptionEngine';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { DesktopTitleBar } from './components/desktop/DesktopTitleBar';
 import { ChevronRight, ChevronLeft, Layers, MapPin } from 'lucide-react';
+import { lazyWhenOpen } from './lib/lazyModal';
+import type { PaymentNotice } from './components/subscription/SubscriptionStudioModal';
+
+// Studios and dialogs are code-split: each downloads the first time it is opened.
+const HistoryModal = lazyWhenOpen(() => import('./components/panels/HistoryModal').then(m => ({ default: m.HistoryModal })));
+const BeaconRenumberModal = lazyWhenOpen(() => import('./components/panels/BeaconRenumberModal').then(m => ({ default: m.BeaconRenumberModal })));
+const TitleDeedPlanModal = lazyWhenOpen(() => import('./components/tdp/TitleDeedPlanModal').then(m => ({ default: m.TitleDeedPlanModal })));
+const TraverseStudioModal = lazyWhenOpen(() => import('./components/traverse/TraverseStudioModal').then(m => ({ default: m.TraverseStudioModal })));
+const LevelingStudioModal = lazyWhenOpen(() => import('./components/leveling/LevelingStudioModal').then(m => ({ default: m.LevelingStudioModal })));
+const TacheometryStudioModal = lazyWhenOpen(() => import('./components/tacheometry/TacheometryStudioModal').then(m => ({ default: m.TacheometryStudioModal })));
+const SetoutStudioModal = lazyWhenOpen(() => import('./components/setout/SetoutStudioModal').then(m => ({ default: m.SetoutStudioModal })));
+const DatumTransformModal = lazyWhenOpen(() => import('./components/transform/DatumTransformModal').then(m => ({ default: m.DatumTransformModal })));
+const EarthViewStudioModal = lazyWhenOpen(() => import('./components/gis/EarthViewStudioModal').then(m => ({ default: m.EarthViewStudioModal })));
+const AlignmentStudioModal = lazyWhenOpen(() => import('./components/alignment/AlignmentStudioModal').then(m => ({ default: m.AlignmentStudioModal })));
+const VerticalAlignmentModal = lazyWhenOpen(() => import('./components/alignment/VerticalAlignmentModal').then(m => ({ default: m.VerticalAlignmentModal })));
+const SubdivisionStudioModal = lazyWhenOpen(() => import('./components/subdivision/SubdivisionStudioModal').then(m => ({ default: m.SubdivisionStudioModal })));
+const DxfStudioModal = lazyWhenOpen(() => import('./components/dxf/DxfStudioModal').then(m => ({ default: m.DxfStudioModal })));
+const CadStudioModal = lazyWhenOpen(() => import('./components/cad/CadStudioModal').then(m => ({ default: m.CadStudioModal })));
+const ResectionStudioModal = lazyWhenOpen(() => import('./components/resection/ResectionStudioModal').then(m => ({ default: m.ResectionStudioModal })));
+const CsvImporterModal = lazyWhenOpen(() => import('./components/importer/CsvImporterModal').then(m => ({ default: m.CsvImporterModal })));
+const SurvPackMigrationModal = lazyWhenOpen(() => import('./components/importer/SurvPackMigrationModal').then(m => ({ default: m.SurvPackMigrationModal })));
+const AuthModal = lazyWhenOpen(() => import('./components/auth/AuthModal').then(m => ({ default: m.AuthModal })));
+const UserProfileModal = lazyWhenOpen(() => import('./components/auth/UserProfileModal').then(m => ({ default: m.UserProfileModal })));
+const OrganizationStudioModal = lazyWhenOpen(() => import('./components/organization/OrganizationStudioModal').then(m => ({ default: m.OrganizationStudioModal })));
+const ProjectLibraryModal = lazyWhenOpen(() => import('./components/library/ProjectLibraryModal').then(m => ({ default: m.ProjectLibraryModal })));
+const SubscriptionStudioModal = lazyWhenOpen(() => import('./components/subscription/SubscriptionStudioModal').then(m => ({ default: m.SubscriptionStudioModal })));
+const UpgradePromptModal = lazyWhenOpen(() => import('./components/subscription/UpgradePromptModal').then(m => ({ default: m.UpgradePromptModal })));
 
 const STORAGE_KEY = 'nsurvey_project_state_v1';
 const AUTOSAVE_KEY = 'nsurvey_autosave_enabled';
@@ -153,11 +158,68 @@ export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<'workspace' | 'cad_studio' | 'tdp_studio'>('workspace');
   const [upgradePromptFeature, setUpgradePromptFeature] = useState<FeatureId | null>(null);
   const nativeNSurvInputRef = useRef<HTMLInputElement | null>(null);
-  const [currentLoadedProjectId, setCurrentLoadedProjectId] = useState<string | null>('proj_seed_abuja_001');
+  const [currentLoadedProjectId, setCurrentLoadedProjectId] = useState<string | null>('proj_sample_001');
 
   // User Authentication & Profile States
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register' | 'forgot' | 'recovery'>('login');
+  const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(() => navigator.onLine);
+
+  // Boot: restore the Supabase session, verify any stored offline licence,
+  // and finish a Paystack checkout if we are returning from one.
+  useEffect(() => {
+    onPasswordRecovery(() => {
+      setAuthInitialTab('recovery');
+      setIsAuthOpen(true);
+    });
+    const params = new URLSearchParams(window.location.search);
+    const paymentRef = params.get('payment_ref') || params.get('reference');
+    if (paymentRef) {
+      params.delete('payment_ref');
+      params.delete('reference');
+      params.delete('trxref');
+      const qs = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+    }
+    (async () => {
+      await loadOfflineLicense();
+      let user: UserProfile | null = null;
+      try {
+        user = await initAuth();
+      } catch (err) {
+        console.warn('Could not restore session', err);
+      }
+      if (paymentRef) {
+        setIsSubscriptionOpen(true);
+        if (!user) {
+          setPaymentNotice({ status: 'ERROR', message: 'Please sign in to finish activating your payment.' });
+          return;
+        }
+        try {
+          const r = await confirmCheckout(paymentRef);
+          setPaymentNotice(
+            r.status === 'SUCCESS'
+              ? { status: 'SUCCESS', message: `Payment confirmed — your ${r.user?.subscriptionTier ?? ''} plan is active until ${r.user?.subscriptionExpiresAt ? new Date(r.user.subscriptionExpiresAt).toLocaleDateString('en-GB') : '—'}.` }
+              : r.status === 'PENDING'
+                ? { status: 'PENDING', message: 'Paystack has not confirmed this payment yet. Your plan will activate automatically once it does — check back in a few minutes.' }
+                : { status: 'FAILED', message: 'The payment was not completed. You have not been charged for this attempt.' }
+          );
+        } catch (err: any) {
+          setPaymentNotice({ status: 'ERROR', message: err.message || 'Could not confirm the payment. If you were charged, contact support with your reference: ' + paymentRef });
+        }
+      }
+    })();
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [isOrgStudioOpen, setIsOrgStudioOpen] = useState<boolean>(false);
 
@@ -211,9 +273,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleAuthChanged = (e: any) => {
-      const user = e.detail;
+      const user = e.detail as UserProfile | null;
       setCurrentUser(user);
       refreshUserData(user);
+      refreshOrganizations(user).catch((err) => console.warn('Could not load organizations', err));
     };
 
     const handleOrgsChanged = () => {
@@ -233,7 +296,7 @@ export const App: React.FC = () => {
   const handleSelectOrg = async (orgId: string | null) => {
     if (!currentUser) return;
     try {
-      const updated = await updateUserProfile({ activeOrganizationId: orgId || undefined });
+      const updated = await updateUserProfile({ activeOrganizationId: orgId || null });
       setCurrentUser(updated);
       const selectedOrg = orgId ? getOrganizationsForUser(currentUser.id).find(o => o.id === orgId) || null : null;
       setActiveOrg(selectedOrg);
@@ -664,7 +727,7 @@ export const App: React.FC = () => {
 
   const handleLoadSample = () => {
     recordSnapshot(`Reset to Demo Benchmark`);
-    setCurrentLoadedProjectId('proj_seed_abuja_001');
+    setCurrentLoadedProjectId('proj_sample_001');
     setProject(SAMPLE_PROJECT_METADATA);
     setPoints(SAMPLE_COORDINATES);
     setParcels(SAMPLE_PARCELS);
@@ -864,11 +927,11 @@ export const App: React.FC = () => {
           activeOrg={activeOrg}
           onSelectOrg={handleSelectOrg}
           onOpenOrgStudio={() => setIsOrgStudioOpen(true)}
-          onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenAuth={() => { setAuthInitialTab('login'); setIsAuthOpen(true); }}
           onOpenProfile={() => setIsProfileOpen(true)}
           onOpenSubscription={() => setIsSubscriptionOpen(true)}
           onRequestUpgrade={(fId) => setUpgradePromptFeature(fId)}
-          onLogout={logout}
+          onLogout={() => { void logout(); }}
           activeView={activeView}
           isLeftVisible={isLeftVisible}
           isRightVisible={isRightVisible}
@@ -1306,6 +1369,7 @@ export const App: React.FC = () => {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+        initialTab={authInitialTab}
         onAuthSuccess={(user) => {
           setCurrentUser(user);
         }}
@@ -1349,12 +1413,16 @@ export const App: React.FC = () => {
       {/* Subscription & Payment Gateway Studio Modal */}
       <SubscriptionStudioModal
         isOpen={isSubscriptionOpen}
-        onClose={() => setIsSubscriptionOpen(false)}
+        onClose={() => { setIsSubscriptionOpen(false); setPaymentNotice(null); }}
         currentUser={currentUser}
+        paymentNotice={paymentNotice}
+        onRequireSignIn={() => { setAuthInitialTab('login'); setIsAuthOpen(true); }}
         onSubscriptionUpdated={(updated) => {
-          setCurrentUser(updated);
+          setCurrentUser({ ...updated });
         }}
       />
+
+      {!isOnline && <div className="offline-pill" role="status">Offline — your work is saved on this device</div>}
 
       {/* Feature Gating Upgrade Prompt Modal */}
       <UpgradePromptModal

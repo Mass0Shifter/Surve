@@ -4,6 +4,7 @@
  */
 
 import { SubscriptionTier, UserProfile } from '../auth/authTypes';
+import { getActiveOfflineLicense } from './subscriptionEngine';
 
 export type FeatureId =
   | 'TRAVERSE_BALANCING'
@@ -159,7 +160,7 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     minTier: 'PROFESSIONAL',
     tagline: 'Deploy fully unlocked professional tools in remote bush locations without internet connection.',
     benefits: [
-      'Generate 30-day encrypted offline tokens before leaving for site',
+      'Get a signed 30-day licence before leaving for site',
       '100% offline access to all engineering calculation studios',
       'No internet required for cadastral calculations and TDP prints'
     ]
@@ -170,7 +171,7 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     minTier: 'PROFESSIONAL',
     tagline: 'Embed registered SURCON digital seals and surveyor signatures on survey deliverables.',
     benefits: [
-      'Cryptographically verified digital seal placement',
+      'Seal and signature placement from your verified profile',
       'Official surveyor registration number branding',
       'Compliance with Surveyors Council of Nigeria (SURCON) standards'
     ]
@@ -203,7 +204,7 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     minTier: 'PROFESSIONAL',
     tagline: 'High-resolution satellite imagery & OpenStreetMap basemaps with live Minna-to-WGS84 cadastral vector overlay.',
     benefits: [
-      'Multi-source satellite imagery (Esri World Imagery HD, OSM, Google Hybrid, CartoDB)',
+      'Multi-source basemaps (Esri World Imagery, OpenStreetMap, CARTO)',
       'Real-time Alpha Opacity slider for ground feature and fence line comparison',
       '1-Click RFC 7946 GeoJSON and Google Earth 3D KML export & live launch'
     ]
@@ -219,7 +220,7 @@ export function hasFeatureAccess(
   const def = FEATURE_REGISTRY[featureId];
   if (!def) return true;
 
-  const tier = user.subscriptionTier || 'COMMUNITY';
+  const tier = effectiveTier(user);
 
   if (tier === 'ENTERPRISE') return true;
   if (tier === 'PROFESSIONAL') {
@@ -228,6 +229,18 @@ export function hasFeatureAccess(
 
   // Community Tier
   return def.minTier === 'COMMUNITY';
+}
+
+const RANK: Record<SubscriptionTier, number> = { COMMUNITY: 0, PROFESSIONAL: 1, ENTERPRISE: 2 };
+
+/** The tier currently in force: the server-confirmed plan (if not expired) or a valid offline licence, whichever is higher. */
+export function effectiveTier(user: UserProfile | null | undefined): SubscriptionTier {
+  if (!user) return 'COMMUNITY';
+  let tier: SubscriptionTier = user.subscriptionTier || 'COMMUNITY';
+  if (tier !== 'COMMUNITY' && user.subscriptionExpiresAt && Date.now() > user.subscriptionExpiresAt) tier = 'COMMUNITY';
+  const lic = getActiveOfflineLicense(user.id);
+  if (lic && RANK[lic.tier] > RANK[tier]) tier = lic.tier;
+  return tier;
 }
 
 /** Get definition details for a feature */

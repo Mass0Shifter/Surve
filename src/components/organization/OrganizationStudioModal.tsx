@@ -179,7 +179,7 @@ export const OrganizationStudioModal: React.FC<OrganizationStudioModalProps> = (
         role: invRole
       }, currentUser);
 
-      setSuccessMsg(`Invited ${invFullName} (${invRole}) to ${activeOrg.name}.`);
+      setSuccessMsg(`Added ${invEmail.trim()} as ${invRole}. They join ${activeOrg.name} as soon as they sign in (or sign up) with that email — let them know.`);
       setShowInviteForm(false);
       setInvEmail('');
       setInvFullName('');
@@ -219,6 +219,10 @@ export const OrganizationStudioModal: React.FC<OrganizationStudioModalProps> = (
   const handleSealUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith('image/') || file.size > 512 * 1024) {
+      setErrorMsg('Please upload an image file under 512 KB.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (ev) => {
       setOfficialSealUrl(ev.target?.result as string);
@@ -358,7 +362,7 @@ export const OrganizationStudioModal: React.FC<OrganizationStudioModalProps> = (
                       className="auth-input"
                       value={editEmail}
                       onChange={(e) => setEditEmail(e.target.value)}
-                      placeholder="info@geotrek.ng"
+                      placeholder="info@yourfirm.com"
                     />
                   </div>
                 </div>
@@ -547,7 +551,7 @@ export const OrganizationStudioModal: React.FC<OrganizationStudioModalProps> = (
                         <input
                           type="email"
                           className="auth-input"
-                          placeholder="tunde@geotrek.ng"
+                          placeholder="colleague@yourfirm.com"
                           value={invEmail}
                           onChange={(e) => setInvEmail(e.target.value)}
                           required
@@ -618,6 +622,7 @@ export const OrganizationStudioModal: React.FC<OrganizationStudioModalProps> = (
                             <span style={{ fontWeight: 600, color: '#f8fafc' }}>
                               {member.title ? `${member.title} ` : ''}{member.fullName}
                             </span>
+                            {member.pending && <span className="proj-code-badge" style={{ fontSize: '9px' }}>INVITED</span>}
                           </div>
                         </td>
                         <td className="mono-cell" style={{ fontSize: '10px' }}>{member.email}</td>

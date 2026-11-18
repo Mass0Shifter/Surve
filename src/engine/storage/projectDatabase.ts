@@ -43,93 +43,32 @@ export interface ActiveSessionState {
   savedAt: number;
 }
 
-// Default seed projects
+// A single neutral sample project, visible to every user, so the library isn't empty on first run.
 const SEED_LIBRARY_PROJECTS: StoredProject[] = [
   {
-    id: 'proj_seed_abuja_001',
-    title: 'ABUJA CENTRAL CADASTRAL BOUNDARY',
-    code: 'JOB-2026-603',
-    clientName: 'FEDERAL HOUSING AUTHORITY',
-    location: 'CBD, FCT ABUJA',
-    surveyFirm: 'GEOTREK SURVEY & ENGINEERING SERVICES LTD',
-    surveyorName: 'SURV. (DR.) PRECIOUS CHIKEZIE',
-    ownerUserId: 'usr_pro_001',
-    organizationId: 'org_geotrek_001',
-    organizationName: 'Geotrek Survey & Engineering Services Ltd',
+    id: 'proj_sample_001',
+    title: SAMPLE_PROJECT_METADATA.title,
+    code: SAMPLE_PROJECT_METADATA.code,
+    clientName: SAMPLE_PROJECT_METADATA.clientName,
+    location: SAMPLE_PROJECT_METADATA.location,
+    surveyFirm: SAMPLE_PROJECT_METADATA.surveyFirm,
+    surveyorName: SAMPLE_PROJECT_METADATA.surveyorName,
+    ownerUserId: 'guest',
     pointsCount: SAMPLE_COORDINATES.length,
     parcelsCount: SAMPLE_PARCELS.length,
     gridBelt: NigerianGridBelt.MID_BELT,
     bundle: {
       format: 'NSURVEY_PROJECT_BUNDLE',
       version: '1.0.0',
-      exportedAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
+      exportedAt: Date.now(),
       app: 'NSurvey PRO',
-      scope: {
-        ownerUserId: 'usr_pro_001',
-        ownerName: 'Surv. (Dr.) Precious Chikezie',
-        organizationId: 'org_geotrek_001',
-        organizationName: 'Geotrek Survey & Engineering Services Ltd'
-      },
+      scope: { ownerUserId: 'guest', ownerName: 'Sample' },
       project: SAMPLE_PROJECT_METADATA,
       points: SAMPLE_COORDINATES,
       parcels: SAMPLE_PARCELS
     },
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 10,
-    updatedAt: Date.now() - 1000 * 60 * 60 * 24 * 2
-  },
-  {
-    id: 'proj_seed_lekki_002',
-    title: 'LEKKI PHASE 1 RESIDENTIAL PERIMETER',
-    code: 'JOB-2026-104',
-    clientName: 'CHIEF E. A. OKAFOR',
-    location: 'ETI-OSA LGA, LAGOS STATE',
-    surveyFirm: 'GEOMATICS & SURVEY ASSOCIATES',
-    surveyorName: 'SURV. CHIEF O. C. EZE',
-    ownerUserId: 'usr_pro_001',
-    pointsCount: 8,
-    parcelsCount: 1,
-    gridBelt: NigerianGridBelt.WEST_BELT,
-    bundle: {
-      format: 'NSURVEY_PROJECT_BUNDLE',
-      version: '1.0.0',
-      exportedAt: Date.now() - 1000 * 60 * 60 * 24 * 15,
-      app: 'NSurvey PRO',
-      scope: {
-        ownerUserId: 'usr_pro_001',
-        ownerName: 'Surv. (Dr.) Precious Chikezie'
-      },
-      project: {
-        title: 'LEKKI PHASE 1 RESIDENTIAL PERIMETER',
-        location: 'ETI-OSA LGA, LAGOS STATE',
-        code: 'JOB-2026-104',
-        surveyFirm: 'GEOMATICS & SURVEY ASSOCIATES',
-        surveyorName: 'SURV. CHIEF O. C. EZE',
-        surveyorNumber: 'SURCON/REG/2014/4891',
-        clientName: 'CHIEF E. A. OKAFOR',
-        address: 'LAGOS STATE, NIGERIA',
-        phone: '+234 802 333 4455',
-        date: '10/01/2026',
-        scale: 500,
-        gridBelt: NigerianGridBelt.WEST_BELT
-      },
-      points: [
-        { id: 'SC1', easting: 284100.25, northing: 712050.8, code: 'PB' },
-        { id: 'SC2', easting: 284220.6, northing: 712065.12, code: 'PB' },
-        { id: 'SC3', easting: 284240.15, northing: 711950.45, code: 'PB' },
-        { id: 'SC4', easting: 284115.8, northing: 711935.2, code: 'PB' }
-      ],
-      parcels: [
-        {
-          id: 'parcel_lekki_01',
-          plotNumber: 'PLOT 12, BLOCK 4',
-          pointIds: ['SC1', 'SC2', 'SC3', 'SC4'],
-          ownerName: 'CHIEF E. A. OKAFOR',
-          color: '#10b981'
-        }
-      ]
-    },
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 20,
-    updatedAt: Date.now() - 1000 * 60 * 60 * 24 * 14
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   }
 ];
 

@@ -1,90 +1,102 @@
 /**
- * Multi-Tenant Organization & Team Collaboration Engine
- * Manages surveying firms, memberships, RBAC roles, firm seals, and subscription seat limits.
+ * Multi-Tenant Organization & Team Engine (Supabase backed).
+ * Reads are served from an in-memory cache (refreshed from the server and
+ * broadcast via `nsurvey_orgs_changed`); every write goes through a
+ * permission-checked Postgres function.
  */
 
 import { Organization, OrganizationMember, CreateOrgParams, InviteMemberParams } from './orgTypes';
 import { UserProfile, UserRole } from '../auth/authTypes';
-import { isPaidSubscription, updateUserProfile } from '../auth/authEngine';
+import { isPaidSubscription, refreshCurrentUser } from '../auth/authEngine';
 import { NigerianGridBelt } from '../types';
+import { supabase, requireSupabase, friendlyError } from '../../lib/supabase';
+import { PRICING } from '../../../shared/pricing';
 
-const ORGS_STORAGE_KEY = 'nsurvey_organizations_v1';
+let cache: Organization[] = [];
+let cacheUserId: string | null = null;
 
-// Seed demo organization for the pro surveyor
-const SEED_ORGS: Organization[] = [
-  {
-    id: 'org_geotrek_001',
-    name: 'Geotrek Survey & Engineering Services Ltd',
-    slug: 'geotrek-survey',
-    ownerUserId: 'usr_pro_001',
-    subscriptionTier: 'PROFESSIONAL',
-    maxSeats: 3, // Pro plan includes up to 3 seats
-    members: [
-      {
-        userId: 'usr_pro_001',
-        email: 'surv.chikezie@geotrek.ng',
-        fullName: 'Precious Chikezie',
-        title: 'Surv. (Dr.)',
-        surconNumber: 'SURCON Reg. No. 1984/2019',
-        role: 'OWNER',
-        joinedAt: Date.now() - 1000 * 60 * 60 * 24 * 60
-      },
-      {
-        userId: 'usr_mem_002',
-        email: 'amina.bello@geotrek.ng',
-        fullName: 'Amina Bello',
-        title: 'Surv.',
-        surconNumber: 'SURCON Reg. No. 2310/2021',
-        role: 'ADMIN',
-        joinedAt: Date.now() - 1000 * 60 * 60 * 24 * 30
-      }
-    ],
-    officeAddress: 'Suite 402, Reinsurance Plaza, Central Business District, Abuja, Nigeria',
-    phone: '+234 803 123 4567',
-    email: 'info@geotrek.ng',
-    defaultGridBelt: NigerianGridBelt.MID_BELT,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 60
-  }
-];
-
-function getStoredOrgs(): Organization[] {
-  try {
-    const raw = localStorage.getItem(ORGS_STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(ORGS_STORAGE_KEY, JSON.stringify(SEED_ORGS));
-      return SEED_ORGS;
-    }
-    return JSON.parse(raw);
-  } catch {
-    return SEED_ORGS;
-  }
+function emit(): void {
+  window.dispatchEvent(new CustomEvent('nsurvey_orgs_changed'));
 }
 
-function saveOrgs(orgs: Organization[]): void {
-  try {
-    localStorage.setItem(ORGS_STORAGE_KEY, JSON.stringify(orgs));
-    window.dispatchEvent(new CustomEvent('nsurvey_orgs_changed'));
-  } catch (err) {
-    console.error('Failed to save organizations database', err);
-  }
+function toBelt(v: unknown): NigerianGridBelt {
+  const n = Number(v);
+  return n === NigerianGridBelt.WEST_BELT || n === NigerianGridBelt.EAST_BELT ? n : NigerianGridBelt.MID_BELT;
 }
 
-// ─── Query Operations ─────────────────────────────────────────────────────────
+/** Loads all organizations the signed-in user belongs to. */
+export async function refreshOrganizations(user: UserProfile | null): Promise<Organization[]> {
+  if (!supabase || !user) {
+    cache = [];
+    cacheUserId = null;
+    emit();
+    return cache;
+  }
+  const { data: orgs, error } = await supabase
+    .from('organizations')
+    .select('*, organization_members(*)')
+    .order('created_at', { ascending: true });
+  if (error) throw friendlyError(error);
+
+  // Seat limit follows the owner's live subscription (resolved server-side).
+  const seats = new Map<string, number>();
+  await Promise.all((orgs || []).map(async (o: any) => {
+    const { data: n } = await supabase!.rpc('org_seat_limit_for_member', { org: o.id });
+    seats.set(o.id, typeof n === 'number' ? n : 1);
+  }));
+
+  cache = (orgs || []).map((o: any): Organization => {
+    const maxSeats = seats.get(o.id) ?? 1;
+    const tier: UserProfile['subscriptionTier'] =
+      maxSeats >= PRICING.ENTERPRISE.maxSeats ? 'ENTERPRISE' : maxSeats >= PRICING.PROFESSIONAL.maxSeats ? 'PROFESSIONAL' : 'COMMUNITY';
+    const members: OrganizationMember[] = (o.organization_members || [])
+      .sort((a: any, b: any) => Date.parse(a.joined_at) - Date.parse(b.joined_at))
+      .map((m: any) => ({
+        memberId: m.id,
+        userId: m.user_id || `pending:${m.id}`,
+        pending: !m.user_id,
+        email: m.email,
+        fullName: m.full_name || m.email,
+        title: m.title || undefined,
+        surconNumber: m.surcon_number || undefined,
+        role: m.role,
+        joinedAt: Date.parse(m.joined_at)
+      }));
+    return {
+      id: o.id,
+      name: o.name,
+      slug: o.slug,
+      ownerUserId: o.owner_user_id,
+      subscriptionTier: tier,
+      maxSeats,
+      members,
+      firmLogoUrl: o.firm_logo_url || undefined,
+      officialSealUrl: o.official_seal_url || undefined,
+      officeAddress: o.office_address || undefined,
+      phone: o.phone || undefined,
+      email: o.email || undefined,
+      defaultGridBelt: toBelt(o.default_grid_belt),
+      createdAt: Date.parse(o.created_at)
+    };
+  });
+  cacheUserId = user.id;
+  emit();
+  return cache;
+}
+
+// ─── Query operations (synchronous, from cache) ──────────────────────────────
 
 export function getOrganizationsForUser(userId?: string | null): Organization[] {
-  if (!userId) return [];
-  const orgs = getStoredOrgs();
-  return orgs.filter(o => o.members.some(m => m.userId === userId));
+  if (!userId || userId !== cacheUserId) return [];
+  return cache;
 }
 
 export function getOrganizationById(orgId?: string | null): Organization | null {
   if (!orgId) return null;
-  const orgs = getStoredOrgs();
-  return orgs.find(o => o.id === orgId) || null;
+  return cache.find(o => o.id === orgId) || null;
 }
 
 export function canUserCreateOrg(user: UserProfile | null): boolean {
-  if (!user) return false;
   return isPaidSubscription(user);
 }
 
@@ -93,169 +105,85 @@ export function getActiveOrganization(user: UserProfile | null): Organization | 
   return getOrganizationById(user.activeOrganizationId);
 }
 
-// ─── Organization CRUD Operations ─────────────────────────────────────────────
+// ─── Mutations ───────────────────────────────────────────────────────────────
 
-export async function createOrganization(
-  params: CreateOrgParams,
-  creator: UserProfile
-): Promise<Organization> {
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+}
+
+async function afterWrite(user: UserProfile, orgId: string): Promise<Organization> {
+  const fresh = (await refreshCurrentUser()) || user;
+  await refreshOrganizations(fresh);
+  const org = getOrganizationById(orgId);
+  if (!org) throw new Error('Organization not found.');
+  return org;
+}
+
+function memberRowId(org: Organization | null, memberUserId: string): string {
+  const m = org?.members.find(x => x.userId === memberUserId || x.memberId === memberUserId);
+  if (!m?.memberId) throw new Error('Member not found in organization.');
+  return m.memberId;
+}
+
+export async function createOrganization(params: CreateOrgParams, creator: UserProfile): Promise<Organization> {
   if (!canUserCreateOrg(creator)) {
     throw new Error('Creating an Organization requires an active Professional Surveyor or Enterprise Firm subscription.');
   }
-
-  const orgs = getStoredOrgs();
-  const slug = (params.slug || params.name)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-
-  if (orgs.some(o => o.slug === slug)) {
-    throw new Error(`An organization with the identifier "${slug}" already exists. Please choose a different name.`);
-  }
-
-  const maxSeats = creator.subscriptionTier === 'ENTERPRISE' ? 20 : 3;
-
-  const newOrg: Organization = {
-    id: `org_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    name: params.name.trim(),
-    slug,
-    ownerUserId: creator.id,
-    subscriptionTier: creator.subscriptionTier,
-    maxSeats,
-    members: [
-      {
-        userId: creator.id,
-        email: creator.email,
-        fullName: creator.fullName,
-        title: creator.title,
-        surconNumber: creator.surconNumber,
-        role: 'OWNER',
-        joinedAt: Date.now()
-      }
-    ],
-    officeAddress: params.officeAddress?.trim() || creator.officeAddress,
-    phone: params.phone?.trim() || creator.phone,
-    email: params.email?.trim() || creator.email,
-    defaultGridBelt: params.defaultGridBelt || NigerianGridBelt.MID_BELT,
-    createdAt: Date.now()
-  };
-
-  orgs.push(newOrg);
-  saveOrgs(orgs);
-
-  // Set as active organization for creator
-  await updateUserProfile({ activeOrganizationId: newOrg.id });
-
-  return newOrg;
+  const slug = slugify(params.slug || params.name);
+  if (!slug) throw new Error('Please enter an organization name.');
+  const { data, error } = await requireSupabase().rpc('create_organization', {
+    p_name: params.name,
+    p_slug: slug,
+    p_office_address: params.officeAddress ?? null,
+    p_phone: params.phone ?? null,
+    p_email: params.email ?? null,
+    p_grid_belt: params.defaultGridBelt ?? NigerianGridBelt.MID_BELT
+  });
+  if (error) throw friendlyError(error);
+  return afterWrite(creator, data as string);
 }
 
-export async function inviteMemberToOrg(
-  orgId: string,
-  params: InviteMemberParams,
-  requesterUser: UserProfile
-): Promise<Organization> {
-  const orgs = getStoredOrgs();
-  const org = orgs.find(o => o.id === orgId);
-  if (!org) throw new Error('Organization not found.');
-
-  // Verify requester permission (must be OWNER or ADMIN)
-  const requesterMember = org.members.find(m => m.userId === requesterUser.id);
-  if (!requesterMember || (requesterMember.role !== 'OWNER' && requesterMember.role !== 'ADMIN')) {
-    throw new Error('Permission denied. Only organization Owners or Admins can invite team members.');
-  }
-
-  // Check seat capacity limit
-  if (org.members.length >= org.maxSeats) {
-    throw new Error(
-      `Organization seat capacity reached (${org.members.length}/${org.maxSeats} seats used). Upgrade to Enterprise to add more members.`
-    );
-  }
-
-  const emailNorm = params.email.trim().toLowerCase();
-  if (org.members.some(m => m.email.toLowerCase() === emailNorm)) {
-    throw new Error(`A member with email "${emailNorm}" is already part of this organization.`);
-  }
-
-  const newMember: OrganizationMember = {
-    userId: `usr_inv_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-    email: emailNorm,
-    fullName: params.fullName.trim(),
-    title: params.title || 'Surv.',
-    surconNumber: params.surconNumber?.trim() || undefined,
-    role: params.role,
-    joinedAt: Date.now()
-  };
-
-  org.members.push(newMember);
-  saveOrgs(orgs);
-  return org;
+export async function inviteMemberToOrg(orgId: string, params: InviteMemberParams, requesterUser: UserProfile): Promise<Organization> {
+  const { error } = await requireSupabase().rpc('invite_org_member', {
+    p_org: orgId,
+    p_email: params.email,
+    p_full_name: params.fullName,
+    p_role: params.role,
+    p_title: params.title ?? null,
+    p_surcon: params.surconNumber ?? null
+  });
+  if (error) throw friendlyError(error);
+  return afterWrite(requesterUser, orgId);
 }
 
-export async function removeMemberFromOrg(
-  orgId: string,
-  memberUserId: string,
-  requesterUser: UserProfile
-): Promise<Organization> {
-  const orgs = getStoredOrgs();
-  const org = orgs.find(o => o.id === orgId);
-  if (!org) throw new Error('Organization not found.');
-
-  // Verify requester permission
-  const requesterMember = org.members.find(m => m.userId === requesterUser.id);
-  if (!requesterMember || (requesterMember.role !== 'OWNER' && requesterMember.role !== 'ADMIN')) {
-    throw new Error('Permission denied. Only organization Owners or Admins can remove members.');
-  }
-
-  // Prevent removing owner
-  const targetMember = org.members.find(m => m.userId === memberUserId);
-  if (!targetMember) throw new Error('Member not found in organization.');
-  if (targetMember.role === 'OWNER') {
-    throw new Error('The Organization Owner cannot be removed.');
-  }
-
-  org.members = org.members.filter(m => m.userId !== memberUserId);
-  saveOrgs(orgs);
-  return org;
+export async function removeMemberFromOrg(orgId: string, memberUserId: string, requesterUser: UserProfile): Promise<Organization> {
+  const { error } = await requireSupabase().rpc('remove_org_member', {
+    p_member: memberRowId(getOrganizationById(orgId), memberUserId)
+  });
+  if (error) throw friendlyError(error);
+  return afterWrite(requesterUser, orgId);
 }
 
-export async function updateMemberRoleInOrg(
-  orgId: string,
-  memberUserId: string,
-  newRole: UserRole,
-  requesterUser: UserProfile
-): Promise<Organization> {
-  const orgs = getStoredOrgs();
-  const org = orgs.find(o => o.id === orgId);
-  if (!org) throw new Error('Organization not found.');
-
-  const requesterMember = org.members.find(m => m.userId === requesterUser.id);
-  if (!requesterMember || requesterMember.role !== 'OWNER') {
-    throw new Error('Only the Organization Owner can modify member access roles.');
-  }
-
-  const targetMember = org.members.find(m => m.userId === memberUserId);
-  if (!targetMember) throw new Error('Member not found in organization.');
-
-  targetMember.role = newRole;
-  saveOrgs(orgs);
-  return org;
+export async function updateMemberRoleInOrg(orgId: string, memberUserId: string, newRole: UserRole, requesterUser: UserProfile): Promise<Organization> {
+  const { error } = await requireSupabase().rpc('update_org_member_role', {
+    p_member: memberRowId(getOrganizationById(orgId), memberUserId),
+    p_role: newRole
+  });
+  if (error) throw friendlyError(error);
+  return afterWrite(requesterUser, orgId);
 }
 
-export async function updateOrganizationDetails(
-  orgId: string,
-  updates: Partial<Organization>,
-  requesterUser: UserProfile
-): Promise<Organization> {
-  const orgs = getStoredOrgs();
-  const org = orgs.find(o => o.id === orgId);
-  if (!org) throw new Error('Organization not found.');
-
-  const requesterMember = org.members.find(m => m.userId === requesterUser.id);
-  if (!requesterMember || (requesterMember.role !== 'OWNER' && requesterMember.role !== 'ADMIN')) {
-    throw new Error('Permission denied. Only organization Owners or Admins can update firm details.');
-  }
-
-  Object.assign(org, updates);
-  saveOrgs(orgs);
-  return org;
+export async function updateOrganizationDetails(orgId: string, updates: Partial<Organization>, requesterUser: UserProfile): Promise<Organization> {
+  const { error } = await requireSupabase().rpc('update_organization', {
+    p_org: orgId,
+    p_name: updates.name ?? null,
+    p_office_address: updates.officeAddress ?? null,
+    p_phone: updates.phone ?? null,
+    p_email: updates.email ?? null,
+    p_grid_belt: updates.defaultGridBelt ?? null,
+    p_logo: updates.firmLogoUrl ?? null,
+    p_seal: updates.officialSealUrl ?? null
+  });
+  if (error) throw friendlyError(error);
+  return afterWrite(requesterUser, orgId);
 }

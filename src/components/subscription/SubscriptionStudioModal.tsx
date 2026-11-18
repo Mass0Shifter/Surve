@@ -1,20 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SubscriptionTier } from '../../engine/auth/authTypes';
-import {
-  BillingFrequency,
-  Currency,
-  PaymentGateway,
-  PaymentTransaction
-} from '../../engine/subscription/subscriptionTypes';
+import { BillingFrequency, PaymentTransaction } from '../../engine/subscription/subscriptionTypes';
 import {
   SUBSCRIPTION_PLANS,
   calculatePlanPrice,
-  processSubscriptionPayment,
-  generateOfflineLicenseToken,
-  verifyAndApplyOfflineLicense,
+  startCheckout,
+  requestOfflineLicense,
+  activateOfflineLicense,
   getActiveOfflineLicense,
-  getTransactionHistory
+  fetchTransactionHistory
 } from '../../engine/subscription/subscriptionEngine';
+import { effectiveTier } from '../../engine/subscription/featureGating';
+import { isAccountsEnabled } from '../../engine/auth/authEngine';
 import {
   Crown,
   CheckCircle2,
@@ -22,8 +19,6 @@ import {
   CreditCard,
   Building2,
   ShieldCheck,
-  Zap,
-  Globe,
   Key,
   Copy,
   Receipt,
@@ -33,129 +28,132 @@ import {
 } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
+export interface PaymentNotice {
+  status: 'SUCCESS' | 'PENDING' | 'FAILED' | 'ERROR';
+  message: string;
+}
+
 interface SubscriptionStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserProfile | null;
   onSubscriptionUpdated?: (user: UserProfile) => void;
+  onRequireSignIn?: () => void;
+  paymentNotice?: PaymentNotice | null;
 }
+
+const naira = (n: number) => `₦${n.toLocaleString('en-NG')}`;
 
 export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onSubscriptionUpdated
+  onSubscriptionUpdated,
+  onRequireSignIn,
+  paymentNotice
 }) => {
   const [activeTab, setActiveTab] = useState<'plans' | 'checkout' | 'offline' | 'history'>('plans');
   const [billingCycle, setBillingCycle] = useState<BillingFrequency>('annual');
-  const [currency, setCurrency] = useState<Currency>('NGN');
+  const currency = 'NGN' as const;
 
   // Checkout State
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('PROFESSIONAL');
-  const [gateway, setGateway] = useState<PaymentGateway>('paystack');
-  const [cardNumber, setCardNumber] = useState('5399 4100 0000 1234');
-  const [cardExpiry, setCardExpiry] = useState('12/28');
-  const [cardCvv, setCardCvv] = useState('888');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [checkoutSuccess, setCheckoutSuccess] = useState<PaymentTransaction | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
-  // Offline Token State
+  // Offline Licence State
   const [tokenInput, setTokenInput] = useState('');
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [tokenStatusMsg, setTokenStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isIssuing, setIsIssuing] = useState(false);
 
   // Transaction History
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setTransactions(getTransactionHistory(currentUser?.id));
-      setCheckoutSuccess(null);
-      setTokenStatusMsg(null);
-      setGeneratedToken(null);
+    if (!isOpen) return;
+    setCheckoutError(null);
+    setTokenStatusMsg(null);
+    setGeneratedToken(null);
+    if (paymentNotice) setActiveTab('checkout');
+    if (currentUser && isAccountsEnabled()) {
+      fetchTransactionHistory()
+        .then((t) => { setTransactions(t); setHistoryError(null); })
+        .catch((e) => setHistoryError(e.message));
+    } else {
+      setTransactions([]);
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser, paymentNotice]);
 
   if (!isOpen) return null;
 
-  const currentTier: SubscriptionTier = currentUser?.subscriptionTier || 'COMMUNITY';
+  const currentTier: SubscriptionTier = effectiveTier(currentUser);
   const selectedPlan = SUBSCRIPTION_PLANS.find(p => p.tier === selectedTier) || SUBSCRIPTION_PLANS[1];
-  const activeOfflineLicense = getActiveOfflineLicense();
+  const activeOfflineLicense = getActiveOfflineLicense(currentUser?.id);
+  const paidTx = transactions.filter(t => t.status === 'SUCCESS');
 
   const handleStartCheckout = (tier: SubscriptionTier) => {
     setSelectedTier(tier);
     setActiveTab('checkout');
-    setCheckoutSuccess(null);
+    setCheckoutError(null);
   };
 
   const handleProcessPayment = async () => {
     if (!currentUser) {
-      alert('Please sign in or register before subscribing.');
+      onRequireSignIn?.();
+      setCheckoutError('Please sign in or create an account before subscribing.');
       return;
     }
-
     setIsProcessing(true);
+    setCheckoutError(null);
     try {
-      // Simulate real gateway processing delay
-      await new Promise(r => setTimeout(r, 1200));
-
-      const res = await processSubscriptionPayment({
-        user: currentUser,
-        tier: selectedTier,
-        frequency: billingCycle,
-        currency,
-        gateway,
-        cardNumber,
-        cardExpiry,
-        cardCvv
-      });
-
-      setCheckoutSuccess(res.transaction);
-      setTransactions(getTransactionHistory(currentUser.id));
-      if (onSubscriptionUpdated) {
-        onSubscriptionUpdated(res.updatedUser);
-      }
+      await startCheckout(selectedTier, billingCycle); // redirects to Paystack
     } catch (err: any) {
-      alert(`Payment failed: ${err.message}`);
-    } finally {
+      setCheckoutError(err.message || 'Could not start checkout.');
       setIsProcessing(false);
     }
   };
 
-  const handleGenerateOfflineToken = () => {
+  const handleGenerateOfflineToken = async () => {
     if (!currentUser) return;
-    const token = generateOfflineLicenseToken(currentUser, currentTier === 'COMMUNITY' ? 'PROFESSIONAL' : currentTier, 30);
-    setGeneratedToken(token);
-    setCopied(false);
+    setIsIssuing(true);
+    setTokenStatusMsg(null);
+    try {
+      const token = await requestOfflineLicense(30);
+      setGeneratedToken(token);
+      setCopied(false);
+      const res = await activateOfflineLicense(token, currentUser);
+      setTokenStatusMsg({ text: res.success ? `${res.message} Copy the code below to use it on another device.` : res.message, isError: !res.success });
+    } catch (err: any) {
+      setTokenStatusMsg({ text: err.message || 'Could not issue a licence.', isError: true });
+    } finally {
+      setIsIssuing(false);
+    }
   };
 
-  const handleActivateOfflineToken = () => {
+  const handleActivateOfflineToken = async () => {
     if (!tokenInput.trim()) {
-      setTokenStatusMsg({ text: 'Please enter or paste your offline license token code.', isError: true });
+      setTokenStatusMsg({ text: 'Please paste your offline licence code.', isError: true });
       return;
     }
-
-    const res = verifyAndApplyOfflineLicense(tokenInput, currentUser);
+    const res = await activateOfflineLicense(tokenInput, currentUser);
+    setTokenStatusMsg({ text: res.message, isError: !res.success });
     if (res.success) {
-      setTokenStatusMsg({ text: res.message, isError: false });
       setTokenInput('');
-      if (currentUser && res.tier && onSubscriptionUpdated) {
-        onSubscriptionUpdated({
-          ...currentUser,
-          subscriptionTier: res.tier,
-          subscriptionExpiresAt: res.expiresAt
-        });
-      }
-    } else {
-      setTokenStatusMsg({ text: res.message, isError: true });
+      if (currentUser) onSubscriptionUpdated?.(currentUser);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setTokenStatusMsg({ text: 'Copy failed — select the code and copy it manually.', isError: true });
+    }
   };
 
   return (
@@ -169,13 +167,13 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h2 className="auth-title">Subscription &amp; Payment Gateway Studio</h2>
+                <h2 className="auth-title">Plans &amp; Billing</h2>
                 <span className={`proj-code-badge ${currentTier === 'COMMUNITY' ? '' : 'pro'}`} style={{ fontSize: '10px' }}>
                   ACTIVE: {currentTier}
                 </span>
               </div>
               <p className="auth-subtitle">
-                SURCON digital stamping, Title Deed Plans, Bowditch balancing, team seats, and 30-day offline bush licenses.
+                SURCON seal stamping, Title Deed Plans, traverse balancing, team seats and 30-day offline field licences.
               </p>
             </div>
             <button className="icon-btn auth-close-btn" onClick={onClose}>✕</button>
@@ -205,7 +203,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
               onClick={() => setActiveTab('offline')}
             >
               <Key size={13} />
-              <span>Offline Bush License</span>
+              <span>Offline Field Licence</span>
               {activeOfflineLicense && <span className="tab-pill-badge">Active</span>}
             </button>
             <button
@@ -214,7 +212,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
               onClick={() => setActiveTab('history')}
             >
               <Receipt size={13} />
-              <span>Billing Invoices ({transactions.length})</span>
+              <span>Billing History ({paidTx.length})</span>
             </button>
           </div>
 
@@ -244,22 +242,8 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                   </button>
                 </div>
 
-                {/* Currency Switcher */}
                 <div className="currency-switch">
-                  <button
-                    type="button"
-                    className={`currency-btn ${currency === 'NGN' ? 'active' : ''}`}
-                    onClick={() => setCurrency('NGN')}
-                  >
-                    🇳🇬 NGN (₦)
-                  </button>
-                  <button
-                    type="button"
-                    className={`currency-btn ${currency === 'USD' ? 'active' : ''}`}
-                    onClick={() => setCurrency('USD')}
-                  >
-                    🌐 USD ($)
-                  </button>
+                  <span className="currency-btn active">🇳🇬 Prices in NGN (₦)</span>
                 </div>
               </div>
 
@@ -268,7 +252,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                 {SUBSCRIPTION_PLANS.map((plan) => {
                   const isCurrent = currentTier === plan.tier;
                   const price = calculatePlanPrice(plan, billingCycle, currency);
-                  const formattedPrice = currency === 'NGN' ? `₦${price.toLocaleString()}` : `$${price}`;
+                  const formattedPrice = naira(price);
 
                   return (
                     <div
@@ -295,7 +279,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                         </div>
                         {billingCycle === 'annual' && price > 0 && (
                           <div className="annual-savings-note">
-                            Billed annually ({currency === 'NGN' ? `₦${Math.round(price / 12).toLocaleString()}/mo` : `$${Math.round(price / 12)}/mo`})
+                            Billed annually ({naira(Math.round(price / 12))}/mo)
                           </div>
                         )}
                       </div>
@@ -354,173 +338,88 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
           {/* TAB 2: CHECKOUT & PAYMENT */}
           {activeTab === 'checkout' && (
             <div className="subscription-checkout-view">
-              {checkoutSuccess ? (
-                <div className="checkout-success-banner">
-                  <div className="success-icon-circle">
-                    <CheckCircle2 size={36} className="text-emerald" />
-                  </div>
-                  <h3 className="success-title">Subscription Successfully Activated!</h3>
-                  <p className="success-sub">
-                    You are now upgraded to the <strong>{checkoutSuccess.tier} Tier</strong>. All professional cadastral modules, SURCON seal stamping, and organization seat limits are instantly unlocked.
-                  </p>
-
-                  <div className="receipt-summary-box">
-                    <div className="receipt-row">
-                      <span>Receipt Number:</span>
-                      <strong>{checkoutSuccess.receiptNumber}</strong>
-                    </div>
-                    <div className="receipt-row">
-                      <span>Payment Reference:</span>
-                      <code>{checkoutSuccess.reference}</code>
-                    </div>
-                    <div className="receipt-row">
-                      <span>Amount Paid:</span>
-                      <strong>{checkoutSuccess.currency === 'NGN' ? `₦${checkoutSuccess.amount.toLocaleString()}` : `$${checkoutSuccess.amount}`} ({checkoutSuccess.frequency})</strong>
-                    </div>
-                    <div className="receipt-row">
-                      <span>Gateway:</span>
-                      <span>{checkoutSuccess.gateway === 'paystack' ? '🇳🇬 Paystack Direct' : '🌐 Stripe Global'}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px' }}>
-                    <button type="button" className="btn-primary-sm" onClick={() => setActiveTab('plans')}>
-                      <span>Return to Plans</span>
-                    </button>
-                    <button type="button" className="btn-secondary-sm" onClick={onClose}>
-                      <span>Open CAD Workspace</span>
-                    </button>
-                  </div>
+              {paymentNotice && (
+                <div className={paymentNotice.status === 'SUCCESS' ? 'form-warning-banner banner-success' : 'form-error-banner'} style={{ marginBottom: '16px' }}>
+                  {paymentNotice.status === 'SUCCESS' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+                  <span>{paymentNotice.message}</span>
+                </div>
+              )}
+              {checkoutError && (
+                <div className="form-error-banner" style={{ marginBottom: '16px' }}>
+                  <AlertCircle size={15} />
+                  <span>{checkoutError}</span>
+                </div>
+              )}
+              {selectedPlan.tier === 'COMMUNITY' ? (
+                <div className="empty-state-box">
+                  <p className="empty-title">Choose a paid plan</p>
+                  <button type="button" className="btn-primary-sm" onClick={() => setActiveTab('plans')}>View Plans</button>
                 </div>
               ) : (
                 <div className="checkout-grid-layout">
-                  {/* Left: Gateway Selection & Billing Form */}
                   <div className="checkout-form-panel">
-                    <h3 className="checkout-section-title">1. Select Payment Gateway</h3>
-
-                    <div className="gateway-selector-grid">
-                      <div
-                        className={`gateway-card ${gateway === 'paystack' ? 'active' : ''}`}
-                        onClick={() => { setGateway('paystack'); setCurrency('NGN'); }}
-                      >
-                        <div className="gateway-badge">NIGERIA &amp; AFRICA</div>
-                        <div className="gateway-header">
-                          <Building2 size={20} className="text-emerald" />
-                          <span className="gateway-name">Paystack Direct</span>
-                        </div>
-                        <p className="gateway-desc">Nigerian Cards (Verve, Mastercard, Visa), Instant Bank Transfer, USSD (*737#), and Access Bank Debit.</p>
+                    <h3 className="checkout-section-title">Secure checkout with Paystack</h3>
+                    <div className="gateway-card active">
+                      <div className="gateway-badge">CARDS · BANK TRANSFER · USSD</div>
+                      <div className="gateway-header">
+                        <Building2 size={20} className="text-emerald" />
+                        <span className="gateway-name">Paystack</span>
                       </div>
-
-                      <div
-                        className={`gateway-card ${gateway === 'stripe' ? 'active' : ''}`}
-                        onClick={() => { setGateway('stripe'); setCurrency('USD'); }}
-                      >
-                        <div className="gateway-badge">INTERNATIONAL</div>
-                        <div className="gateway-header">
-                          <Globe size={20} className="text-cyan" />
-                          <span className="gateway-name">Stripe Payments</span>
-                        </div>
-                        <p className="gateway-desc">Global Credit/Debit Cards (Visa, Mastercard, AMEX), Apple Pay, and Google Pay in USD.</p>
-                      </div>
+                      <p className="gateway-desc">
+                        You will be taken to Paystack's secure payment page to pay with Verve, Mastercard or Visa, bank transfer or USSD.
+                        NSurvey never sees or stores your card details. Your plan activates as soon as Paystack confirms the payment.
+                      </p>
                     </div>
-
-                    <h3 className="checkout-section-title" style={{ marginTop: '24px' }}>2. Payment Credentials (Sandboxed Simulation)</h3>
-
-                    <div className="auth-form-group">
-                      <label className="auth-label">Card Number</label>
-                      <div className="auth-input-wrapper">
-                        <CreditCard size={15} className="auth-input-icon" />
-                        <input
-                          type="text"
-                          className="auth-input"
-                          value={cardNumber}
-                          onChange={(e) => setCardNumber(e.target.value)}
-                          placeholder="5399 4100 0000 1234"
-                        />
-                      </div>
+                    <div className="billing-cycle-switch" style={{ marginTop: '16px' }}>
+                      <button type="button" className={`cycle-btn ${billingCycle === 'monthly' ? 'active' : ''}`} onClick={() => setBillingCycle('monthly')}>Monthly</button>
+                      <button type="button" className={`cycle-btn ${billingCycle === 'annual' ? 'active' : ''}`} onClick={() => setBillingCycle('annual')}>
+                        <span>Annual</span>
+                        <span className="discount-pill">2 months free</span>
+                      </button>
                     </div>
-
-                    <div className="form-row-title-name" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                      <div className="auth-form-group">
-                        <label className="auth-label">Expiration (MM/YY)</label>
-                        <input
-                          type="text"
-                          className="auth-input"
-                          value={cardExpiry}
-                          onChange={(e) => setCardExpiry(e.target.value)}
-                          placeholder="12/28"
-                        />
-                      </div>
-                      <div className="auth-form-group">
-                        <label className="auth-label">CVV Security Code</label>
-                        <input
-                          type="password"
-                          maxLength={4}
-                          className="auth-input"
-                          value={cardCvv}
-                          onChange={(e) => setCardCvv(e.target.value)}
-                          placeholder="888"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="security-guarantee-note">
-                      <ShieldCheck size={16} className="text-emerald" />
-                      <span>256-Bit SSL Encrypted &amp; PCI-DSS Level 1 Certified Checkout</span>
-                    </div>
+                    {!currentUser && (
+                      <p className="auth-info-note" style={{ marginTop: '12px' }}>
+                        You need an NSurvey account to subscribe.{' '}
+                        <button type="button" className="auth-forgot-link" onClick={() => onRequireSignIn?.()}>Sign in or create one</button>
+                      </p>
+                    )}
                   </div>
 
-                  {/* Right: Order Summary Card */}
                   <div className="checkout-summary-panel">
                     <h3 className="checkout-section-title">Order Summary</h3>
-
                     <div className="summary-plan-card">
                       <div className="summary-plan-title">{selectedPlan.name}</div>
-                      <div className="summary-plan-desc">{billingCycle === 'annual' ? '12 Months Access (2 Months Free)' : '1 Month Recurring Access'}</div>
-
+                      <div className="summary-plan-desc">{billingCycle === 'annual' ? '12 months access (2 months free)' : '1 month access'}</div>
                       <div className="summary-breakdown-list">
                         <div className="summary-item">
-                          <span>Base License:</span>
-                          <span>{currency === 'NGN' ? `₦${calculatePlanPrice(selectedPlan, billingCycle, currency).toLocaleString()}` : `$${calculatePlanPrice(selectedPlan, billingCycle, currency)}`}</span>
-                        </div>
-                        <div className="summary-item">
-                          <span>SURCON Compliance Module:</span>
-                          <span className="text-emerald">INCLUDED</span>
-                        </div>
-                        <div className="summary-item">
-                          <span>Seats Allocated:</span>
-                          <span>{selectedPlan.maxSeats} Seats</span>
-                        </div>
-                        <div className="summary-item">
-                          <span>Estimated VAT / Tax:</span>
-                          <span>{currency === 'NGN' ? '₦0.00' : '$0.00'}</span>
+                          <span>Seats included:</span>
+                          <span>{selectedPlan.maxSeats}</span>
                         </div>
                       </div>
-
                       <div className="summary-total-divider" />
-
                       <div className="summary-total-row">
-                        <span>Total Due Today:</span>
-                        <span className="total-price-text">
-                          {currency === 'NGN'
-                            ? `₦${calculatePlanPrice(selectedPlan, billingCycle, currency).toLocaleString()}`
-                            : `$${calculatePlanPrice(selectedPlan, billingCycle, currency)}`}
-                        </span>
+                        <span>Total due today:</span>
+                        <span className="total-price-text">{naira(calculatePlanPrice(selectedPlan, billingCycle, currency))}</span>
                       </div>
-
                       <button
                         type="button"
                         className="btn-primary-sm btn-complete-checkout"
                         onClick={handleProcessPayment}
-                        disabled={isProcessing}
+                        disabled={isProcessing || !isAccountsEnabled()}
                       >
-                        <Zap size={15} />
-                        <span>{isProcessing ? 'Authorizing Payment...' : `Authorize Payment (${currency === 'NGN' ? `₦${calculatePlanPrice(selectedPlan, billingCycle, currency).toLocaleString()}` : `$${calculatePlanPrice(selectedPlan, billingCycle, currency)}`})`}</span>
+                        <CreditCard size={15} />
+                        <span>{isProcessing ? 'Opening Paystack…' : `Pay ${naira(calculatePlanPrice(selectedPlan, billingCycle, currency))} with Paystack`}</span>
                       </button>
-
-                      <p className="checkout-disclaimer">
-                        By completing this transaction, you agree to the NSurvey Pro Geomatics Terms of Service. Licenses can be managed or transferred at any time.
-                      </p>
+                    </div>
+                    {!isAccountsEnabled() && (
+                      <p className="checkout-disclaimer">Payments are not configured for this deployment yet.</p>
+                    )}
+                    <p className="checkout-disclaimer">
+                      Plans are not auto-renewed — you will be reminded to renew before expiry. Renewing early adds the new period to your remaining time.
+                    </p>
+                    <div className="security-guarantee-note">
+                      <ShieldCheck size={16} className="text-emerald" />
+                      <span>Payment processed by Paystack (PCI-DSS compliant)</span>
                     </div>
                   </div>
                 </div>
@@ -536,16 +435,16 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                   <Key size={26} className="text-amber" />
                 </div>
                 <div>
-                  <h3 className="offline-intro-title">Offline Fieldwork Cryptographic License</h3>
+                  <h3 className="offline-intro-title">Offline Field Licence</h3>
                   <p className="offline-intro-sub">
-                    Surveying deep in the bush or remote cadastral sites without internet access? Generate and activate offline cryptographic tokens valid for up to 30 continuous offline days.
+                    Working on a remote site with no internet? Get a signed licence while you are online — it keeps your paid tools unlocked on this device for up to 30 days (never beyond your plan's expiry). Paste the same code on another device to use it there.
                   </p>
                 </div>
               </div>
 
               {/* Status Banner */}
               {tokenStatusMsg && (
-                <div className={`auth-feedback-banner ${tokenStatusMsg.isError ? 'error' : 'success'}`} style={{ marginBottom: '16px' }}>
+                <div className={tokenStatusMsg.isError ? 'form-error-banner' : 'form-warning-banner banner-success'} style={{ marginBottom: '16px' }}>
                   {tokenStatusMsg.isError ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />}
                   <span>{tokenStatusMsg.text}</span>
                 </div>
@@ -554,13 +453,13 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
               <div className="offline-grid-two-col">
                 {/* Column 1: Activate Token */}
                 <div className="offline-action-box">
-                  <h4 className="box-title">1. Activate Offline Field License</h4>
-                  <p className="box-desc">Enter your 30-day encrypted token code to unlock professional tools without internet.</p>
+                  <h4 className="box-title">Activate a licence code</h4>
+                  <p className="box-desc">Paste a licence code you got earlier. Verification works fully offline.</p>
 
                   <textarea
                     rows={4}
                     className="offline-token-textarea"
-                    placeholder="Paste license code starting with NSURV-LIC-..."
+                    placeholder="Paste licence code starting with NSURV-LIC2-..."
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
                   />
@@ -572,23 +471,24 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                     onClick={handleActivateOfflineToken}
                   >
                     <ShieldCheck size={14} />
-                    <span>Activate Bush License</span>
+                    <span>Activate Licence</span>
                   </button>
                 </div>
 
                 {/* Column 2: Generate Token */}
                 <div className="offline-action-box">
-                  <h4 className="box-title">2. Export Fieldwork Token (Before Heading to Site)</h4>
-                  <p className="box-desc">Generate an encrypted offline credential while connected to carry to site.</p>
+                  <h4 className="box-title">Get a licence (before heading to site)</h4>
+                  <p className="box-desc">Requires an active Professional or Enterprise plan and an internet connection.</p>
 
                   <button
                     type="button"
                     className="btn-secondary-sm"
                     style={{ width: '100%', marginBottom: '12px', justifyContent: 'center' }}
                     onClick={handleGenerateOfflineToken}
+                    disabled={isIssuing || !currentUser}
                   >
                     <Sparkles size={14} className="text-amber" />
-                    <span>Generate 30-Day Field Token</span>
+                    <span>{isIssuing ? 'Issuing…' : 'Get 30-Day Field Licence'}</span>
                   </button>
 
                   {generatedToken && (
@@ -603,7 +503,7 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                         onClick={() => copyToClipboard(generatedToken)}
                       >
                         <Copy size={13} />
-                        <span>{copied ? 'Copied to Clipboard!' : 'Copy Offline Code'}</span>
+                        <span>{copied ? 'Copied!' : 'Copy Licence Code'}</span>
                       </button>
                     </div>
                   )}
@@ -615,11 +515,17 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
           {/* TAB 4: BILLING INVOICES */}
           {activeTab === 'history' && (
             <div className="subscription-history-view">
+              {historyError && (
+                <div className="form-error-banner" style={{ marginBottom: '12px' }}>
+                  <AlertCircle size={15} />
+                  <span>{historyError}</span>
+                </div>
+              )}
               {transactions.length === 0 ? (
                 <div className="empty-state-box">
                   <Receipt size={32} className="text-muted" />
-                  <p className="empty-title">No Billing Invoices Yet</p>
-                  <p className="empty-sub">Your payment receipts, tax invoices, and SURCON billing statements will appear here.</p>
+                  <p className="empty-title">No payments yet</p>
+                  <p className="empty-sub">Your Paystack payment receipts will appear here.</p>
                 </div>
               ) : (
                 <div className="invoices-table-container">
@@ -648,11 +554,13 @@ export const SubscriptionStudioModal: React.FC<SubscriptionStudioModalProps> = (
                           </td>
                           <td>{new Date(tx.timestamp).toLocaleDateString('en-GB')}</td>
                           <td>
-                            <strong>{tx.currency === 'NGN' ? `₦${tx.amount.toLocaleString()}` : `$${tx.amount}`}</strong>
+                            <strong>{tx.currency === 'NGN' ? naira(tx.amount) : `${tx.currency} ${tx.amount}`}</strong>
                           </td>
-                          <td>{tx.gateway === 'paystack' ? '🇳🇬 Paystack' : '🌐 Stripe'}</td>
+                          <td>Paystack</td>
                           <td>
-                            <span className="status-pill active">PAID</span>
+                            <span className={`proj-code-badge ${tx.status === 'SUCCESS' ? 'pro' : ''}`}>
+                              {tx.status === 'SUCCESS' ? 'PAID' : tx.status === 'PENDING' ? 'PENDING' : 'FAILED'}
+                            </span>
                           </td>
                         </tr>
                       ))}

@@ -18,7 +18,7 @@ export const BeaconRenumberModal: React.FC<BeaconRenumberModalProps> = ({
   onApplyRenumber
 }) => {
   const [mode, setMode] = useState<'prefix' | 'replace' | 'sequence'>('prefix');
-  const [prefix, setPrefix] = useState('CKC/');
+  const [prefix, setPrefix] = useState('PB/');
   const [suffix, setSuffix] = useState('');
   const [findText, setFindText] = useState('PB');
   const [replaceText, setReplaceText] = useState('SC_');

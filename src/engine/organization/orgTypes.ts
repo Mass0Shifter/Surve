@@ -2,7 +2,12 @@ import { NigerianGridBelt } from '../types';
 import { UserRole, SubscriptionTier } from '../auth/authTypes';
 
 export interface OrganizationMember {
+  /** Row id of the membership (used for server-side updates). */
+  memberId?: string;
+  /** Account id, or `pending:<memberId>` for an invite not yet accepted. */
   userId: string;
+  /** True while the invited person has not signed up / signed in yet. */
+  pending?: boolean;
   email: string;
   fullName: string;
   title?: string;

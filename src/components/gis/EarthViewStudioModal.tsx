@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
-type BasemapType = 'esri_satellite' | 'google_hybrid' | 'osm_standard' | 'carto_dark';
+type BasemapType = 'esri_satellite' | 'osm_standard' | 'carto_dark';
 
 interface BasemapDef {
   id: BasemapType;
@@ -46,28 +46,21 @@ const BASEMAP_REGISTRY: Record<BasemapType, BasemapDef> = {
     id: 'esri_satellite',
     name: 'Esri World Imagery (Satellite HD)',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; DigitalGlobe, GeoEye, Earthstar Geographics',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
     maxZoom: 19
-  },
-  google_hybrid: {
-    id: 'google_hybrid',
-    name: 'Google Satellite & Roads (Hybrid)',
-    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    attribution: '&copy; Google Maps Satellite',
-    maxZoom: 20
   },
   osm_standard: {
     id: 'osm_standard',
     name: 'OpenStreetMap (Streets & Topo)',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap contributors',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
   },
   carto_dark: {
     id: 'carto_dark',
     name: 'CartoDB Dark Matter (CAD High-Contrast)',
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; CARTO &copy; OSM',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     maxZoom: 19
   }
 };
@@ -454,7 +447,6 @@ export const EarthViewStudioModal: React.FC<EarthViewStudioModalProps> = ({
                 onChange={e => setActiveBasemap(e.target.value as BasemapType)}
               >
                 <option value="esri_satellite">Esri World Imagery HD (Satellite)</option>
-                <option value="google_hybrid">Google Satellite &amp; Roads (Hybrid)</option>
                 <option value="osm_standard">OpenStreetMap (Streets &amp; Topo)</option>
                 <option value="carto_dark">CartoDB Dark Matter (High Contrast)</option>
               </select>

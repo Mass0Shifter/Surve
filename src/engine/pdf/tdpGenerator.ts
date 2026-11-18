@@ -226,7 +226,7 @@ export type TdpLayoutPreset =
 
 export interface TdpFctRofOConfig {
   rOfONumber?: string;         // e.g. "FCT RLA/ 2002/ 0184"
-  allotteeName?: string;       // e.g. "E-NOCK BAKSON KANAWA"
+  allotteeName?: string;       // allottee full name
   districtArea?: string;       // e.g. "GWAGWALADA"
   cadastralZone?: string;      // e.g. "CADASTRAL ZONE 04-07"
   zonalSurveyorTitle?: string; // e.g. "ZONAL LAND SURVEYOR"
@@ -406,8 +406,8 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
     northArrowMode: 'fct_needle',
     trueNorthStyle: 'TN',
     fctConfig: {
-      rOfONumber: 'FCT RLA/ 2002/ 0184',
-      allotteeName: 'E-NOCK BAKSON KANAWA',
+      rOfONumber: '',
+      allotteeName: '',
       districtArea: 'GWAGWALADA',
       cadastralZone: 'CADASTRAL ZONE 04-07',
       zonalSurveyorTitle: 'ZONAL LAND SURVEYOR',
@@ -415,8 +415,8 @@ export const TDP_LAYOUT_PRESETS: Record<string, TdpLayoutArrangement> = {
       drawnBy: '___________________',
       checkedBy: '_________________',
       passedBy: '__________________',
-      dateSurveyed: '27TH OF JUNE, 2002',
-      layoutName: 'CKC EXT.   LAYOUT',
+      dateSurveyed: '',
+      layoutName: '',
       cadastralMapScaleText: 'CADASTRAL MAP 1: 1000'
     }
   },
@@ -1806,7 +1806,7 @@ export function generateTitleDeedPlanPDF(
     doc.text(fct.coordinateSystemText || 'COORDINATE SYSTEM UTM 32N', fctLeftX, fctLeftY + 17.4);
 
     doc.setFont('helvetica', 'bold');
-    doc.text(`SURVEYED BY: ${(project.surveyFirm || 'C. S. AGHA & ASSOCIATES').toUpperCase()}`, fctLeftX, fctLeftY + 21.2);
+    doc.text(`SURVEYED BY: ${(project.surveyFirm || '').toUpperCase()}`, fctLeftX, fctLeftY + 21.2);
 
     doc.setFont('helvetica', 'normal');
     doc.text(`DRAWN BY: ${fct.drawnBy || '___________________'}`, fctLeftX, fctLeftY + 24.6);
@@ -1852,7 +1852,7 @@ export function generateTitleDeedPlanPDF(
     doc.setDrawColor(15, 23, 42);
     doc.rect(fctRightX, mapBoxY + 3, 70, 7);
     doc.setFontSize(7.0);
-    doc.text((fct.layoutName || project.title || 'CKC EXT.   LAYOUT').toUpperCase(), fctRightX + 35, mapBoxY + 7.5, { align: 'center' });
+    doc.text((fct.layoutName || project.title || '').toUpperCase(), fctRightX + 35, mapBoxY + 7.5, { align: 'center' });
 
   } else if (layout.footerStyle === 'surcon_3box' || isShewingProperty) {
     // ----------------------------------------------------

@@ -41,10 +41,13 @@ function parseDDorDMS(input: string): number | null {
   return isNaN(dd) ? null : dd;
 }
 
+const xmlEscape = (v: string) =>
+  String(v).replace(/[<>&'"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
+
 function exportKML(results: TransformResult[], filename: string) {
-  let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>${filename}</name>\n`;
+  let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>${xmlEscape(filename)}</name>\n`;
   for (const r of results) {
-    kml += `<Placemark>\n<name>${r.inputId}</name>\n<Point>\n<coordinates>${r.wgs84Lon.toFixed(8)},${r.wgs84Lat.toFixed(8)},${r.wgs84Height.toFixed(3)}</coordinates>\n</Point>\n</Placemark>\n`;
+    kml += `<Placemark>\n<name>${xmlEscape(r.inputId)}</name>\n<Point>\n<coordinates>${r.wgs84Lon.toFixed(8)},${r.wgs84Lat.toFixed(8)},${r.wgs84Height.toFixed(3)}</coordinates>\n</Point>\n</Placemark>\n`;
   }
   kml += `</Document>\n</kml>`;
   const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
@@ -53,6 +56,7 @@ function exportKML(results: TransformResult[], filename: string) {
   a.href     = url;
   a.download = filename;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

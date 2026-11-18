@@ -1,16 +1,16 @@
 import { CoordinatePoint, Parcel, ProjectMetadata, NigerianGridBelt } from './types';
 
 export const SAMPLE_PROJECT_METADATA: ProjectMetadata = {
-  code: 'CKCEXTEN',
-  title: 'FINAL SURVEY DATA FOR C.K.C EXTENSION LAYOUT',
-  location: 'GWARKO TOWN, GWAGWALADA AREA COUNCIL - FCT ABUJA',
-  surveyFirm: 'C. S. AGHA & ASSOCIATES',
-  surveyorName: 'SURV. C. S. AGHA (mnis)',
-  surveyorNumber: 'SURV/FCT/2021/042',
-  clientName: 'CHIEF K. C. ESTATE DEVELOPMENTS LTD',
-  address: 'PLOT 1422, MAITAMA DISTRICT, ABUJA',
-  phone: '0803 606 2993',
-  date: '2021-04-26',
+  code: 'SAMPLE-001',
+  title: 'SAMPLE LAYOUT (DEMONSTRATION DATA)',
+  location: 'SAMPLE SITE, FCT ABUJA',
+  surveyFirm: 'YOUR SURVEY FIRM',
+  surveyorName: 'SURV. YOUR NAME',
+  surveyorNumber: '',
+  clientName: 'SAMPLE CLIENT',
+  address: '',
+  phone: '',
+  date: '2026-01-01',
   gridBelt: NigerianGridBelt.MID_BELT,
   scale: 1000
 };
